@@ -1,0 +1,117 @@
+name: careos
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: careos
+      POSTGRES_PASSWORD: careos
+      POSTGRES_DB: careos
+    ports:
+      - "5432:5432"
+    volumes:
+      - careos_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U careos -d careos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - careos_redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: careos
+      MINIO_ROOT_PASSWORD: careos-minio-key
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - careos_minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      target: runtime
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://careos:careos@postgres:5432/careos?schema=public
+      NODE_ENV: production
+    command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      target: runtime
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://careos:careos@postgres:5432/careos?schema=public
+      REDIS_HOST: redis
+      S3_ENDPOINT: http://minio:9000
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build:
+      context: .
+      target: runtime
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://careos:careos@postgres:5432/careos?schema=public
+      REDIS_HOST: redis
+      NODE_ENV: production
+    command: ["node", "dist/worker.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  adminer:
+    image: adminer
+    profiles: ["tools"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
+volumes:
+  careos_pg:
+  careos_redis:
+  careos_minio:

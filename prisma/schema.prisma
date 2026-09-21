@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// IDs
+//
+// All primary keys are UUIDv7 (time-ordered) generated in application code via
+// `newId()`. Prisma does not assign defaults; every create passes an explicit
+// id. Sequential database ids are never exposed as business identifiers.
+// ---------------------------------------------------------------------------
+
+enum OrgStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+  DEAD
+}
+
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
+// ---------------------------------------------------------------------------
+// Tenant root. Row-level tenancy: every tenant-owned table carries
+// organizationId and foreign keys to Organization.
+// ---------------------------------------------------------------------------
+model Organization {
+  id   String @id
+  name String
+
+  status    OrgStatus @default(ACTIVE)
+  currency  String    @default("KES")
+  timezone  String    @default("Africa/Nairobi")
+  country   String    @default("KE")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  outboxEvents       OutboxEvent[]
+  auditLogs          AuditLog[]
+  idempotencyRecords IdempotencyRecord[]
+  processedEvents    ProcessedEvent[]
+  counters           Counter[]
+}
+
+// ---------------------------------------------------------------------------
+// Transactional outbox. Business rows and OutboxEvent rows are written in the
+// same DB transaction via TxRunner. The worker publishes eligible events with
+// FOR UPDATE SKIP LOCKED and dispatches via BullMQ.
+// ---------------------------------------------------------------------------
+model OutboxEvent {
+  id             String       @id
+  organizationId String
+  type           String
+  version        Int          @default(1)
+  status         OutboxStatus @default(PENDING)
+  aggregateType  String
+  aggregateId    String
+  occurredAt     DateTime     @default(now())
+  actorId        String?
+  correlationId  String?
+  payload        Json // minimal: IDs only, never PHI
+  attemptCount   Int          @default(0)
+  lastError      String?
+  nextAttemptAt  DateTime?
+  publishedAt    DateTime?
+  deadAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([status, nextAttemptAt])
+  @@index([organizationId, status])
+  @@index([organizationId, type])
+  @@map("outbox_events")
+}
+
+// Consumer idempotency — a consumer may process a given event exactly once.
+model ProcessedEvent {
+  id             String   @id
+  organizationId String
+  consumer       String
+  eventId        String
+  consumedAt     DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, consumer, eventId])
+  @@index([organizationId, consumedAt])
+  @@map("processed_events")
+}
+
+// Append-only audit trail. Deletion/update is blocked at the DB level by a
+// trigger; the application exposes no update/delete path.
+model AuditLog {
+  id             String  @id
+  organizationId String
+  branchId       String?
+  userId         String?
+  action         String
+  resource       String
+  resourceId     String?
+  ip             String?
+  userAgent      String?
+  requestId      String?
+  reason         String?
+  previousState  Json?
+  newState       Json?
+  metadata       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, resource, resourceId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("audit_logs")
+}
+
+// Idempotency: unique per (organizationId, scopeKey, idempotencyKey). Same key
+// + same payload replays the stored response; same key + different payload is
+// rejected with IDEMPOTENCY_KEY_REUSED.
+model IdempotencyRecord {
+  id             String            @id
+  organizationId String
+  scopeKey       String
+  idempotencyKey String
+  requestHash    String
+  status         IdempotencyStatus @default(IN_PROGRESS)
+  responseStatus Int?
+  responseBody   Json?
+  requestBody    Json?
+  expiresAt      DateTime
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, scopeKey, idempotencyKey])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+
+// Organization-scoped locked counters (patient/invoice/sample number series).
+// Rows are updated under `SELECT ... FOR UPDATE`; never derived from DB ids.
+model Counter {
+  id             String @id
+  organizationId String
+  key            String
+  value          BigInt @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, key])
+  @@map("counters")
+}

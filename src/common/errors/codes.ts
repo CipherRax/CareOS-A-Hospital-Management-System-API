@@ -1,0 +1,133 @@
+import type { HttpStatus } from '@nestjs/common';
+
+/**
+ * Typed error catalog. Every business/domain failure maps to a stable code
+ * that the error envelope returns to clients. Add codes as features grow;
+ * never reuse TCP/HTP meanings for business codes.
+ */
+export const ErrorCodes = {
+  // generic
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  NOT_FOUND: 'NOT_FOUND',
+  BAD_REQUEST: 'BAD_REQUEST',
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  FORBIDDEN: 'FORBIDDEN',
+  METHOD_NOT_ALLOWED: 'METHOD_NOT_ALLOWED',
+  CONFLICT: 'CONFLICT',
+  UNPROCESSABLE_ENTITY: 'UNPROCESSABLE_ENTITY',
+
+  // tenancy / identity
+  TENANT_ACCESS_DENIED: 'TENANT_ACCESS_DENIED',
+  TENANT_REQUIRED: 'TENANT_REQUIRED',
+  SESSION_EXPIRED: 'SESSION_EXPIRED',
+  SESSION_REVOKED: 'SESSION_REVOKED',
+  REFRESH_TOKEN_REUSE: 'REFRESH_TOKEN_REUSE',
+  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+  ACCOUNT_SUSPENDED: 'ACCOUNT_SUSPENDED',
+  RATE_LIMITED: 'RATE_LIMITED',
+  MFA_REQUIRED: 'MFA_REQUIRED',
+  MFA_INVALID: 'MFA_INVALID',
+
+  // resource
+  RESOURCE_NOT_FOUND: 'RESOURCE_NOT_FOUND',
+  PATIENT_NOT_FOUND: 'PATIENT_NOT_FOUND',
+  PATIENT_ACCESS_DENIED: 'PATIENT_ACCESS_DENIED',
+  PERMISSION_DENIED: 'PERMISSION_DENIED',
+  OPTIMISTIC_LOCK_CONFLICT: 'OPTIMISTIC_LOCK_CONFLICT',
+  VERSION_CONFLICT: 'VERSION_CONFLICT',
+  LEGAL_HOLD_ACTIVE: 'LEGAL_HOLD_ACTIVE',
+
+  // scheduling / workflow
+  APPOINTMENT_CONFLICT: 'APPOINTMENT_CONFLICT',
+  APPOINTMENT_CANCELLED: 'APPOINTMENT_CANCELLED',
+  INVALID_WORKFLOW_TRANSITION: 'INVALID_WORKFLOW_TRANSITION',
+  BED_UNAVAILABLE: 'BED_UNAVAILABLE',
+  PERIOD_LOCKED: 'PERIOD_LOCKED',
+  LAB_RESULT_NOT_VERIFIED: 'LAB_RESULT_NOT_VERIFIED',
+
+  // inventory / pharmacy
+  INSUFFICIENT_STOCK: 'INSUFFICIENT_STOCK',
+  MEDICATION_EXPIRED: 'MEDICATION_EXPIRED',
+
+  // finance
+  PAYMENT_ALREADY_PROCESSED: 'PAYMENT_ALREADY_PROCESSED',
+  DUPLICATE_TRANSACTION: 'DUPLICATE_TRANSACTION',
+  REFUND_EXCEEDS_PAYMENT: 'REFUND_EXCEEDS_PAYMENT',
+
+  // duplicate detection
+  POSSIBLE_DUPLICATE: 'POSSIBLE_DUPLICATE',
+
+  // idempotency
+  IDEMPOTENCY_KEY_REUSED: 'IDEMPOTENCY_KEY_REUSED',
+  IDEMPOTENCY_IN_PROGRESS: 'IDEMPOTENCY_IN_PROGRESS',
+  IDEMPOTENCY_KEY_INVALID: 'IDEMPOTENCY_KEY_INVALID',
+
+  // concurrency / storage
+  CONCURRENT_MODIFICATION: 'CONCURRENT_MODIFICATION',
+  FILE_TYPE_REJECTED: 'FILE_TYPE_REJECTED',
+  FILE_TOO_LARGE: 'FILE_TOO_LARGE',
+  S3_UNAVAILABLE: 'S3_UNAVAILABLE',
+} as const;
+
+export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
+
+export interface ErrorCodeMeta {
+  httpStatus: HttpStatus;
+}
+
+export const ERROR_CODE_HTTP: Record<ErrorCode, ErrorCodeMeta> = {
+  [ErrorCodes.INTERNAL_ERROR]: { httpStatus: 500 },
+  [ErrorCodes.VALIDATION_ERROR]: { httpStatus: 400 },
+  [ErrorCodes.NOT_FOUND]: { httpStatus: 404 },
+  [ErrorCodes.BAD_REQUEST]: { httpStatus: 400 },
+  [ErrorCodes.UNAUTHORIZED]: { httpStatus: 401 },
+  [ErrorCodes.FORBIDDEN]: { httpStatus: 403 },
+  [ErrorCodes.METHOD_NOT_ALLOWED]: { httpStatus: 405 },
+  [ErrorCodes.CONFLICT]: { httpStatus: 409 },
+  [ErrorCodes.UNPROCESSABLE_ENTITY]: { httpStatus: 422 },
+
+  [ErrorCodes.TENANT_ACCESS_DENIED]: { httpStatus: 403 },
+  [ErrorCodes.TENANT_REQUIRED]: { httpStatus: 400 },
+  [ErrorCodes.SESSION_EXPIRED]: { httpStatus: 401 },
+  [ErrorCodes.SESSION_REVOKED]: { httpStatus: 401 },
+  [ErrorCodes.REFRESH_TOKEN_REUSE]: { httpStatus: 401 },
+  [ErrorCodes.ACCOUNT_LOCKED]: { httpStatus: 423 },
+  [ErrorCodes.ACCOUNT_SUSPENDED]: { httpStatus: 423 },
+  [ErrorCodes.RATE_LIMITED]: { httpStatus: 429 },
+  [ErrorCodes.MFA_REQUIRED]: { httpStatus: 401 },
+  [ErrorCodes.MFA_INVALID]: { httpStatus: 401 },
+
+  [ErrorCodes.RESOURCE_NOT_FOUND]: { httpStatus: 404 },
+  [ErrorCodes.PATIENT_NOT_FOUND]: { httpStatus: 404 },
+  [ErrorCodes.PATIENT_ACCESS_DENIED]: { httpStatus: 403 },
+  [ErrorCodes.PERMISSION_DENIED]: { httpStatus: 403 },
+  [ErrorCodes.OPTIMISTIC_LOCK_CONFLICT]: { httpStatus: 409 },
+  [ErrorCodes.VERSION_CONFLICT]: { httpStatus: 409 },
+  [ErrorCodes.LEGAL_HOLD_ACTIVE]: { httpStatus: 409 },
+
+  [ErrorCodes.APPOINTMENT_CONFLICT]: { httpStatus: 409 },
+  [ErrorCodes.APPOINTMENT_CANCELLED]: { httpStatus: 409 },
+  [ErrorCodes.INVALID_WORKFLOW_TRANSITION]: { httpStatus: 409 },
+  [ErrorCodes.BED_UNAVAILABLE]: { httpStatus: 409 },
+  [ErrorCodes.PERIOD_LOCKED]: { httpStatus: 409 },
+  [ErrorCodes.LAB_RESULT_NOT_VERIFIED]: { httpStatus: 409 },
+
+  [ErrorCodes.INSUFFICIENT_STOCK]: { httpStatus: 409 },
+  [ErrorCodes.MEDICATION_EXPIRED]: { httpStatus: 409 },
+
+  [ErrorCodes.PAYMENT_ALREADY_PROCESSED]: { httpStatus: 409 },
+  [ErrorCodes.DUPLICATE_TRANSACTION]: { httpStatus: 409 },
+  [ErrorCodes.REFUND_EXCEEDS_PAYMENT]: { httpStatus: 422 },
+
+  [ErrorCodes.POSSIBLE_DUPLICATE]: { httpStatus: 409 },
+
+  [ErrorCodes.IDEMPOTENCY_KEY_REUSED]: { httpStatus: 409 },
+  [ErrorCodes.IDEMPOTENCY_IN_PROGRESS]: { httpStatus: 409 },
+  [ErrorCodes.IDEMPOTENCY_KEY_INVALID]: { httpStatus: 400 },
+
+  [ErrorCodes.CONCURRENT_MODIFICATION]: { httpStatus: 409 },
+  [ErrorCodes.FILE_TYPE_REJECTED]: { httpStatus: 415 },
+  [ErrorCodes.FILE_TOO_LARGE]: { httpStatus: 413 },
+  [ErrorCodes.S3_UNAVAILABLE]: { httpStatus: 503 },
+} as const;

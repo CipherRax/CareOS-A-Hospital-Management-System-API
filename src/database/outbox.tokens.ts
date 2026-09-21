@@ -1,0 +1,1 @@
+export const OUTBOX_DISPATCHER = Symbol('OUTBOX_DISPATCHER');
