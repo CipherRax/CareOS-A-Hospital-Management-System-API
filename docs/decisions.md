@@ -3,6 +3,29 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-018 — S3-compatible storage via presigned URLs; s3rver in e2e
+
+**Status:** accepted (Phase 2)
+
+**Context:** documents must be uploaded/downloaded without proxying file bytes
+through the API, and must be testable in a gauntlet including real SigV4
+signing without a cloud dependency.
+
+**Decision:** clients upload via presigned PUT and download via presigned GET
+(`@aws-sdk/s3-request-presigner`, `src/common/storage/object-storage.service.ts`);
+the API stores only metadata (`Document` rows, `storageKey = orgId/documentId`)
+and never the bytes. `presignPut` signs the content-type so the client's upload
+cannot be replayed against a wrong media type. In e2e, `S3rver` runs in-process
+inside the jest globalSetup (ephemeral port, bucket `careos`, credentials
+`S3RVER`/`S3RVER`) and its address is written to the generated env file, so
+tests exercise real presigned traffic against a real S3-compatible server.
+
+**Consequences:** the API stays small (no byte proxying) and storage is
+swappable (MinIO, AWS S3, GCS via S3 endpoint). File presence/size are
+verified via HEAD in `complete`. Storage misconfiguration surfaces as
+`S3_UNAVAILABLE` (503) rather than crashing; the service is `@Optional` so
+suites that never touch S3 do not require one.
+
 ## ADR-017 — Real JWT auth replaces the test-principal seam as default
 
 **Status:** accepted (Phase 1)

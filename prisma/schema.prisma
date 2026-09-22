@@ -80,6 +80,7 @@ model Organization {
   mfaCredentials      MfaCredential[]
   mfaRecoveryCodes    MfaRecoveryCode[]
   breakGlassGrants    BreakGlassGrant[]
+  documents           Document[]
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +307,7 @@ model User {
   mfaCredential    MfaCredential?
   mfaRecoveryCodes MfaRecoveryCode[]
   breakGlassGrants BreakGlassGrant[]
+  documents        Document[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -527,4 +529,41 @@ model BreakGlassGrant {
   @@index([organizationId, resourceType, resourceId])
   @@index([organizationId, requesterUserId])
   @@map("break_glass_grants")
+}
+
+// ---------------------------------------------------------------------------
+// Object storage (Phase 2). `Document` is the metadata row for a file stored in
+// S3/MinIO. The API never receives the binary; clients upload directly to a
+// short-lived presigned PUT URL and confirm via `complete`. Downloads ride the
+// presigned GET URL. Storage keys are namespaced per organization so buckets
+// never mix tenants.
+// ---------------------------------------------------------------------------
+enum DocumentStatus {
+  PENDING_UPLOAD
+  UPLOADED
+  DELETED
+}
+
+model Document {
+  id                 String         @id
+  organizationId     String
+  uploadedByUserId   String
+  fileName           String
+  contentType        String
+  sizeBytes          Int?
+  checksumSha256     String?
+  storageKey         String
+  status             DocumentStatus @default(PENDING_UPLOAD)
+  metadata           Json?
+
+  uploadedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  uploadedBy   User         @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, storageKey])
+  @@index([organizationId, status, createdAt])
+  @@map("documents")
 }

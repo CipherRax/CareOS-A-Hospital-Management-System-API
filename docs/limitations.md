@@ -14,8 +14,9 @@ working code with a caveat.
   dispatcher (`worker.ts` bootstrap exists in `npm run worker`).
 - **Emergency access flow** — `TenantScope.emergency` exists as a marker but
   nothing sets it (by design; a later phase).
-- **S3 object storage** — the S3 client dependency is installed and env-config
-  wired, but no object service uses it yet.
+- **Outbox consumers beyond the probe** — `Storage.DocumentUploaded` rows are
+  written by the documents module, but the no-op dispatcher (above) still means
+  no worker reacts to them yet (later phase).
 - **Metrics/OTel** — `METRICS_ENABLED`/`OTEL_*` envs exist but telemetry
   serving/wiring is not implemented.
 - **Seeder** — `SEED_ALLOWED=false` by default; `prisma/seed.ts` seeds only
@@ -33,6 +34,14 @@ working code with a caveat.
   open multiple logical connections per transaction, the setting is not
   guaranteed on every connection; the Prisma client extension is the primary
   tenant boundary. Do not rely on RLS alone (ADR-005/ADR-006).
+- **Document bytes are not virus-scanned / not PII-analyzed.** `complete`
+  verifies presence and size against the initiate declaration but not file
+  content. Any content validation must run on the `Storage.DocumentUploaded`
+  outbox event (not yet consumed).
+- **Presigned reads are bearer-free.** A valid presigned GET URL is usable by
+  anyone holding it until it expires (`S3_SIGNED_URL_TTL_SECONDS`); the API
+  enforces `documents.read` to obtain it, but object-level auth is a later
+  concern.
 - **UUIDv7 ordering is per-process only.** The monotonic counter (ADR-011)
   guarantees ordering within a process; across processes (or the same wall
   clock from worker instances) ordering is best-effort.

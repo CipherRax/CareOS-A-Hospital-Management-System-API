@@ -27,6 +27,7 @@ export const envSchema = z.object({
   S3_ACCESS_KEY: z.string().trim().optional(),
   S3_SECRET_KEY: z.string().trim().optional(),
   S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('true'),
+  S3_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().default(900),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   LOG_REDACT_PATHS: z

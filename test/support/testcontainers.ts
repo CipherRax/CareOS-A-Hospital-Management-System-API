@@ -5,6 +5,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer } from '@testcontainers/redis';
 import type { StartedRedisContainer } from '@testcontainers/redis';
+import S3rver from 's3rver';
 
 export const E2E_ENV_FILE = join(__dirname, '..', '.e2e.env.json');
 
@@ -15,9 +16,15 @@ export const E2E_ENV_FILE = join(__dirname, '..', '.e2e.env.json');
 const POSTGRES_IMAGE = process.env.E2E_POSTGRES_IMAGE ?? 'postgres:17-alpine';
 const REDIS_IMAGE = process.env.E2E_REDIS_IMAGE ?? 'redis:7-alpine';
 
+/** s3rver credentials (defaults expected by the in-memory S3 server). */
+export const S3RVER_ACCESS_KEY = 'S3RVER';
+export const S3RVER_SECRET_KEY = 'S3RVER';
+
 export interface E2EDependencies {
   postgres: StartedPostgreSqlContainer | null;
   redis: StartedRedisContainer | null;
+  /** In-process S3 server handle. Runs in the jest globalSetup process. */
+  s3rver: { close(): Promise<unknown> } | null;
 }
 
 function writeEnvFile(env: Record<string, string | number>): void {
@@ -35,16 +42,23 @@ function writeEnvFile(env: Record<string, string | number>): void {
  * CI service containers.
  */
 export async function startDependencies(): Promise<E2EDependencies> {
+  const s3rver = await startS3rver();
+
   const externalDatabaseUrl = process.env.E2E_DATABASE_URL;
   if (externalDatabaseUrl) {
-    writeEnvFile({
-      DATABASE_URL: externalDatabaseUrl,
-      DATABASE_DIRECT_URL: externalDatabaseUrl,
-      REDIS_HOST: process.env.E2E_REDIS_HOST ?? 'localhost',
-      REDIS_PORT: process.env.E2E_REDIS_PORT ?? '6379',
-      REDIS_DB: process.env.E2E_REDIS_DB ?? '0',
-    });
-    return { postgres: null, redis: null };
+    writeEnvFile(
+      withS3Env(
+        {
+          DATABASE_URL: externalDatabaseUrl,
+          DATABASE_DIRECT_URL: externalDatabaseUrl,
+          REDIS_HOST: process.env.E2E_REDIS_HOST ?? 'localhost',
+          REDIS_PORT: process.env.E2E_REDIS_PORT ?? '6379',
+          REDIS_DB: process.env.E2E_REDIS_DB ?? '0',
+        },
+        s3rver,
+      ),
+    );
+    return { postgres: null, redis: null, s3rver };
   }
 
   const postgres = await new PostgreSqlContainer(POSTGRES_IMAGE)
@@ -83,19 +97,25 @@ export async function startDependencies(): Promise<E2EDependencies> {
     );
   }
 
-  writeEnvFile({
-    DATABASE_URL: databaseUrl,
-    DATABASE_DIRECT_URL: directUrl,
-    REDIS_HOST: redis.getHost(),
-    REDIS_PORT: redis.getPort(),
-    REDIS_DB: '0',
-  });
+  writeEnvFile(
+    withS3Env(
+      {
+        DATABASE_URL: databaseUrl,
+        DATABASE_DIRECT_URL: directUrl,
+        REDIS_HOST: redis.getHost(),
+        REDIS_PORT: redis.getPort(),
+        REDIS_DB: '0',
+      },
+      s3rver,
+    ),
+  );
 
-  return { postgres, redis };
+  return { postgres, redis, s3rver };
 }
 
 export async function stopDependencies(deps: E2EDependencies): Promise<void> {
   await Promise.all([deps.postgres?.stop(), deps.redis?.stop()]);
+  await deps.s3rver?.close();
 }
 
 export function loadE2EEnv(): Record<string, string> {
@@ -105,4 +125,35 @@ export function loadE2EEnv(): Record<string, string> {
     );
   }
   return JSON.parse(readFileSync(E2E_ENV_FILE, 'utf8')) as Record<string, string>;
+}
+
+/**
+ * Starts an in-process S3-compatible server (s3rver) on an ephemeral port and
+ * returns configured bucket 'careos'. The server runs inside the jest
+ * globalSetup process, which stays alive for the whole run, so test workers
+ * reach it over localhost. s3rver validates SigV4 signatures against the
+ * S3RVER/S3RVER credentials written into the e2e env.
+ */
+async function startS3rver(): Promise<{ close(): Promise<unknown>; port: number }> {
+  const server = new S3rver({
+    port: 0,
+    address: '127.0.0.1',
+    silent: true,
+    configureBuckets: [{ name: 'careos' }],
+  });
+  const addr = await server.run();
+  return { close: () => server.close(), port: addr.port };
+}
+
+function withS3Env(env: Record<string, string | number>, s3: { port: number }): Record<string, string | number> {
+  return {
+    ...env,
+    S3_ENDPOINT: `http://127.0.0.1:${s3.port}`,
+    S3_REGION: 'us-east-1',
+    S3_BUCKET: 'careos',
+    S3_ACCESS_KEY: S3RVER_ACCESS_KEY,
+    S3_SECRET_KEY: S3RVER_SECRET_KEY,
+    S3_FORCE_PATH_STYLE: 'true',
+    S3_SIGNED_URL_TTL_SECONDS: '900',
+  };
 }

@@ -22,7 +22,45 @@ Status: **GREEN.**
 | `boundaries` | pass   |
 | `npm test`   | 54/54 unit |
 | `build`      | pass   |
-| `test:e2e`   | 26/26 (4 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 33/33 (5 suites, fresh Testcontainers infra) |
+
+## Phase 2 — Object storage & documents (COMPLETE)
+
+S3-compatible object storage with a presigned-URL upload/download flow and a
+tenant-scoped document metadata API, plus the outbox `Storage.DocumentUploaded`
+event for downstream processing.
+
+Done:
+
+- **Object storage client.** `src/common/storage/object-storage.service.ts` — an
+  `@Optional` S3 client built from `S3_*` env; `presignPut` (signs Content-Type)
+  returns a presigned PUT URL for direct client upload, `presignGet` returns a
+  presigned GET URL with attachment disposition, `head` checks existence, and
+  `remove` deletes the object. Unconfigured/unreachable storage throws
+  `ErrorCodes.S3_UNAVAILABLE`.
+- **Document model.** `Document` (`prisma/schema.prisma`) — tenant-scoped rows
+  keyed `(organizationId, storageKey)` where `storageKey = orgId/documentId`,
+  `DocumentStatus` lifecycle `PENDING_UPLOAD → UPLOADED → DELETED`, optional
+  `sizeBytes`/`checksumSha256`/`metadata`. Migration
+  `20260922101216_phase2_documents` verified against scratch Postgres.
+- **Documents module.** `src/modules/documents` — `POST /documents` initiate
+  (returns `{document, upload:{method,url,expiresIn}}`), `POST /:id/complete`
+  (verifies the object exists and matches size, flips to `UPLOADED`, emits the
+  outbox event), `GET /` paginated list (hides `DELETED` by default),
+  `GET /:id`, `GET /:id/download` (presigned GET), `DELETE /:id` (removes the
+  object, soft-deletes the row). All routes permission-gated
+  (`documents.read/create/manage`).
+- **Permissions.** `PERMISSION_GROUPS.documents` added to the catalog and each
+  role in `role-matrix.ts` (authors/editors `read+create+manage`, most roles
+  `read`, users `read`).
+- **Config.** `S3_SIGNED_URL_TTL_SECONDS` (default 900) added to the env schema
+  and `.env.example`.
+- **Acceptance.** `test/e2e/documents.e2e-spec.ts` — 7 tests: initiate
+  permission denial, full lifecycle (initiate → presigned PUT → complete →
+  metadata → download round-trip → outbox event), cross-tenant isolation,
+  complete-without-upload failure, paginated list hiding deleted rows, delete
+  + 404 after, and delete-permission denial. s3rver runs in-process inside the
+  globalSetup so e2e exercises real SigV4 traffic without Docker.
 
 ## Phase 1 — Identity & access (COMPLETE)
 

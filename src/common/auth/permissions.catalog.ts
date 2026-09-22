@@ -36,6 +36,11 @@ export const PERMISSION_GROUPS = {
     request: 'break_glass.request',
     manage: 'break_glass.manage',
   },
+  documents: {
+    read: 'documents.read',
+    create: 'documents.create',
+    manage: 'documents.manage',
+  },
   patients: {
     read: 'patients.read',
     create: 'patients.create',

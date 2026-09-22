@@ -38,6 +38,8 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'MfaCredential',
   'MfaRecoveryCode',
   'BreakGlassGrant',
+  // Object storage (Phase 2).
+  'Document',
 ]);
 
 type Op = string;

@@ -12,6 +12,8 @@ export const EventTypes = {
   UserSuspended: 'Identity.UserSuspended',
   UserDeactivated: 'Identity.UserDeactivated',
   BreakGlassRequested: 'Access.BreakGlassRequested',
+  /** Object storage (Phase 2): a document finished uploading to S3/MinIO. */
+  DocumentUploaded: 'Storage.DocumentUploaded',
   /**
    * Test/demo signal used by the Phase 0 harness (see modules/demo and
    * docs/limitations.md). Removed from the catalog before production use.
@@ -29,5 +31,6 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.UserSuspended]: 1,
   [EventTypes.UserDeactivated]: 1,
   [EventTypes.BreakGlassRequested]: 1,
+  [EventTypes.DocumentUploaded]: 1,
   [EventTypes.Probe]: 1,
 };

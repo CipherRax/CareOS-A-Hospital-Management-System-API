@@ -24,6 +24,7 @@ import { BranchesModule } from '../modules/branches/branches.module';
 import { DepartmentsModule } from '../modules/departments/departments.module';
 import { StaffModule } from '../modules/staff/staff.module';
 import { BreakGlassModule } from '../modules/break-glass/break-glass.module';
+import { DocumentsModule } from '../modules/documents/documents.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -63,6 +64,7 @@ import { newId } from '../common/lib/uuidv7';
     DepartmentsModule,
     StaffModule,
     BreakGlassModule,
+    DocumentsModule,
   ],
   providers: [
     // Guard order: throttler (outer) -> JWT identity -> session/tenant
