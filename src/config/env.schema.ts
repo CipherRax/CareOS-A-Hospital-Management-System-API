@@ -52,6 +52,21 @@ export const envSchema = z.object({
     .string()
     .min(32)
     .default('careos-dev-refresh-secret-do-not-use-in-prod'),
+  JWT_ISSUER: z.string().trim().min(1).default('careos'),
+  JWT_AUDIENCE: z.string().trim().min(1).default('careos-api'),
+
+  // Refresh tokens rotate; a session dies once its refresh tokens are all
+  // expired/revoked or the absolute session TTL elapses.
+  JWT_REFRESH_TTL_SECONDS: z.coerce.number().int().positive().default(604800),
+  SESSION_ABS_TTL_SECONDS: z.coerce.number().int().positive().default(2592000),
+
+  KEY_ENCRYPTION_SECRET: z
+    .string()
+    .min(32)
+    .default('careos-dev-encryption-secret-do-not-use-in-prod'),
+  MFA_ISSUER: z.string().trim().min(1).default('careos'),
+  INVITE_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(604800),
+  PASSWORD_RESET_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
 
   IDEMPOTENCY_WINDOW_SECONDS: z.coerce.number().int().positive().default(3600),
 

@@ -3,6 +3,108 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-017 — Real JWT auth replaces the test-principal seam as default
+
+**Status:** accepted (Phase 1)
+
+**Context:** Phase 0 authorized through a test-only principal; Phase 1 must
+authenticate real users.
+
+**Decision:** `JwtAuthGuard` short-circuits when `IS_PUBLIC_KEY` metadata is set
+(`@Public()`) or a principal already exists in the CLS scope (test seam /
+platform scope), otherwise it verifies the bearer access token (issuer,
+audience, secret, `purpose: 'access'`) and stamps
+organizationId/userId/sessionId/roles into the scope. Missing/invalid
+credentials yield 401 `UNAUTHORIZED` (`Invalid or missing credentials.` /
+`Invalid or expired session.`) before any permission check.
+
+**Consequences:** the app-boot "deny by default" acceptance was updated —
+unauthenticated protected routes now return 401 (real auth) instead of 403
+(the Phase 0 empty-scope behavior). Permissions are re-resolved per request by
+`TenantGuard`, never trusted from the token (see ADR-016).
+
+## ADR-016 — Token roles are hints; permissions re-resolved per request
+
+**Status:** accepted (Phase 1)
+
+**Context:** access tokens are JWT-encoded once at login/refresh; role grants
+can change while a token is still valid.
+
+**Decision:** the access token carries only shape/permissions hints (`roles`),
+used to establish the session scope. `TenantGuard` loads the caller's current
+roles/permissions from the DB for every request, so revoking/updating a role
+takes effect immediately even with an unexpired access token.
+
+**Consequences:** privilege checks always reflect the latest grants; DB role
+lookup adds a query per authenticated request (acceptable, cached by the
+tenant client).
+
+## ADR-015 — Refresh rotation with family revocation on reuse
+
+**Status:** accepted (Phase 1)
+
+**Context:** long-lived refresh tokens are the highest-value replay target; a
+stolen token reused after rotation must revoke the whole session.
+
+**Decision:** every refresh issues a new access+refresh pair and records the
+refresh token hash against the parent rotation family. If the presented
+refresh token does not match the last rotated one (reuse), the entire family is
+revoked (all sessions' refresh hashes + the access session), forcing
+reauthentication. `src/common/auth/refresh-rotation.ts` is unit-tested for
+the rotate/rotate-after-reuse/foreign-family paths.
+
+**Consequences:** a rotated token is usable exactly once; replay is detected
+and quarantines the family. Logout revokes the presenting family.
+
+## ADR-014 — TOTP MFA with append-only recovery codes
+
+**Status:** accepted (Phase 1)
+
+**Context:** healthcare data warrants a second factor; lockouts must still be
+recoverable offline.
+
+**Decision:** TOTP (RFC 6238, 30s window with ±1 drift tolerance) is enrolled
+via `mfa/setup` → `mfa/confirm` (returns the 10 recovery codes exactly once).
+Recovery codes are stored as sha-256 digests, single-use (atomic claim) — the
+status endpoint reports the remaining count (hashed, non-reversible).
+
+**Consequences:** a lost authenticator is recoverable via the printed codes;
+each code can redeem a challenge once. The secret is encrypted at rest
+(`encryption.encrypt`).
+
+## ADR-013 — `@ApiEndpoint` owns the HTTP contract (status + auth metadata)
+
+**Status:** accepted (Phase 1)
+
+**Context:** routes declared `statusCode` for Swagger only; Fastify's POST
+default (201) leaked into real responses, and `public` never set the
+`IS_PUBLIC_KEY` metadata, so login was guarded.
+
+**Decision:** `@ApiEndpoint` now applies `@HttpCode(options.statusCode ??
+200)` so the real response status matches the documented one, and applies
+`@Public()` when `options.public === true` so `JwtAuthGuard` skips
+authentication and (with `authenticatedOnly` false) the deny-by-default
+permission check is skipped for genuinely public routes.
+
+**Consequences:** response codes are now declarative and honored at runtime
+(e.g. logout 204, invite 201, login 200); protected-by-default still holds for
+everything else (ADR-016 / deny-by-default). e2e asserts the real codes.
+
+## ADR-012 — org-scoped login; global email uniqueness dropped
+
+**Status:** accepted (Phase 1)
+
+**Context:** an email identify a person, but the same email can exist across
+independent organizations; forcing global uniqueness breaks multi-tenancy.
+
+**Decision:** `User` is unique on `(organizationId, email)`; login takes the
+organizationId (or resolves it from a scoped hint) so credentials never cross
+tenant boundaries.
+
+**Consequences:** two orgs may each have `admin@...`; the login request must
+carry the org (or a default), and cross-org credential guessing is confined to
+one org per login attempt.
+
 ## ADR-011 — Monotonic UUIDv7 prefix (rand_a counter)
 
 **Status:** accepted (Phase 0 fix)

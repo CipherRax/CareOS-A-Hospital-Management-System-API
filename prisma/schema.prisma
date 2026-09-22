@@ -43,6 +43,18 @@ model Organization {
   id   String @id
   name String
 
+  legalName          String?
+  tradingName        String?
+  registrationNumber String?
+  kraPin             String?
+  phone              String?
+  email              String?
+  website            String?
+  logoUrl            String?
+  address            String?
+  county             String?
+  town               String?
+
   status    OrgStatus @default(ACTIVE)
   currency  String    @default("KES")
   timezone  String    @default("Africa/Nairobi")
@@ -50,11 +62,24 @@ model Organization {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  outboxEvents       OutboxEvent[]
-  auditLogs          AuditLog[]
-  idempotencyRecords IdempotencyRecord[]
-  processedEvents    ProcessedEvent[]
-  counters           Counter[]
+  outboxEvents        OutboxEvent[]
+  auditLogs           AuditLog[]
+  idempotencyRecords  IdempotencyRecord[]
+  processedEvents     ProcessedEvent[]
+  counters            Counter[]
+  branches            Branch[]
+  departments         Department[]
+  users               User[]
+  roles               Role[]
+  sessions            Session[]
+  refreshTokens       RefreshToken[]
+  staffProfiles       StaffProfile[]
+  userBranchLinks     UserBranch[]
+  userDepartmentLinks UserDepartment[]
+  userRoleLinks       UserRole[]
+  mfaCredentials      MfaCredential[]
+  mfaRecoveryCodes    MfaRecoveryCode[]
+  breakGlassGrants    BreakGlassGrant[]
 }
 
 // ---------------------------------------------------------------------------
@@ -172,4 +197,334 @@ model Counter {
 
   @@unique([organizationId, key])
   @@map("counters")
+}
+
+// ---------------------------------------------------------------------------
+// Identity & access (Phase 1)
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum DepartmentKind {
+  STANDARD
+  CUSTOM
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  TERMINATED
+  CONTRACT
+}
+
+enum BreakGlassStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+model Branch {
+  id             String       @id
+  organizationId String
+  name           String
+  code           String
+  address        String?
+  phone          String?
+  email          String?
+  operatingHours String?
+  status         BranchStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  userLinks    UserBranch[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("branches")
+}
+
+model Department {
+  id             String         @id
+  organizationId String
+  name           String
+  code           String?
+  kind           DepartmentKind @default(STANDARD)
+  active         Boolean        @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  userDepartmentLinks UserDepartment[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("departments")
+}
+
+model User {
+  id                String     @id
+  organizationId    String
+  email             String
+  phone             String?
+  firstName         String
+  lastName          String
+  otherNames        String?
+  passwordHash      String?
+  status            UserStatus @default(INVITED)
+  lastLoginAt       DateTime?
+  loginFailureCount Int        @default(0)
+  lockedUntil       DateTime?
+
+  inviteTokenHash             String?
+  inviteTokenExpiresAt        DateTime?
+  passwordResetTokenHash      String?
+  passwordResetTokenExpiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  staffProfile     StaffProfile?
+  userBranches     UserBranch[]
+  userDepartments  UserDepartment[]
+  userRoles        UserRole[]
+  sessions         Session[]
+  mfaCredential    MfaCredential?
+  mfaRecoveryCodes MfaRecoveryCode[]
+  breakGlassGrants BreakGlassGrant[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@map("users")
+}
+
+model StaffProfile {
+  id                String           @id
+  organizationId    String
+  userId            String           @unique
+  staffNumber       String
+  professionalTitle String?
+  specialization    String?
+  employmentStatus  EmploymentStatus @default(ACTIVE)
+  availability      Boolean          @default(true)
+  // Professional license / registration identifier (treated as sensitive; field
+  // encryption lands later — see docs/limitations.md).
+  licenseNumber     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, staffNumber])
+  @@index([organizationId])
+  @@map("staff_profiles")
+}
+
+// A user may belong to several branches; branch access is a permission, not a default.
+model UserBranch {
+  id             String @id
+  organizationId String
+  userId         String
+  branchId       String
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, userId, branchId])
+  @@index([organizationId, branchId])
+  @@map("user_branches")
+}
+
+model UserDepartment {
+  id             String @id
+  organizationId String
+  userId         String
+  departmentId   String
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, userId, departmentId])
+  @@index([organizationId, departmentId])
+  @@map("user_departments")
+}
+
+// Interactive sessions. Access is short-lived (JWT); refresh tokens rotate. A
+// rotated (reused) refresh token revokes the whole family (suspectedReuse).
+model Session {
+  id             String    @id
+  organizationId String
+  userId         String
+  familyId       String    @unique
+  ip             String?
+  userAgent      String?
+  lastSeenAt     DateTime  @default(now())
+  lastSeenIp     String?
+  mfaVerifiedAt  DateTime?
+  refreshCount   Int       @default(0)
+  suspectedReuse Boolean   @default(false)
+  suspendedAt    DateTime?
+  revokedAt      DateTime?
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@index([organizationId, userId])
+  @@index([organizationId, userId, expiresAt])
+  @@map("sessions")
+}
+
+// Refresh token rows. tokenHash is unique; on use the presented token is either
+// the current one (rotate) or a rotated one (reuse → revoke family).
+model RefreshToken {
+  id             String    @id
+  organizationId String
+  sessionId      String
+  familyId       String
+  tokenHash      String    @unique
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime
+  usedAt         DateTime?
+  revokedAt      DateTime?
+  replacedById   String?
+  rotatesFromId  String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  session      Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, sessionId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+// Roles are org data seeded from a default matrix; permissions are granular
+// strings from the typed catalog. System roles are protected from edit/delete.
+model Role {
+  id             String   @id
+  organizationId String
+  name           String
+  key            String
+  description    String?
+  isSystem       Boolean  @default(false)
+  permissions    String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  userRoles    UserRole[]
+
+  @@unique([organizationId, key])
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("roles")
+}
+
+model UserRole {
+  id             String @id
+  organizationId String
+  userId         String
+  roleId         String
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, userId, roleId])
+  @@index([organizationId, roleId])
+  @@map("user_roles")
+}
+
+// Optional MFA (TOTP). The shared secret is stored AES-256-GCM encrypted;
+// recovery codes are stored hashed (SHA-256) and handed out once at enrolment.
+model MfaCredential {
+  id              String    @id
+  organizationId  String
+  userId          String    @unique
+  secretEncrypted String
+  enabledAt       DateTime  @default(now())
+  lastVerifiedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("mfa_credentials")
+}
+
+model MfaRecoveryCode {
+  id             String    @id
+  organizationId String
+  userId         String
+  codeHash       String    @unique
+  usedAt         DateTime?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId])
+  @@map("mfa_recovery_codes")
+}
+
+// Break-glass / emergency access skeleton (Phase 1). Time-boxed grant with a
+// mandatory reason; always audited. Enforcement against resource policies lands
+// with the patient module (Phase 2).
+model BreakGlassGrant {
+  id              String           @id
+  organizationId  String
+  requesterUserId String
+  resourceType    String
+  resourceId      String
+  reason          String
+  status          BreakGlassStatus @default(ACTIVE)
+  metadata        Json?
+
+  grantedAt       DateTime  @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  revokedByUserId String?
+  revokeReason    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  requester    User         @relation(fields: [requesterUserId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, resourceType, resourceId])
+  @@index([organizationId, requesterUserId])
+  @@map("break_glass_grants")
 }

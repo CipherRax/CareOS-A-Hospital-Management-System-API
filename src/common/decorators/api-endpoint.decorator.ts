@@ -1,4 +1,4 @@
-import { applyDecorators, type Type } from '@nestjs/common';
+import { applyDecorators, HttpCode, type Type } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -8,6 +8,7 @@ import {
 import { ErrorCodes } from '../errors/codes';
 import type { Permission } from '../auth/permissions.catalog';
 import { Public } from './public.decorator';
+import { AuthenticatedOnly } from './authenticated.decorator';
 import { RequirePermissions } from './require-permissions.decorator';
 
 const COMMON_ERROR_RESPONSES: Array<{
@@ -44,6 +45,11 @@ export interface ApiEndpointOptions {
   permissions?: Permission[];
   /** Marks the route as public (skip auth + permissions). */
   public?: boolean;
+  /**
+   * Authenticated but self-scoped: a valid session is required, yet no role
+   * permission is checked (own password/MFA/sessions).
+   */
+  authenticatedOnly?: boolean;
   /** Response DTO class (Zod DTO via createZodDto) for the success body. */
   responseType?: Type<unknown>;
   /** API documentation example for the success body. */
@@ -67,8 +73,18 @@ export function ApiEndpoint(options: ApiEndpointOptions): MethodDecorator {
 
   if (options.permissions && options.permissions.length > 0) {
     decorators.push(RequirePermissions(...options.permissions));
-  } else if (options.public !== true) {
+  } else if (options.public !== true && options.authenticatedOnly !== true) {
     decorators.push(RequirePermissions('__deny_by_default__' as Permission));
+  }
+
+  if (options.authenticatedOnly === true) {
+    decorators.push(AuthenticatedOnly());
+  }
+
+  decorators.push(HttpCode(options.statusCode ?? 200));
+
+  if (options.public === true) {
+    decorators.push(Public());
   }
 
   decorators.push(
@@ -84,6 +100,7 @@ export function ApiEndpoint(options: ApiEndpointOptions): MethodDecorator {
   }
 
   decorators.push(
+    HttpCode(options.statusCode ?? 200),
     ApiResponse({
       status: options.statusCode ?? 200,
       description: options.summary,

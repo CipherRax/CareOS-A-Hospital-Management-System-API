@@ -93,11 +93,11 @@ describe('app boot + envelope + deny-by-default (Phase 0 acceptance)', () => {
       method: 'GET',
       url: `${env.API_PREFIX}/organizations/me`,
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(401);
     const body = res.json();
     expect(body.success).toBe(false);
-    expect(body.error.code).toBe('PERMISSION_DENIED');
-    expect(body.error.message).toBe('Forbidden');
+    expect(body.error.code).toBe('UNAUTHORIZED');
+    expect(body.error.message).toBe('Invalid or missing credentials.');
   });
 
   it('route-walk: every non-public route is denied without a principal (deny by default)', async () => {
@@ -106,7 +106,19 @@ describe('app boot + envelope + deny-by-default (Phase 0 acceptance)', () => {
     const routes = parseFastifyRoutes(tree);
     expect(routes.length).toBeGreaterThan(0);
 
-    const publicPaths = new Set<string>(['/health', '/health/live', '/health/ready']);
+    const publicPaths = new Set<string>([
+      '/health',
+      '/health/live',
+      '/health/ready',
+      // Public identity endpoints (Phase 1): no auth required by design.
+      '/api/v1/auth/login',
+      '/api/v1/auth/mfa/verify',
+      '/api/v1/auth/refresh',
+      '/api/v1/auth/logout',
+      '/api/v1/auth/invites/accept',
+      '/api/v1/auth/password/request',
+      '/api/v1/auth/password/reset',
+    ]);
     const failures: string[] = [];
 
     for (const route of routes) {

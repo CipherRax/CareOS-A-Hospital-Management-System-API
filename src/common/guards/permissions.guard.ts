@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { AppError } from '../errors/app-error';
 import { ErrorCodes } from '../errors/codes';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { IS_AUTHENTICATED_ONLY_KEY } from '../decorators/authenticated.decorator';
 import { REQUIRED_PERMISSIONS_KEY } from '../decorators/require-permissions.decorator';
 import { TenantContext } from '../../database/tenant-context';
 
@@ -32,6 +33,14 @@ export class PermissionsGuard implements CanActivate {
       [handler, targetClass],
     );
     if (isPublic) return true;
+
+    // Self-scoped routes (own password/MFA/sessions) passed identity+session
+    // checks upstream; they need no role permission.
+    const authenticatedOnly = this.reflector.getAllAndOverride<boolean | undefined>(
+      IS_AUTHENTICATED_ONLY_KEY,
+      [handler, targetClass],
+    );
+    if (authenticatedOnly) return true;
 
     const required =
       this.reflector.getAllAndOverride<string[] | undefined>(REQUIRED_PERMISSIONS_KEY, [

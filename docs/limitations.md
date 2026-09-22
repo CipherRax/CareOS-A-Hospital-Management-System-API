@@ -10,20 +10,21 @@ working code with a caveat.
   Outbox rows are written reliably in the same transaction as domain writes
   (ADR-007), but nothing consumes them yet. The dispatcher pointer advancing
   logic lives in `src/database/outbox-publisher.service.ts`; the per-event
-  handler is a no-op placeholder. Phase 1 will add a BullMQ-based worker
-  (`worker.ts` bootstrap exists in `npm run worker`).
-- **JWT/session auth (Phase 1)** `[stub]` — access is authorized through the
-  real permissions guard, but the principal is provided only by the test seam
-  `TestPrincipalMiddleware` (`test/support/test-app.ts`). Production
-  authentication is not implemented.
+  handler is a no-op placeholder. A later phase will add a worker-based
+  dispatcher (`worker.ts` bootstrap exists in `npm run worker`).
 - **Emergency access flow** — `TenantScope.emergency` exists as a marker but
-  nothing sets it (by design; Phase 1+).
+  nothing sets it (by design; a later phase).
 - **S3 object storage** — the S3 client dependency is installed and env-config
   wired, but no object service uses it yet.
 - **Metrics/OTel** — `METRICS_ENABLED`/`OTEL_*` envs exist but telemetry
   serving/wiring is not implemented.
-- **Seeder** — `SEED_ALLOWED=false` by default; `prisma/seed.ts` is present but
-  there is no seeded data flow in phase 0.
+- **Seeder** — `SEED_ALLOWED=false` by default; `prisma/seed.ts` seeds only
+  when allowed.
+- **Role management UI/API surface** — catalog role definitions
+  (`role-matrix.ts`) cover the identity/access catalog; module-specific
+  permissions are added as their modules land.
+- **Break-glass approval** — the request/expire flow is implemented; a
+  pull-based approver surface beyond the request queue is a later-phase item.
 
 ## Known caveats in shipped code
 
@@ -52,6 +53,13 @@ working code with a caveat.
   a privileged path.
 - **`OPTIONS`/wildcard routes:** Fastify adds a `*` OPTIONS route for CORS; the
   app-boot route-walk parser skips it deliberately.
+- **Invite tokens are returned inline when `NODE_ENV !== 'production'`** so e2e
+  can accept an invite end-to-end. In production only the hashed digest is
+  stored and the raw token goes out-of-band. Same for MFA recovery codes
+  (returned once at confirm).
+- **`@HttpCode(options.statusCode ?? 200)` (ADR-013):** routes that did not
+  declare a status now return 200 instead of Fastify's POST default 201;
+  statuses are declarative and asserted by e2e.
 - **Jest e2e open-handle note:** suites exit cleanly; a `--forceExit` was only
   used while debugging an unrelated hang and is not part of the scripts.
 - **Boundary check** (`npm run boundaries`) treats `src/common` and

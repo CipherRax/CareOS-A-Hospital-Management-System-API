@@ -20,9 +20,51 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 22/22 unit |
+| `npm test`   | 54/54 unit |
 | `build`      | pass   |
-| `test:e2e`   | 15/15 (3 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 26/26 (4 suites, fresh Testcontainers infra) |
+
+## Phase 1 — Identity & access (COMPLETE)
+
+Real JWT/session auth replacing the Phase 0 test-principal seam, plus user,
+role, staff, branch, department, and break-glass management — all tenant-scoped
+through the existing Prisma extension + RLS backstop.
+
+Done:
+
+- **Real authentication.** `src/modules/auth` — login (org-scoped email +
+  password, argon2 password hashes, per-account brute-force lockout with 423
+  after the threshold, constant-timing burns for unknown/invited users),
+  access + refresh token rotation with refresh-reuse family revocation
+  (`src/common/auth/refresh-rotation.ts`), logout revoking the family,
+  password request/reset, and TOTP MFA (enrol, challenge on login, verify,
+  recovery codes — 10 issued once, single-use, hash-stored).
+- **Guards.** `JwtAuthGuard` (`src/common/guards/jwt-auth.guard.ts`) verifies
+  bearer access tokens and stamps identity into the CLS scope; `TenantGuard`
+  (`src/common/guards/tenant.guard.ts`) enforces org context; `PermissionsGuard`
+  enforces deny-by-default permissions. `@Public()` / `authenticatedOnly` /
+  `@ApiEndpoint` contract decorators in `src/common/decorators`.
+- **RBAC.** `src/common/auth/rbac.ts` — subset-based role grants
+  (`canGrantRole` blocks privilege escalation), system roles guarded;
+  `role-matrix.ts` maps catalog roles to permissions; permissions catalog
+  extended (`src/common/auth/permissions.catalog.ts`).
+- **User management.** `src/modules/users` — invite (with staff profile,
+  branches, departments, roles) returning a single-use invite token for
+  dev/test, accept-invite activating the account, role assignment, session
+  revocation; privilege-escalation-safe role grants.
+- **Tenant modules.** `src/modules/roles`, `staff`, `branches`, `departments`,
+  `break-glass` (request/approve/expire flow) — all permission-gated and
+  tenant-scoped.
+- **Schema (migrations `20260921171109_phase1_identity_access`,
+  `20260921175613_phase1_breakglass_pending`):** user, session, refresh token,
+  mfa credential/recovery code, invite, role, user_role, staff profile,
+  branch, department, break-glass request/grant models; user audit fields;
+  invite hashing + TOTP metadata on `User`.
+- **Acceptance.** `test/e2e/identity.e2e-spec.ts` — 11 real-auth tests
+  (login + protected routes, generic credentials failure + timing burn, 423
+  lockout, invite → accept → login, MFA enable → challenge → TOTP, recovery
+  code accepted once, refresh rotation + family burn, self-service logout).
+  Unit coverage for password hashing, TOTP, RBAC, and refresh rotation.
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -66,12 +108,9 @@ Done:
     transaction, replay returns cached response.
   - `rls` — real DB statements confirm cross-org access is blocked and
     `audit_logs` rows are append-only.
+  - `identity` — Phase 1 acceptance covered above (11 tests).
 
-## Phase 1 — Next
-
-JWT/session auth replacing the test-principal seam; user management and
-permission assignment; S3 object storage with signed URLs; scheduled outbox
-dispatcher worker; metrics/OTel optional wiring; Swagger hardening.
+## Phase 2 — Next
 
 ## Notes
 

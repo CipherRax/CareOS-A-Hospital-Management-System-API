@@ -63,6 +63,14 @@ export class TenantContext {
     return org;
   }
 
+  requireUserId(): string {
+    const userId = this.scope.userId;
+    if (userId === null) {
+      throw new TenantRequiredError();
+    }
+    return userId;
+  }
+
   setScope(scope: Partial<TenantScope>): void {
     this.cls.set(TENANT_SCOPE_KEY, { ...this.scope, ...scope });
   }

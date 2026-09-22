@@ -24,6 +24,20 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'AuditLog',
   'IdempotencyRecord',
   'Counter',
+  // Identity & access (Phase 1). Keep in sync with prisma/schema.prisma.
+  'Branch',
+  'Department',
+  'User',
+  'StaffProfile',
+  'UserBranch',
+  'UserDepartment',
+  'Session',
+  'RefreshToken',
+  'Role',
+  'UserRole',
+  'MfaCredential',
+  'MfaRecoveryCode',
+  'BreakGlassGrant',
 ]);
 
 type Op = string;

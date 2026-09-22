@@ -24,6 +24,18 @@ export const PERMISSION_GROUPS = {
     read: 'roles.read',
     manage: 'roles.manage',
   },
+  sessions: {
+    read: 'sessions.read',
+    manage: 'sessions.manage',
+  },
+  staff: {
+    read: 'staff.read',
+    manage: 'staff.manage',
+  },
+  breakGlass: {
+    request: 'break_glass.request',
+    manage: 'break_glass.manage',
+  },
   patients: {
     read: 'patients.read',
     create: 'patients.create',
