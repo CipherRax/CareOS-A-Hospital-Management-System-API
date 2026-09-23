@@ -21,6 +21,13 @@ export interface TenantScope {
    * emergency-access flow (Phase 1+). Never set implicitly.
    */
   emergency?: boolean;
+  /**
+   * Patient-participant self-scope: set for a PATIENT principal authenticated
+   * through the patient portal; it is the patient id whose record that
+   * principal may read/write. Null for staff principals. Enforcement lives in
+   * the patient ownership policy (PATIENT_ACCESS_DENIED).
+   */
+  patientId?: string | null;
 }
 
 export interface ClsStore extends BaseClsStore {
@@ -36,6 +43,7 @@ export const EMPTY_SCOPE: TenantScope = Object.freeze({
   permissions: [],
   requestId: '',
   isPlatformJob: false,
+  patientId: null,
 });
 
 /**

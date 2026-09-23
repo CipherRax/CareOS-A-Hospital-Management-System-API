@@ -18,6 +18,7 @@ import { TenantContext } from '../../src/database/tenant-context';
 export const TEST_ORG_HEADER = 'x-careos-test-org';
 export const TEST_USER_HEADER = 'x-careos-test-user';
 export const TEST_PERMS_HEADER = 'x-careos-test-permissions';
+export const TEST_PATIENT_HEADER = 'x-careos-test-patient-id';
 
 /**
  * TEST-ONLY middleware: claims a tenant + permissions from headers so tests can
@@ -44,6 +45,9 @@ export class TestPrincipalMiddleware implements NestMiddleware {
       permissions: (one(TEST_PERMS_HEADER) ?? '').split(',').filter(Boolean),
       requestId: one('x-request-id') ?? '',
       isPlatformJob: false,
+      // TEST-ONLY seam: simulate a patient-participant (self-scoped portal
+      // session) claiming ownership of a single record.
+      patientId: one(TEST_PATIENT_HEADER) ?? null,
     });
     next();
   }
@@ -97,11 +101,13 @@ export function principalHeaders(opts: {
   userId?: string;
   permissions?: string[];
   requestId?: string;
+  patientId?: string;
 }): Record<string, string> {
   return {
     [TEST_ORG_HEADER]: opts.organizationId,
     [TEST_USER_HEADER]: opts.userId ?? 'test-user',
     [TEST_PERMS_HEADER]: (opts.permissions ?? []).join(','),
     'x-request-id': opts.requestId ?? 'test-request',
+    ...(opts.patientId !== undefined ? { [TEST_PATIENT_HEADER]: opts.patientId } : {}),
   };
 }

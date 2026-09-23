@@ -14,6 +14,16 @@ export const EventTypes = {
   BreakGlassRequested: 'Access.BreakGlassRequested',
   /** Object storage (Phase 2): a document finished uploading to S3/MinIO. */
   DocumentUploaded: 'Storage.DocumentUploaded',
+  /** Patients (brief Phase 2). */
+  PatientRegistered: 'Patient.PatientRegistered',
+  PatientUpdated: 'Patient.PatientUpdated',
+  PatientDuplicateConfirmed: 'Patient.PatientDuplicateConfirmed',
+  PatientMerged: 'Patient.PatientMerged',
+  PatientGuardianAdded: 'Patient.PatientGuardianAdded',
+  PatientGuardianRemoved: 'Patient.PatientGuardianRemoved',
+  PatientConsentChanged: 'Patient.PatientConsentChanged',
+  PatientAllergyRecorded: 'Patient.PatientAllergyRecorded',
+  PatientMedicalHistoryAdded: 'Patient.PatientMedicalHistoryAdded',
   /**
    * Test/demo signal used by the Phase 0 harness (see modules/demo and
    * docs/limitations.md). Removed from the catalog before production use.
@@ -32,5 +42,14 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.UserDeactivated]: 1,
   [EventTypes.BreakGlassRequested]: 1,
   [EventTypes.DocumentUploaded]: 1,
+  [EventTypes.PatientRegistered]: 1,
+  [EventTypes.PatientUpdated]: 1,
+  [EventTypes.PatientDuplicateConfirmed]: 1,
+  [EventTypes.PatientMerged]: 1,
+  [EventTypes.PatientGuardianAdded]: 1,
+  [EventTypes.PatientGuardianRemoved]: 1,
+  [EventTypes.PatientConsentChanged]: 1,
+  [EventTypes.PatientAllergyRecorded]: 1,
+  [EventTypes.PatientMedicalHistoryAdded]: 1,
   [EventTypes.Probe]: 1,
 };

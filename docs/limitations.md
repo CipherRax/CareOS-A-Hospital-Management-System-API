@@ -27,6 +27,20 @@ working code with a caveat.
 - **Break-glass approval** — the request/expire flow is implemented; a
   pull-based approver surface beyond the request queue is a later-phase item.
 
+- **Patient access logs are written by the application, not a DB trigger.**
+  Rows are created fail-open (a logging failure never breaks a read) and store
+  identifiers + request metadata only, never PHI; the same guarantees that the
+  RLS trigger gives `audit_logs` are not applied to `patient_access_logs`
+  (append-only integrity is a later concern).
+- **Duplicate scoring is a heuristic, not a clinical match.** The 70-point
+  threshold and weights in `duplicate-score.ts` are tuned for the brief's
+  fields; it trades false negatives/positives by design and always defers to a
+  human (409 + candidates, id-confirm). Non-name aliases (nicknames,
+  misspellings) are not matched.
+- **Patient portal auth keeps the Phase 1 role surface.** A self-scoped
+  patient uses the same test-principal header seam as staff (`x-careos-test-patient-id`);
+  real patient-facing JWT auth is a later phase.
+
 ## Known caveats in shipped code
 
 - **RLS is a backstop, not the primary control.** `app.current_org` is set via

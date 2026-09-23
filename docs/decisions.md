@@ -3,9 +3,32 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
-## ADR-018 — S3-compatible storage via presigned URLs; s3rver in e2e
+## ADR-019 — Patient duplicates scored, not blocked; merges are reversible
 
 **Status:** accepted (Phase 2)
+
+**Context:** registering a patient twice is a clinical-safety hazard, but a
+hard block or auto-delete is wrong — matches can be false positives and a typed
+copy may be intentionally "already in the system."
+
+**Decision:** registration computes a pure similarity score
+(`src/modules/patients/domain/duplicate-score.ts`: phone +40, email +40, bigram
+name ≤ +40, exact DOB +20, sex +10; threshold 70). Above threshold the API
+returns 409 `POSSIBLE_DUPLICATE` with candidate ids; the caller either resolves
+by confirming the duplicate (`confirmDuplicate: true` + reason, recorded on the
+row) or adjusts. Merging (`POST /patients/:id/merge`) never deletes the source
+patient — it is marked `MERGED` with a `mergedIntoPatientId` pointer so a merge
+is reversible, and its guardians/consents/allergies/medical-history are
+transferred (with skip-and-delete on collisions) inside one transaction with
+outbox events + timelines on both records.
+
+**Consequences:** duplicates are surfaced to a human, never silently merged or
+dropped; candidates carry ids only (minimal PHI); merges are auditable and
+reversible rather than destructive.
+
+## ADR-018 — S3-compatible storage via presigned URLs; s3rver in e2e
+
+**Status:** accepted (Phase 3)
 
 **Context:** documents must be uploaded/downloaded without proxying file bytes
 through the API, and must be testable in a gauntlet including real SigV4

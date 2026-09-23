@@ -25,6 +25,7 @@ import { DepartmentsModule } from '../modules/departments/departments.module';
 import { StaffModule } from '../modules/staff/staff.module';
 import { BreakGlassModule } from '../modules/break-glass/break-glass.module';
 import { DocumentsModule } from '../modules/documents/documents.module';
+import { PatientsModule } from '../modules/patients/patients.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -65,6 +66,7 @@ import { newId } from '../common/lib/uuidv7';
     StaffModule,
     BreakGlassModule,
     DocumentsModule,
+    PatientsModule,
   ],
   providers: [
     // Guard order: throttler (outer) -> JWT identity -> session/tenant

@@ -62,25 +62,33 @@ model Organization {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  outboxEvents        OutboxEvent[]
-  auditLogs           AuditLog[]
-  idempotencyRecords  IdempotencyRecord[]
-  processedEvents     ProcessedEvent[]
-  counters            Counter[]
-  branches            Branch[]
-  departments         Department[]
-  users               User[]
-  roles               Role[]
-  sessions            Session[]
-  refreshTokens       RefreshToken[]
-  staffProfiles       StaffProfile[]
-  userBranchLinks     UserBranch[]
-  userDepartmentLinks UserDepartment[]
-  userRoleLinks       UserRole[]
-  mfaCredentials      MfaCredential[]
-  mfaRecoveryCodes    MfaRecoveryCode[]
-  breakGlassGrants    BreakGlassGrant[]
-  documents           Document[]
+  outboxEvents         OutboxEvent[]
+  auditLogs            AuditLog[]
+  idempotencyRecords   IdempotencyRecord[]
+  processedEvents      ProcessedEvent[]
+  counters             Counter[]
+  branches             Branch[]
+  departments          Department[]
+  users                User[]
+  roles                Role[]
+  sessions             Session[]
+  refreshTokens        RefreshToken[]
+  staffProfiles        StaffProfile[]
+  userBranchLinks      UserBranch[]
+  userDepartmentLinks  UserDepartment[]
+  userRoleLinks        UserRole[]
+  mfaCredentials       MfaCredential[]
+  mfaRecoveryCodes     MfaRecoveryCode[]
+  breakGlassGrants     BreakGlassGrant[]
+  documents            Document[]
+  patients             Patient[]
+  guardians            Guardian[]
+  patientGuardianLinks PatientGuardian[]
+  consents             PatientConsent[]
+  allergies            Allergy[]
+  medicalHistory       MedicalHistoryEntry[]
+  patientAccessLogs    PatientAccessLog[]
+  patientTimelines     PatientTimelineEntry[]
 }
 
 // ---------------------------------------------------------------------------
@@ -545,16 +553,16 @@ enum DocumentStatus {
 }
 
 model Document {
-  id                 String         @id
-  organizationId     String
-  uploadedByUserId   String
-  fileName           String
-  contentType        String
-  sizeBytes          Int?
-  checksumSha256     String?
-  storageKey         String
-  status             DocumentStatus @default(PENDING_UPLOAD)
-  metadata           Json?
+  id               String         @id
+  organizationId   String
+  uploadedByUserId String
+  fileName         String
+  contentType      String
+  sizeBytes        Int?
+  checksumSha256   String?
+  storageKey       String
+  status           DocumentStatus @default(PENDING_UPLOAD)
+  metadata         Json?
 
   uploadedAt DateTime?
   createdAt  DateTime  @default(now())
@@ -566,4 +574,280 @@ model Document {
   @@unique([organizationId, storageKey])
   @@index([organizationId, status, createdAt])
   @@map("documents")
+}
+
+// ---------------------------------------------------------------------------
+// Patients (brief Phase 2). Master patient record, guardians, consents,
+// allergies, medical history, access logging and a permission-filtered
+// timeline. Patient numbers come from the org-scoped Counter (PAT-YYYY-NNNNNN).
+// ---------------------------------------------------------------------------
+
+enum PatientStatus {
+  ACTIVE
+  MERGED
+  ARCHIVED
+}
+
+enum Sex {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum GuardianRelationship {
+  PARENT
+  SPOUSE
+  SIBLING
+  RELATIVE
+  LEGAL_GUARDIAN
+  OTHER
+}
+
+enum ConsentType {
+  DATA_PROCESSING
+  COMMUNICATIONS
+  TELEMEDICINE
+  DATA_SHARING
+}
+
+enum ConsentStatus {
+  GRANTED
+  WITHDRAWN
+}
+
+enum AllergySeverity {
+  MILD
+  MODERATE
+  SEVERE
+  LIFE_THREATENING
+}
+
+enum AllergyStatus {
+  ACTIVE
+  RESOLVED
+  AMENDED
+}
+
+enum MedicalHistoryCategory {
+  PAST_MEDICAL
+  SURGICAL
+  FAMILY
+  SOCIAL
+  PREVIOUS_CONDITIONS
+}
+
+enum PatientAccessAction {
+  READ
+  EXPORT
+}
+
+model Patient {
+  id             String    @id
+  organizationId String
+  patientNumber  String
+  firstName      String
+  lastName       String
+  otherNames     String?
+  dateOfBirth    DateTime?
+  sex            Sex?
+  phone          String?
+  email          String?
+  address        String?
+  county         String?
+  town           String?
+  photoUrl       String?
+
+  // Duplicate handling: set when the creator confirms the record (or a merge
+  // reviewer confirms it) is a known duplicate despite a flag. History is kept
+  // via audit + timeline; the row itself is never silently deleted.
+  duplicateConfirmedAt   DateTime?
+  duplicateConfirmedBy   String?
+  duplicateConfirmReason String?
+
+  // Reversible-by-design merge: the superseded patient is kept as MEDGED with
+  // a pointer to the surviving record instead of being deleted.
+  status              PatientStatus @default(ACTIVE)
+  mergedIntoPatientId String?
+  mergedAt            DateTime?
+  mergedReason        String?
+
+  // Optimistic concurrency for record edits.
+  version Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization         Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  guardianLinks        PatientGuardian[]
+  consents             PatientConsent[]
+  allergies            Allergy[]
+  medicalHistory       MedicalHistoryEntry[]
+  accessLogs           PatientAccessLog[]
+  timeline             PatientTimelineEntry[]
+  mergedIntoPatient    Patient?               @relation("PatientMerge", fields: [mergedIntoPatientId], references: [id])
+  mergedSourcePatients Patient[]              @relation("PatientMerge")
+
+  @@unique([organizationId, patientNumber])
+  @@index([organizationId, lastName, firstName, dateOfBirth])
+  @@index([organizationId, phone])
+  @@index([organizationId, email])
+  @@map("patients")
+}
+
+model Guardian {
+  id             String  @id
+  organizationId String
+  firstName      String
+  lastName       String
+  phone          String?
+  email          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  patientLinks PatientGuardian[]
+
+  @@unique([organizationId, phone])
+  @@index([organizationId, lastName])
+  @@map("guardians")
+}
+
+model PatientGuardian {
+  id                 String               @id
+  organizationId     String
+  patientId          String
+  guardianId         String
+  relationship       GuardianRelationship
+  isPrimary          Boolean              @default(false)
+  isEmergencyContact Boolean              @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  guardian     Guardian     @relation(fields: [guardianId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, patientId, guardianId])
+  @@index([organizationId, patientId])
+  @@map("patient_guardians")
+}
+
+// One consent row per (patient, type); grant/withdraw toggles status. History
+// is preserved as timeline entries + audit rows (append-only).
+model PatientConsent {
+  id               String        @id
+  organizationId   String
+  patientId        String
+  type             ConsentType
+  status           ConsentStatus @default(GRANTED)
+  grantedAt        DateTime      @default(now())
+  withdrawnAt      DateTime?
+  notes            String?
+  recordedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, patientId, type])
+  @@index([organizationId, patientId])
+  @@map("patient_consents")
+}
+
+// Allergies are never silently deleted: amending records a correction (a new
+// row whose correctedById points at the superseded one, which flips to AMENDED)
+// and resolution flips status to RESOLVED. History is preserved.
+model Allergy {
+  id               String          @id
+  organizationId   String
+  patientId        String
+  substance        String
+  reaction         String?
+  severity         AllergySeverity
+  status           AllergyStatus   @default(ACTIVE)
+  notes            String?
+  recordedByUserId String?
+  correctedById    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, patientId])
+  @@map("allergies")
+}
+
+// Append-only medical history. Corrections are new entries; existing rows are
+// never updated or deleted (exposed API provides only create + list).
+model MedicalHistoryEntry {
+  id               String                 @id
+  organizationId   String
+  patientId        String
+  category         MedicalHistoryCategory
+  description      String
+  onsetDate        DateTime?
+  notes            String?
+  recordedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, patientId, createdAt])
+  @@map("medical_history_entries")
+}
+
+// Access log of patient-record reads. Identifiers only, no PHI: who read which
+// section of which record when, plus request metadata.
+model PatientAccessLog {
+  id             String              @id
+  organizationId String
+  patientId      String
+  userId         String?
+  action         PatientAccessAction @default(READ)
+  section        String
+  reason         String?
+  ip             String?
+  userAgent      String?
+  requestId      String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, patientId, createdAt])
+  @@map("patient_access_logs")
+}
+
+// View-projections of the patient timeline. Written in the same transaction as
+// the business rows (inline projection until outbox consumers land; see ADR).
+// Each entry carries the permission required to read it; reads filter by the
+// caller's permission set.
+model PatientTimelineEntry {
+  id                 String   @id
+  organizationId     String
+  patientId          String
+  type               String
+  title              String
+  requiredPermission String
+  actorId            String?
+  payload            Json?
+  occurredAt         DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, patientId, occurredAt])
+  @@map("patient_timeline_entries")
 }

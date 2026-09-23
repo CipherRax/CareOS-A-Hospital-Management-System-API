@@ -40,6 +40,15 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'BreakGlassGrant',
   // Object storage (Phase 2).
   'Document',
+  // Patients (brief Phase 2).
+  'Patient',
+  'Guardian',
+  'PatientGuardian',
+  'PatientConsent',
+  'Allergy',
+  'MedicalHistoryEntry',
+  'PatientAccessLog',
+  'PatientTimelineEntry',
 ]);
 
 type Op = string;

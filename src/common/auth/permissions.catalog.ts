@@ -46,6 +46,7 @@ export const PERMISSION_GROUPS = {
     create: 'patients.create',
     update: 'patients.update',
     manage: 'patients.manage',
+    merge: 'patients.merge',
   },
   appointments: {
     read: 'appointments.read',
