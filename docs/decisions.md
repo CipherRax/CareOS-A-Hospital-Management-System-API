@@ -3,6 +3,98 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-023 — Device tokens are ingest-scoped bearer credentials, not JWTs
+
+**Status:** accepted (Phase 3 scheduling)
+
+**Context:** waiting-room display devices are unattended and shared; a device
+must be able to read its own queue stream/board and nothing else. JWT issuance
+for every device would require a key-exchange and rotation ceremony on
+hardware we do not control.
+
+**Decision:** pairing (`POST /display/devices/pair`) exchanges a single-use
+`pairingCode` (returned once at `POST /display/devices` registration, hashed at
+rest) for an opaque bearer token `<organizationId>.<32B base64url>`. Only the
+SHA-256 digest is stored; `DeviceAuthGuard` resolves the session and stamps a
+narrow scope (`queue.display`) plus the org id, and the `deviceId` param must
+match the token's session. No JWT, no audience/issuer dance.
+
+**Consequences:** a device token grants exactly one permission — reading the
+waiting-room queue for its org/device — so a leaked token is low-value and
+short-lived; rotation and revocation are explicit endpoints maintained by
+`DisplayService`. Pairing is intentionally org-agnostic (the device has no org
+yet), with attempts throttled per client IP.
+
+## ADR-022 — Realtime via Redis pub/sub; SSE as fire-and-forget views
+
+**Status:** accepted (Phase 3 scheduling)
+
+**Context:** staff and waiting-room displays need near-real-time queue
+updates. Polling every display burns queries; durable per-client event
+replay and delivery guarantees are not in scope for this phase.
+
+**Decision:** domain transitions publish a small PHI-free envelope
+(`{version:1,event,aggregateId,payload:{ticketNumber,departmentId,status}}`)
+to a Redis keyed channel via `REDIS_CLIENT` (tokenized in
+`src/database/redis.tokens.ts` to break the realtime↔redis import cycle).
+Staff (`GET /realtime/queue`) and device (`GET /display/devices/:id/stream`)
+SSE endpoints subscribe per connection, buffer frames, send `: ping`
+heartbeats and an `event: connected` frame. Publish is best-effort
+fire-and-forget; the database remains the source of truth and the device
+`board` is a snapshot for resilience.
+
+**Consequences:** zero long-running persistence, trivial tenant isolation
+(channel keyed by org+department+device; device streams are additionally
+filtered to the session's scope by `forScopes`). The trade-off is no replay:
+an event is lost if the subscriber is not connected in that instant — accepted
+and documented in `docs/limitations.md`.
+
+## ADR-021 — Slot serialization with an advisory lock; capacity, not rows
+
+**Status:** accepted (Phase 3 scheduling)
+
+**Context:** `POST /appointments` must be safe under concurrency: two requests
+for the last slot must yield exactly one 201 and one 409. Counting rows in
+separate transactions is a race; no unique index can express "count >=
+capacity" at the DB layer.
+
+**Decision:** a booking takes a Postgres advisory lock keyed on the
+(org, provider, branch, department, startsAt) tuple inside a transaction, then
+checks capacity as a computed count of occupying rows
+(BOOKED/CONFIRMED/CHECKED_IN/IN_PROGRESS; RESCHEDULED and CANCELLED no longer
+occupy) and their summed attendee count. `serializeDay` reads the same window
+inside a transaction so its slot endpoints line up with in-flight bookings.
+Appointments carry a monotonically increasing `version` for optimistic
+concurrency on reschedule.
+
+**Consequences:** double-booking is a serialized read-then-write with a
+deterministic winner and loser (a shelf full of `UP_` advisory-lock keys, but
+cheap and leak-free inside the tx). Capacity semantics are explicit, so
+rescheduling/cancelling frees capacity immediately. e2e asserts the exact
+one-201-one-409 outcome.
+
+## ADR-020 — Waitlist offers are explicit state, not auto-booking
+
+**Status:** accepted (Phase 3 scheduling)
+
+**Context:** when a slot frees (cancellation/no-show), the highest-priority
+waiter should be given it, but auto-booking a human move is presumptuous and
+offers expire.
+
+**Decision:** a slot freed in the in-window future marks the top
+`WaitlistEntry` as `OFFERED` with `offerExpiresAt` (15 min), the concrete
+`offeredStartAt`, and the slot's provider id persisted on the row so accepting
+reads the slot, not the department's doctor roster. `acceptWaitlistOffer`
+transitions it to `BOOKED` and creates the appointment; a stale OFFERED entry
+is skipped in favor of the next candidate. No recordings of manual end-point
+mutation exist. The provider is validated through `createBooking` (404 if
+unresolvable) rather than a non-null assertion.
+
+**Consequences:** offering is a visible state a coordinator can act on, and
+the accepted appointment carries the exact booked timestamp. Persisting
+`providerId` on the offer removed a real bug where the accepting path
+resolved a null provider (500) when the department had no doctor assigned.
+
 ## ADR-019 — Patient duplicates scored, not blocked; merges are reversible
 
 **Status:** accepted (Phase 2)

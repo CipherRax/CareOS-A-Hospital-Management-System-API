@@ -89,6 +89,16 @@ model Organization {
   medicalHistory       MedicalHistoryEntry[]
   patientAccessLogs    PatientAccessLog[]
   patientTimelines     PatientTimelineEntry[]
+
+  organizationSettings  OrganizationSetting[]
+  providerSchedules     ProviderSchedule[]
+  scheduleOverrides     ScheduleOverride[]
+  appointments          Appointment[]
+  waitlistEntries       WaitlistEntry[]
+  visits                Visit[]
+  queueEntries          QueueEntry[]
+  vitalRecords          VitalRecord[]
+  displayDevices        DisplayDevice[]
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +270,14 @@ model Branch {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   userLinks    UserBranch[]
 
+  providerSchedules ProviderSchedule[]
+  scheduleOverrides ScheduleOverride[]
+  appointments      Appointment[]
+  waitlistEntries   WaitlistEntry[]
+  visits            Visit[]
+  queueEntries      QueueEntry[]
+  displayDevices    DisplayDevice[]
+
   @@unique([organizationId, code])
   @@index([organizationId])
   @@map("branches")
@@ -278,6 +296,13 @@ model Department {
 
   organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   userDepartmentLinks UserDepartment[]
+
+  providerSchedules ProviderSchedule[]
+  scheduleOverrides ScheduleOverride[]
+  appointments      Appointment[]
+  waitlistEntries   WaitlistEntry[]
+  visits            Visit[]
+  queueEntries      QueueEntry[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -316,6 +341,13 @@ model User {
   mfaRecoveryCodes MfaRecoveryCode[]
   breakGlassGrants BreakGlassGrant[]
   documents        Document[]
+
+  providerSchedules       ProviderSchedule[]    @relation("ScheduleProvider")
+  scheduleOverrides       ScheduleOverride[]    @relation("ScheduleOverrideProvider")
+  appointmentsProvided    Appointment[]         @relation("AppointmentProvider")
+  appointmentsCreatedBy   Appointment[]         @relation("AppointmentCreatedBy")
+  visitsRegistered        Visit[]               @relation("VisitRegisteredBy")
+  vitalRecordsRecorded    VitalRecord[]         @relation("VitalRecordedBy")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -687,6 +719,12 @@ model Patient {
   mergedIntoPatient    Patient?               @relation("PatientMerge", fields: [mergedIntoPatientId], references: [id])
   mergedSourcePatients Patient[]              @relation("PatientMerge")
 
+  appointments     Appointment[]
+  waitlistEntries  WaitlistEntry[]
+  visits           Visit[]
+  queueEntries     QueueEntry[]
+  vitalRecords     VitalRecord[]
+
   @@unique([organizationId, patientNumber])
   @@index([organizationId, lastName, firstName, dateOfBirth])
   @@index([organizationId, phone])
@@ -850,4 +888,396 @@ model PatientTimelineEntry {
 
   @@index([organizationId, patientId, occurredAt])
   @@map("patient_timeline_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Scheduling & patient flow (brief Phase 3). Provider schedules and per-day
+// overrides feed computed slots; appointments are booked under an advisory
+// lock (no double booking); waitlist offers; queue + per-day ticket numbers;
+// the visit journey state; append-only vital records; display devices.
+// ---------------------------------------------------------------------------
+
+// Single typed settings row per organization (JSON). Read by a typed helper;
+// appointments/waitlist only today — extended by later phases.
+model OrganizationSetting {
+  id             String @id
+  organizationId String
+  data           Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId])
+  @@map("organization_settings")
+}
+
+// Recurring weekly availability template for a provider in a branch/department.
+// A provider may have several rows per day (morning + evening blocks). Rows
+// with isAvailable=false are standing blocked windows (e.g. weekly meetings).
+model ProviderSchedule {
+  id                 String @id
+  organizationId     String
+  providerId         String
+  branchId           String
+  departmentId       String
+  // 0=MONDAY .. 6=SUNDAY (matches the domain helper, not JS's getDay()).
+  dayOfWeek          Int
+  startMinutes       Int
+  endMinutes         Int
+  slotDurationMinutes Int
+  capacity           Int    @default(1)
+  isAvailable        Boolean @default(true)
+  note               String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  provider     User         @relation("ScheduleProvider", fields: [providerId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, providerId, dayOfWeek])
+  @@index([organizationId, providerId, branchId, departmentId])
+  @@map("provider_schedules")
+}
+
+// Per-date exceptions. LEAVE/HOLIDAY/BLOCKED make the whole day unavailable
+// regardless of the weekly template; WORKING rows replace the template for
+// that date with explicit windows.
+enum ScheduleOverrideType {
+  WORKING
+  LEAVE
+  HOLIDAY
+  BLOCKED
+}
+
+model ScheduleOverride {
+  id             String              @id
+  organizationId String
+  providerId     String
+  branchId       String
+  departmentId   String
+  date           DateTime            // business date (UTC midnight)
+  type           ScheduleOverrideType
+  startMinutes   Int?
+  endMinutes     Int?
+  slotDurationMinutes Int?
+  capacity       Int?
+  note           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  provider     User         @relation("ScheduleOverrideProvider", fields: [providerId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, providerId, date])
+  @@map("schedule_overrides")
+}
+
+enum AppointmentMode {
+  IN_PERSON
+  VIRTUAL
+}
+
+enum AppointmentStatus {
+  BOOKED
+  CONFIRMED
+  CHECKED_IN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  RESCHEDULED
+}
+
+// Appointments. No DB unique on (provider, startsAt): capacity-aware booking
+// is serialized with a Postgres advisory transaction lock keyed to
+// (org, provider, slot start) and then counted under the lock. Free slots are
+// computed; bookings never double-allocate the same slot (see domain + tests).
+model Appointment {
+  id             String            @id
+  organizationId String
+  branchId       String
+  departmentId   String
+  patientId      String
+  providerId     String
+  startsAt       DateTime
+  endsAt         DateTime
+  mode           AppointmentMode   @default(IN_PERSON)
+  appointmentType String?
+  reason         String?
+  status         AppointmentStatus @default(BOOKED)
+
+  // Optimistic concurrency for reschedules/cancels (delete is never used).
+  version Int @default(0)
+
+  createdById  String
+  cancelledAt  DateTime?
+  cancelReason String?
+  cancelledById String?
+  noShowAt     DateTime?
+  checkedInAt  DateTime?
+  inProgressAt DateTime?
+  completedAt  DateTime?
+  rescheduledToId   String?
+  rescheduledFromId String?
+  rescheduledAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  provider     User         @relation("AppointmentProvider", fields: [providerId], references: [id], onDelete: Restrict)
+  createdBy    User         @relation("AppointmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, branchId, startsAt])
+  @@index([organizationId, patientId, startsAt])
+  @@index([organizationId, providerId, startsAt, status])
+  @@map("appointments")
+}
+
+enum WaitlistStatus {
+  WAITING
+  OFFERED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  REMOVED
+}
+
+model WaitlistEntry {
+  id             String        @id
+  organizationId String
+  branchId       String
+  departmentId   String
+  patientId      String
+  providerId     String?
+  preferredDate  DateTime?
+  status         WaitlistStatus @default(WAITING)
+  notes          String?
+
+  // Offer details: the concrete slot offered and its expiry. Accept creates an
+  // appointment at offeredStartAt; decline/expiry may offer the next entrant.
+  offeredAt         DateTime?
+  offerExpiresAt    DateTime?
+  offeredStartAt    DateTime?
+  acceptedAppointmentId String?
+  resolvedAt        DateTime?
+  resolvedById      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, departmentId, status])
+  @@index([organizationId, patientId])
+  @@map("waitlist_entries")
+}
+
+enum VisitSource {
+  WALK_IN
+  APPOINTMENT
+  EMERGENCY
+}
+
+// Journey state: the patient's movement through a visit
+// (REGISTERED, CHECKED_IN, WAITING, TRIAGE, WAITING_FOR_PROVIDER, CONSULTATION,
+//  LAB, RADIOLOGY, PHARMACY, BILLING, COMPLETED). One visit per queue loop.
+enum VisitStatus {
+  REGISTERED
+  CHECKED_IN
+  WAITING
+  TRIAGE
+  WAITING_FOR_PROVIDER
+  CONSULTATION
+  LAB
+  RADIOLOGY
+  PHARMACY
+  BILLING
+  COMPLETED
+}
+
+model Visit {
+  id             String      @id
+  organizationId String
+  branchId       String
+  departmentId   String
+  patientId      String
+  appointmentId  String?
+  source         VisitSource @default(WALK_IN)
+  status         VisitStatus @default(CHECKED_IN)
+
+  // currentQueueEntryId is a plain (non-FK) pointer to the visit's live queue
+  // row; it is cleared when the entry completes/leaves.
+  currentQueueEntryId String?
+
+  registeredById String?
+  registeredAt   DateTime  @default(now())
+  checkedInAt    DateTime?
+  triageAt       DateTime?
+  providerStartedAt DateTime?
+  completedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  registeredBy User?        @relation("VisitRegisteredBy", fields: [registeredById], references: [id], onDelete: SetNull)
+  queueEntries QueueEntry[]
+
+  @@index([organizationId, branchId, status])
+  @@index([organizationId, patientId, createdAt])
+  @@map("visits")
+}
+
+enum OperationalPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum QueueStatus {
+  WAITING
+  CALLED
+  IN_SERVICE
+  COMPLETED
+  NO_SHOW
+  ABANDONED
+  CANCELLED
+  TRANSFERRED
+}
+
+// Queue entry with a per-(branch, department, business-day) ticket number
+// (e.g. "A034"). Ticket sequences reset each business day. Timestamps drive
+// the queue metrics and estimated-wait calculations.
+model QueueEntry {
+  id             String             @id
+  organizationId String
+  branchId       String
+  departmentId   String
+  visitId        String?
+  patientId      String
+  queueDate      DateTime           // business date (UTC midnight)
+  prefix         String             // ticket letter prefix, e.g. "A"
+  ticketNumber   String             // full ticket, e.g. "A034"
+  operationalPriority OperationalPriority @default(NORMAL)
+  status         QueueStatus        @default(WAITING)
+
+  enteredAt        DateTime  @default(now())
+  note             String?
+  calledAt         DateTime?
+  serviceStartedAt DateTime?
+  completedAt      DateTime?
+  noShowAt         DateTime?
+
+  calledByUserId  String?
+  servedByUserId  String?
+  transferredToId   String?
+  transferredFromId String?
+  transferReason    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  visit        Visit?       @relation(fields: [visitId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, branchId, departmentId, queueDate, ticketNumber])
+  @@index([organizationId, branchId, status, queueDate])
+  @@index([organizationId, patientId, queueDate])
+  @@map("queue_entries")
+}
+
+// Append-only vital observations. Corrections create a NEW record referencing
+// the superseded one (correctionOfId); rows are never updated or deleted.
+model VitalRecord {
+  id               String   @id
+  organizationId   String
+  branchId         String?
+  departmentId     String?
+  patientId        String
+  visitId          String?
+
+  temperatureC Float?
+  systolicMmHg  Int?
+  diastolicMmHg Int?
+  pulseBpm      Int?
+  respiratoryRate Int?
+  spo2          Int?
+  weightKg      Float?
+  heightCm      Float?
+  // BMI is always computed in code (domain/bmi.ts) from the same height/weight.
+  bmi           Float?
+  painScore     Int?
+  notes         String?
+  observedAt    DateTime
+
+  correctionOfId  String?
+  correctionReason String?
+  recordedByUserId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  recordedBy   User         @relation("VitalRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, patientId, observedAt])
+  @@map("vital_records")
+}
+
+enum DisplayDeviceStatus {
+  PENDING_PAIRING
+  ACTIVE
+  REVOKED
+}
+
+// Unattended waiting-room display. Pairing swaps a short-lived one-time code
+// for a long-lived revocable device token; the token only ever grants
+// `queue.display` for its own branch/departments (DeviceAuthGuard).
+model DisplayDevice {
+  id                String             @id
+  organizationId    String
+  branchId          String
+  name              String
+  departmentIds     String[]
+  status            DisplayDeviceStatus @default(PENDING_PAIRING)
+
+  pairingCodeHash   String?
+  pairingExpiresAt  DateTime?
+  tokenHash         String?
+  tokenRotatedAt    DateTime?
+  lastSeenAt        DateTime?
+  createdByUserId   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@map("display_devices")
 }

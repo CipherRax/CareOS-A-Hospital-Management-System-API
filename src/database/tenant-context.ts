@@ -28,6 +28,16 @@ export interface TenantScope {
    * the patient ownership policy (PATIENT_ACCESS_DENIED).
    */
   patientId?: string | null;
+  /**
+   * Display-device scope: set only by DeviceAuthGuard for unattended waiting-
+   * room displays. Carries the device id and the branch/departments it may
+   * stream. Enforcement is writer-side, never trusted from the wire.
+   */
+  device?: {
+    deviceId: string;
+    branchId: string;
+    departmentIds: string[];
+  } | null;
 }
 
 export interface ClsStore extends BaseClsStore {
@@ -44,6 +54,7 @@ export const EMPTY_SCOPE: TenantScope = Object.freeze({
   requestId: '',
   isPlatformJob: false,
   patientId: null,
+  device: null,
 });
 
 /**

@@ -48,10 +48,42 @@ export const PERMISSION_GROUPS = {
     manage: 'patients.manage',
     merge: 'patients.merge',
   },
+  schedules: {
+    read: 'schedules.read',
+    manage: 'schedules.manage',
+  },
   appointments: {
     read: 'appointments.read',
     create: 'appointments.create',
     cancel: 'appointments.cancel',
+    reschedule: 'appointments.reschedule',
+    confirm: 'appointments.confirm',
+    checkin: 'appointments.checkin',
+    manage: 'appointments.manage',
+  },
+  waitlist: {
+    read: 'waitlist.read',
+    manage: 'waitlist.manage',
+  },
+  queue: {
+    read: 'queue.read',
+    create: 'queue.create',
+    manage: 'queue.manage',
+    prioritize: 'queue.prioritize',
+  },
+  visits: {
+    read: 'visits.read',
+    update: 'visits.update',
+  },
+  vitals: {
+    read: 'vitals.read',
+    record: 'vitals.record',
+  },
+  display: {
+    devicesManage: 'display.devices.manage',
+    // Device-scoped capability. Granted ONLY to display-device tokens via
+    // DeviceAuthGuard; never assigned to staff roles.
+    queueDisplay: 'queue.display',
   },
   clinicalNotes: {
     read: 'clinical_notes.read',

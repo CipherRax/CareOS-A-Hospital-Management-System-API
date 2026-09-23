@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 69/69 unit |
+| `npm test`   | 123/123 unit (18 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 55/55 (6 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 76/76 (7 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -211,7 +211,102 @@ Done:
   + 404 after, and delete-permission denial. s3rver runs in-process inside the
   globalSetup so e2e exercises real SigV4 traffic without Docker.
 
-## Phase 4 — Next
+## Phase 4 — Scheduling & patient flow (COMPLETE; the brief's Phase 3)
+
+Provider schedules and bookable slots, appointments with optimistic
+concurrency, a waitlist with offers, walk-in queue + visits, append-only
+vitals, queue metrics, realtime SSE (Redis pub/sub), waiting-room display
+devices with pairing, and a live queue board.
+
+Done:
+
+- **Schedules module.** `src/modules/schedules` — weekly/recurring availability
+  templates (`Schedules`) and per-day overrides (`ScheduleOverrides`), with slot
+  serialization in a defined window. Slots are derived from
+  available-from/until minus booked appointments and breaks; today's slots are
+  clamped to the future. Serialization happens inside a transaction so an
+  in-flight booking cannot cross a boundary unmoved.
+- **Appointments.** `src/modules/appointments` — `POST /appointments` books a
+  slot under an advisory per-slot lock; occupancy is capacity-aware
+  (BOOKED/CONFIRMED/CHECKED_IN/IN_PROGRESS), and RESCHEDULED/CANCELLED rows
+  free capacity. A concurrent double-booking yields exactly one 201 and one 409
+  `APPOINTMENT_CONFLICT` (the e2e acceptance). Rows carry a conflicting-slot
+  `version` for optimistic concurrency; `POST /:id/reschedule` (requires
+  `version`, else 400) supersedes the old row (`superseded.status =
+  RESCHEDULED`, `rescheduledFromId` pointer). `GET /appointments` lists with a
+  `page` meta and appointment-status filtering. A doctor assigned to a
+  department backs the booking; missing provider or patient surfaces 404 via
+  `assertPatientAndProvider`.
+- **Waitlist + offers.** `joinWaitlist` creates a `WaitlistEntry`
+  (WAITING/PENDING). When a slot frees (booking CANCELLED/NO_SHOW or an
+  in-window opening), `offerNextWaitlist` marks the top-priority entry OFFERED
+  and persists `offerStartAt/offerExpiresAt/offeredStartAt/providerId`;
+  `acceptWaitlistOffer` turns the offer into a booking and the entry into
+  BOOKED, and refuses manual end-point mutations (patch not implemented).
+  Offers expire after 15 min; a stale OFFERED entry falls through to the next
+  candidate. **Found-and-fixed product bug:** the OFFERED update did not persist
+  `providerId` and `acceptWaitlistOffer` used a non-null assertion that resolved
+  null when no doctor was assigned — it now persists the slot's provider and
+  throws a proper 404 when none resolves.
+- **Queue / walk-in / visits.** `src/modules/queue` — `POST /queue/walk-in`
+  registers (or re-activates a WAITING `Visit`) and issues an org+department
+  ticket number like `W-010`, `O-011`. `POST /queue/:ticket/transition`
+  enforces the flow map WAITING→CALLED/NO_SHOW/ABANDONED/CANCELLED/TRANSFERRED,
+  CALLED→IN_SERVICE/WAITING/NO_SHOW/CANCELLED/TRANSFERRED,
+  IN_SERVICE→COMPLETED/CANCELLED/TRANSFERRED (illegal edges 409
+  `INVALID_WORKFLOW_TRANSITION`; active visits cannot be re-walked in — 409
+  `VISIT_ALREADY_ACTIVE`). Series restarts daily. `GET /queue/metrics` computes
+  `avgCallWaitMinutes` (entered→service), `avgServiceMinutes`
+  (service→completed), `currentlyWaiting`, `abandonmentRate` (NO_SHOW+ABANDONED
+  over finished).
+- **Vitals.** `src/modules/vitals` — append-only triage records
+  (`VitalRecord`) with BMI (+`bmiCategory`), `source`/`notes`, one active
+  record per visit; `correct` marks the prior row `CORRECTED` with a
+  `correctionOfId` pointer, misrecorded rows are never deleted.
+- **Realtime.** `src/modules/realtime` + `src/database/redis.tokens.ts` — a
+  single `REDIS_CLIENT` token breaks the realtime↔redis circular import.
+  `QueueStatusChanged`-style events publish a small envelope
+  `{version:1,event,aggregateId,payload:{ticketNumber,departmentId,status}}`
+  (PHI-free) to a keyed channel; staff `GET /realtime/queue?departmentId=…` and
+  device `GET /display/devices/:id/stream?departmentId=…` SSE subscribe with a
+  per-connection buffer (`: ping` heartbeats, `event: connected` frame).
+- **Display devices + board.** `src/modules/display` — `POST /display/devices`
+  registers a device with a display name under the caller's org and returns a
+  one-time `pairingCode`; `POST /display/devices/pair` exchanges the code
+  (single-use, hashed at rest) for a device token. Paring throttle: 7 invalid
+  attempts → 401, the 8th → 429, keyed by client IP. Pairing is org-agnostic by
+  design (the device is not yet in any org); the token embeds the org id.
+  Device tokens are opaque bearer credentials (`<orgId>.<base64url>`), only the
+  digest is stored, and `DeviceAuthGuard` scopes them to a narrow set
+  (`queue.display` only — a device token cannot read patient data). `GET
+  /display/devices/:id/board` returns the department snapshot (`nowServing`,
+  `called`, `nextUp`, `waitingCount`) for the display.
+- **Schema + RLS (migration `20260923071517_phase3_scheduling`):**
+  schedules/overrides/appointment/waitlist_entry/visit/queue_state/
+  vital_record/device_registration/device_session tables with
+  `tenant_isolation` policies + `GRANT`s, verified against scratch Postgres and
+  applied via `prisma migrate deploy` in e2e.
+- **Permissions + events.** Catalog additions: `schedules.read/manage`,
+  `appointments.read/create/update/reschedule`, `queue.read/walk-in/transition`,
+  `vitals.read/record/correct`, `waitlist.read/join/manage-offers`,
+  `realtime.queue`, `queue.display` (device scope). Roles updated in
+  `role-matrix.ts`. Events `AppointmentBooked`, `WaitlistOfferCreated`,
+  `WaitlistOfferExpired`, `VisitStatusChanged`, `VitalRecorded`,
+  `DisplayDevicePaired`, `DisplaySessionRevoked`.
+- **Acceptance.** `test/e2e/phase3-scheduling.e2e-spec.ts` — 21 tests: slot
+  serialization + guard, double-booking (exactly one 201 / one 409, loser sees
+  the winner), optimistic `version`, reschedule (supersede + freed capacity),
+  waitlist join/offer/accept after a cancel, booking without
+  `appointments.create` → 403, walk-in tickets + transition legal/illegal
+  edges, cross-tenant 404, queue metrics (incl. revisit not contaminating the
+  metrics department — a dedicated `Stats` department is used), SSE
+  tenant-scoped + department-scoped publish on transition, vitals record/correct
+  append-only, display pairing/device-token scope (`queue.display`),
+  `X-Forwarded-For` pairing throttle. Unit suites for slots, booking,
+  waitlist/offers, queue flow + ticket, vitals, and display pairing
+  (18 suites / 123 unit tests total).
+
+## Phase 5 — Next
 
 ## Notes
 
@@ -222,4 +317,8 @@ Done:
   (`@swc/jest`), helpers inline via `.swcrc -> externalHelpers: false`.
 - Phase order follows the build brief (patients is Phase 2). The object-storage
   work was committed earlier under the label "Phase 2" and is documented here as
-  Phase 3; git history is unchanged.
+  Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
+  keep git history unchanged; git history is unchanged.
+- The e2e suite reaches 76 tests across 7 suites (identity, patients,
+  documents, rls, tenant-pipeline, app-boot, and the new phase-3 scheduling
+  spec).

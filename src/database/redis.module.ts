@@ -8,8 +8,9 @@ import {
 import Redis from 'ioredis';
 import type { Env } from '../config/config.module';
 import { ENV } from '../config/config.module';
-
-export const REDIS_CLIENT = Symbol('REDIS_CLIENT');
+import { RealtimeService } from './realtime.service';
+import { REDIS_CLIENT } from './redis.tokens';
+export { REDIS_CLIENT };
 
 @Injectable()
 export class RedisFactory {
@@ -48,9 +49,10 @@ export class RedisLifecycle implements OnApplicationShutdown {
       inject: [ENV, RedisFactory],
       useFactory: (env: Env, factory: RedisFactory): Redis => factory.create(env),
     },
+    RealtimeService,
     RedisLifecycle,
   ],
-  exports: [REDIS_CLIENT],
+  exports: [REDIS_CLIENT, RealtimeService],
 })
 export class CacheModule {}
 

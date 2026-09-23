@@ -49,6 +49,16 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'MedicalHistoryEntry',
   'PatientAccessLog',
   'PatientTimelineEntry',
+  // Scheduling & patient flow (brief Phase 3).
+  'OrganizationSetting',
+  'ProviderSchedule',
+  'ScheduleOverride',
+  'Appointment',
+  'WaitlistEntry',
+  'Visit',
+  'QueueEntry',
+  'VitalRecord',
+  'DisplayDevice',
 ]);
 
 type Op = string;

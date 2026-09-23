@@ -89,6 +89,27 @@ working code with a caveat.
   `src/database` as shared layers; `src/modules` may not reach across module
   boundaries except via shared layers.
 
+- **Realtime is fire-and-forget, not durable (ADR-022).** Queue events are
+  published to Redis as best-effort; an SSE client that connects between a
+  publish and its subscribe misses that event with no replay (the database and
+  the board snapshot remain the truth). Redis unavailability causes silent
+  drops rather than retries. The e2e asserts release/scope, not durability.
+- **Waitlist offer expiry is lazy.** A stale OFFERED entry only rolls over to
+  the next candidate when an accept attempt (or the next offer) encounters it;
+  there is no background sweeper flipping entries to EXPIRED at
+  `offerExpiresAt`. The 15-min expiry is enforced on acceptance, not by a job.
+- **Pairing throttle keys on client IP.** `X-Forwarded-For` (trusted) is used
+  with socket fallback; without a trusted reverse proxy the header can be
+  spoofed. Attempts are also bounded by the shared dev/test throttle so an
+  untrusted environment can still be exercised.
+- **Waiting-room abandonment rate is approximate.** `abandonmentRate` counts
+  NO_SHOW+ABANDONED over finished visits; it reflects the waiting-room flow and
+  the denominator excludes visits still sitting in CALLED/IN_SERVICE at query
+  time, so early queries understate the rate.
+- **Device tokens are opaque and low-scope, but long-lived until revoked.**
+  Rotation/revocation endpoints exist; there is no idle-timeout sweeper, so an
+  abandoned device session stays valid until explicitly revoked.
+
 ## Operational notes
 
 - `test/.e2e.env.json` is **generated** by globalSetup and will hold real

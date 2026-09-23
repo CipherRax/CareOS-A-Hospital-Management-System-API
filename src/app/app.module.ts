@@ -26,6 +26,12 @@ import { StaffModule } from '../modules/staff/staff.module';
 import { BreakGlassModule } from '../modules/break-glass/break-glass.module';
 import { DocumentsModule } from '../modules/documents/documents.module';
 import { PatientsModule } from '../modules/patients/patients.module';
+import { SchedulesModule } from '../modules/schedules/schedules.module';
+import { AppointmentsModule } from '../modules/appointments/appointments.module';
+import { QueueModule } from '../modules/queue/queue.module';
+import { VitalsModule } from '../modules/vitals/vitals.module';
+import { DisplayModule } from '../modules/display/display.module';
+import { RealtimeModule } from '../modules/realtime/realtime.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -67,6 +73,12 @@ import { newId } from '../common/lib/uuidv7';
     BreakGlassModule,
     DocumentsModule,
     PatientsModule,
+    SchedulesModule,
+    AppointmentsModule,
+    QueueModule,
+    VitalsModule,
+    DisplayModule,
+    RealtimeModule,
   ],
   providers: [
     // Guard order: throttler (outer) -> JWT identity -> session/tenant
