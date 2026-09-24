@@ -70,6 +70,14 @@ export const EventTypes = {
   TaskStatusChanged: 'Clinical.TaskStatusChanged',
   CodingSystemImported: 'Reference.CodingSystemImported',
   WorkflowTransitionAdded: 'Clinical.WorkflowTransitionAdded',
+  /** Inventory & pharmacy (brief Phase 5). Payloads carry IDs only. */
+  PrescriptionIssued: 'Pharmacy.PrescriptionIssued',
+  PrescriptionDispensed: 'Pharmacy.PrescriptionDispensed',
+  PrescriptionCancelled: 'Pharmacy.PrescriptionCancelled',
+  StockReceived: 'Pharmacy.StockReceived',
+  StockAdjusted: 'Pharmacy.StockAdjusted',
+  StockTransferReceived: 'Pharmacy.StockTransferReceived',
+  PurchaseOrderReceived: 'Pharmacy.PurchaseOrderReceived',
   /**
    * Test/demo signal used by the Phase 0 harness (see modules/demo and
    * docs/limitations.md). Removed from the catalog before production use.
@@ -141,5 +149,12 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.TaskStatusChanged]: 1,
   [EventTypes.CodingSystemImported]: 1,
   [EventTypes.WorkflowTransitionAdded]: 1,
+  [EventTypes.PrescriptionIssued]: 1,
+  [EventTypes.PrescriptionDispensed]: 1,
+  [EventTypes.PrescriptionCancelled]: 1,
+  [EventTypes.StockReceived]: 1,
+  [EventTypes.StockAdjusted]: 1,
+  [EventTypes.StockTransferReceived]: 1,
+  [EventTypes.PurchaseOrderReceived]: 1,
   [EventTypes.Probe]: 1,
 };

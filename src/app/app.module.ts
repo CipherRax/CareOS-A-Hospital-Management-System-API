@@ -40,6 +40,11 @@ import { CodingModule } from '../modules/coding/coding.module';
 import { FollowUpsModule } from '../modules/follow-ups/follow-ups.module';
 import { ReferralsModule } from '../modules/referrals/referrals.module';
 import { TasksModule } from '../modules/tasks/tasks.module';
+import { MedicationsModule } from '../modules/medications/medications.module';
+import { SuppliersModule } from '../modules/suppliers/suppliers.module';
+import { PurchaseOrdersModule } from '../modules/purchase-orders/purchase-orders.module';
+import { InventoryModule } from '../modules/inventory/inventory.module';
+import { PrescriptionsModule } from '../modules/prescriptions/prescriptions.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -95,6 +100,11 @@ import { newId } from '../common/lib/uuidv7';
     FollowUpsModule,
     ReferralsModule,
     TasksModule,
+    MedicationsModule,
+    SuppliersModule,
+    PurchaseOrdersModule,
+    InventoryModule,
+    PrescriptionsModule,
   ],
   providers: [
     // Guard order: throttler (outer) -> JWT identity -> session/tenant

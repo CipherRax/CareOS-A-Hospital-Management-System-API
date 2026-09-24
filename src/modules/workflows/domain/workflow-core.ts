@@ -17,6 +17,9 @@ export const WORKFLOW_ENTITY_TYPES = [
   'follow_up',
   'referral',
   'task',
+  'prescription',
+  'purchase_order',
+  'stock_transfer',
 ] as const;
 
 export type WorkflowEntityType = (typeof WORKFLOW_ENTITY_TYPES)[number];
@@ -34,6 +37,9 @@ export const WORKFLOW_VALID_STATUSES: Record<WorkflowEntityType, readonly string
   follow_up: ['SCHEDULED', 'REMINDED', 'COMPLETED', 'MISSED', 'CANCELLED'],
   referral: ['CREATED', 'SENT', 'ACCEPTED', 'REJECTED', 'COMPLETED', 'CANCELLED'],
   task: ['OPEN', 'IN_PROGRESS', 'DONE', 'CANCELLED'],
+  prescription: ['DRAFT', 'ISSUED', 'PARTIALLY_DISPENSED', 'DISPENSED', 'CANCELLED'],
+  purchase_order: ['DRAFT', 'SUBMITTED', 'APPROVED', 'ORDERED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CLOSED', 'CANCELLED'],
+  stock_transfer: ['REQUESTED', 'APPROVED', 'IN_TRANSIT', 'RECEIVED', 'CANCELLED'],
 };
 
 /** Built-in, mandatory edges for each entity type (the safe core). */
@@ -73,6 +79,35 @@ export const SYSTEM_TRANSITIONS: Record<WorkflowEntityType, readonly WorkflowEdg
     { fromStatus: 'IN_PROGRESS', toStatus: 'DONE' },
     { fromStatus: 'OPEN', toStatus: 'CANCELLED' },
     { fromStatus: 'IN_PROGRESS', toStatus: 'CANCELLED' },
+  ],
+  prescription: [
+    { fromStatus: 'DRAFT', toStatus: 'ISSUED' },
+    { fromStatus: 'DRAFT', toStatus: 'CANCELLED' },
+    { fromStatus: 'ISSUED', toStatus: 'PARTIALLY_DISPENSED' },
+    { fromStatus: 'ISSUED', toStatus: 'DISPENSED' },
+    { fromStatus: 'ISSUED', toStatus: 'CANCELLED' },
+    { fromStatus: 'PARTIALLY_DISPENSED', toStatus: 'DISPENSED' },
+    { fromStatus: 'PARTIALLY_DISPENSED', toStatus: 'CANCELLED' },
+  ],
+  purchase_order: [
+    { fromStatus: 'DRAFT', toStatus: 'SUBMITTED' },
+    { fromStatus: 'DRAFT', toStatus: 'CANCELLED' },
+    { fromStatus: 'SUBMITTED', toStatus: 'APPROVED' },
+    { fromStatus: 'SUBMITTED', toStatus: 'CANCELLED' },
+    { fromStatus: 'APPROVED', toStatus: 'ORDERED' },
+    { fromStatus: 'APPROVED', toStatus: 'CANCELLED' },
+    { fromStatus: 'ORDERED', toStatus: 'PARTIALLY_RECEIVED' },
+    { fromStatus: 'ORDERED', toStatus: 'RECEIVED' },
+    { fromStatus: 'ORDERED', toStatus: 'CANCELLED' },
+    { fromStatus: 'PARTIALLY_RECEIVED', toStatus: 'RECEIVED' },
+    { fromStatus: 'RECEIVED', toStatus: 'CLOSED' },
+  ],
+  stock_transfer: [
+    { fromStatus: 'REQUESTED', toStatus: 'APPROVED' },
+    { fromStatus: 'REQUESTED', toStatus: 'CANCELLED' },
+    { fromStatus: 'APPROVED', toStatus: 'IN_TRANSIT' },
+    { fromStatus: 'APPROVED', toStatus: 'CANCELLED' },
+    { fromStatus: 'IN_TRANSIT', toStatus: 'RECEIVED' },
   ],
 };
 

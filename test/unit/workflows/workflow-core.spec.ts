@@ -42,7 +42,8 @@ describe('workflow-core', () => {
     it('accepts known types and rejects unknowns', () => {
       expect(isValidWorkflowEntityType('encounter')).toBe(true);
       expect(isValidWorkflowEntityType('task')).toBe(true);
-      expect(isValidWorkflowEntityType('prescription')).toBe(false);
+      expect(isValidWorkflowEntityType('prescription')).toBe(true);
+      expect(isValidWorkflowEntityType('invoice')).toBe(false);
       expect(isValidWorkflowEntityType('$sql')).toBe(false);
     });
   });

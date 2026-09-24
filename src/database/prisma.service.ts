@@ -72,6 +72,19 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'Task',
   'Workflow',
   'WorkflowTransition',
+  // Inventory & pharmacy (brief Phase 5). Keep in sync with prisma/schema.prisma.
+  'Medication',
+  'Supplier',
+  'StockBatch',
+  'InventoryLedgerEntry',
+  'PurchaseOrder',
+  'PurchaseOrderItem',
+  'StockTransfer',
+  'StockTransferItem',
+  'StockCount',
+  'StockCountItem',
+  'Prescription',
+  'PrescriptionItem',
 ]);
 
 type Op = string;

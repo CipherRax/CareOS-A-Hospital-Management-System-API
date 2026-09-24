@@ -3,6 +3,27 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-029 — Money is `Decimal(12, 2)`, surfaced as string; not integer cents
+
+**Status:** accepted (Phase 6 inventory & pharmacy)
+
+**Context:** purchase-order line items carry monetary amounts (unit cost). Two
+representations were possible: integer minor units (cents) or a fixed-precision
+decimal.
+
+**Decision:** all money columns are `Decimal? @db.Decimal(12, 2)` in the
+schema (e.g. `purchase_order_items.unitCost`). Prisma maps these to
+`Prisma.Decimal`, which serializes to a JSON string (e.g. `"12.50"`), so the
+client never touches floating-point cents. Two-fractional-digit arithmetic is
+exact at the DB layer.
+
+**Consequences:** response DTO schemas are documentation-only — the transform
+interceptor wraps responses but does NOT validate them, so a `z.number()` on an
+`unitCost` DTO is never applied to the serialized string (avoid writing numeric
+coercions that would contradict `Prisma.Decimal` on the wire). Invoices/sums
+must not rely on JS float arithmetic; keep totals as `Prisma.Decimal`
+accumulation. No integer-cents ADR or conversion is needed for later phases.
+
 ## ADR-028 — Patient timeline projected from outbox consumers (real consumer)
 
 **Status:** accepted (Phase 4 clinical)

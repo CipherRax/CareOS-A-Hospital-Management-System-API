@@ -127,8 +127,29 @@ export const PERMISSION_GROUPS = {
     manage: 'coding.manage',
   },
   prescriptions: {
+    read: 'prescription.read',
     create: 'prescription.create',
+    update: 'prescription.update',
+    cancel: 'prescription.cancel',
     dispense: 'pharmacy.dispense',
+  },
+  medications: {
+    read: 'medications.read',
+    manage: 'medications.manage',
+  },
+  suppliers: {
+    read: 'suppliers.read',
+    manage: 'suppliers.manage',
+  },
+  purchaseOrders: {
+    read: 'purchase_orders.read',
+    create: 'purchase_orders.create',
+    approve: 'purchase_orders.approve',
+    receive: 'purchase_orders.receive',
+  },
+  inventory: {
+    read: 'inventory.read',
+    manage: 'inventory.manage',
   },
   lab: {
     order: 'lab.order',

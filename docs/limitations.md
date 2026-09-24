@@ -125,6 +125,31 @@ working code with a caveat.
   Organisations may only ADD edges (`workflows.manage`); there is intentionally
   no endpoint to delete or re-create a core edge (ADR-026), so a mis-keyed
   custom edge can only be corrected offline.
+- **Purchase-order cancel is not exposed as an endpoint.** A PO can transition
+  PLACED → RECEIVED / CANCELLED via the service, but no controller route invokes
+  the cancel action, so a placed PO cannot yet be cancelled from the API (the
+  workflow edge exists for a later phase).
+- **Reorder levels are advisory, not schema columns.** `StockBatch` has no
+  `reorderLevel`/`reorderPoint` columns; LOW_STOCK alerts are computed from
+  serialized usage (`reorderDays` heuristic) rather than a static threshold.
+  Supplier/medication reorder defaults are a later phase.
+- **Stock counts only open per branch without a freeze.** `POST
+  /stock/counts` opens a count snapshot of current on-hand for the branch; it
+  does not block concurrent dispensing (a later phase may add a counted-freeze
+  or difference reconciliation). Count application writes the ledger as an
+  ADJUSTMENT leg.
+- **Inventory ledger is append-only via a DB trigger, like `audit_logs`.**
+  `inventory_ledger_entries` rows reject UPDATE/DELETE (same `IF NOT EXISTS`
+  trigger pattern as Phase 0's append-only audit log), so correction is by
+  offsetting entry, not mutation.
+- **Idempotency replays return 200.** The interceptor stores `responseStatus:
+  200` in `complete()`, so a replayed request answers 200 even when the first
+  run returned 201 (ADR-009). `/_demo/outbox` and the dispense e2e assert this.
+- **`lockBatchRows` uses raw SQL that is NOT tenant-transformed.** The FOR
+  UPDATE batch-row lock uses explicit quoted `"organizationId"`/`"branchId"`
+  columns in the WHERE clause (raw statements bypass the Prisma extension);
+  the branch that owns the rows is the one written into the lock call from the
+  request context.
 
 ## Operational notes
 

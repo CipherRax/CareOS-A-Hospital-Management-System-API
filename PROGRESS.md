@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 160/160 unit (24 suites) |
+| `npm test`   | 182/182 unit (27 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 89/89 (8 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 105/105 (9 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -398,7 +398,77 @@ Done:
   diagnosis-flow, and the follow-up/referral/task flows (24 suites / 160 unit
   tests total).
 
-## Phase 6 — Next
+## Phase 6 — Inventory & pharmacy (COMPLETE; the brief's Phase 5)
+
+Medication catalog with optimistic concurrency, suppliers, purchase orders and
+receiving, batch-level stock with FEFO dispensing under concurrency, branch
+transfers, stock counts, an append-only inventory ledger, restock/expiry alerts
+projected from events, prescriptions with a partial-dispense workflow, and a
+pharmacy task outbox consumer.
+
+Done:
+
+- **Medications.** `src/modules/medications` — CRUD with `version` optimistic
+  concurrency (stale update → 409 `VERSION_CONFLICT`), optional `activeIngredient`
+  / `strength` / `form` / `manufacturer`, status gating (DISCONTINUED
+  medications reject dispensing and receiving).
+- **Suppliers.** `src/modules/suppliers` — org-scoped supplier CRUD used by
+  purchase orders.
+- **Purchase orders.** `src/modules/purchase-orders` — full lifecycle
+  DRAFT → PLACED → RECEIVED (or CANCELLED) validated through the workflow
+  engine; illegal moves (received→placed, over-receive) are 409/400. Receiving
+  creates batch stock and emits the inventory ledger. Money is
+  `Decimal(12, 2)` and surfaces as strings (ADR-029).
+- **Inventory.** `src/modules/inventory` — batch stock (`StockBatch`,
+  status AVAILABLE/LOW/RESERVED/EXPIRED), FEFO allocation in a pure domain
+  function (`allocateFefo`: expiry-asc, null-last; can split across batches;
+  all-stock < requested → 409 `INSUFFICIENT_STOCK`, eligible-only shortfall →
+  409 `MEDICATION_EXPIRED`). Dispensing and applied transfers take `FOR UPDATE`
+  batch-row locks (`lockBatchRows`, raw SQL with explicit quoted camelCase
+  columns) so a concurrent last-unit consumption yields exactly one 201 and one
+  409 (e2e asserts). An append-only `InventoryLedgerEntry` (DB trigger blocks
+  UPDATE/DELETE) records RECEIVED / DISPENSED / TRANSFER_OUT / TRANSFER_IN /
+  ADJUSTMENT legs. Branch transfers are two-leg under the same-set lock; stock
+  counts (`StockCount` OPEN → COUNTED → APPLIED) snapshot per-branch on-hand
+  and application writes the ADJUSTMENT leg. `GET /stock/advisories` computes
+  LOW_STOCK + EXPIRY_RISK alerts from serialized usage.
+- **Prescriptions.** `src/modules/prescriptions` — provider-written →
+  OPEN → PARTIALLY_DISPENSED → DISPENSED (or CANCELLED) with the dispatch flow
+  enforcing FEFO per line; repeats on the same prescription are legal until
+  DISPENSED. Integrating directly with dispensing (repeats consume from the
+  same prescription id).
+- **Pharmacy task consumer.** `src/events/consumers/pharmacy-tasks.consumer.ts`
+  — a real `OutboxConsumer` ("pharmacy-tasks") listening to 7 pharmacy events
+  and opening/driving a pharmacy `Task` per prescription (deterministic task id
+  = prescriptionId, so replays are idempotent); `createdById` resolves the
+  actor (or the prescription provider) because `task.createdById` is a strict
+  FK to `user` and no system user exists.
+- **Schema + RLS (migration `20260924120000_phase5_inventory_pharmacy`):**
+  medication, supplier, purchase_order, purchase_order_item, stock_batch,
+  inventory_ledger_entry, stock_transfer, stock_transfer_item, stock_count,
+  stock_count_item, prescription, prescription_item tables with
+  `tenant_isolation` policies + `GRANT`s and an append-only
+  `inventory_ledger_entries` trigger, verified against scratch Postgres and
+  applied via `prisma migrate deploy` in e2e.
+- **Permissions + events.** Catalog additions: `medications.read/create/update`,
+  `suppliers.*`, `inventory.*` (receive, dispense, transfer, counts),
+  `purchase_orders.*`, `prescriptions.*`. `role-matrix.ts` grants unit roles
+  (PHARMACIST, PHARMACY_TECH, INVENTORY_OFFICER, HOSPITAL_ADMIN) the inventory /
+  pharmacy groups; `doctor` keeps `prescriptions.create/read` but NOT
+  `pharmacy.dispense`. New events: `Pharmacy.*` (medication, receive, dispense,
+  transfer, count, purchase-order, prescription).
+- **Acceptance.** `test/e2e/phase5-inventory.e2e-spec.ts` — 16 tests: catalog
+  CRUD + optimistic lock, suppliers, receiving (batch row, ledger leg),
+  FEFO split dispense (near-expiry batch drained before the distant one),
+  insufficient / expired 409s, concurrent last-unit dispense (one 201 / one 409),
+  PO lifecycle + illegal moves + over-receive, branch transfer both ledger legs,
+  stock count create→record→apply (on-hand reset + ADJUSTMENT leg), alerts,
+  pharmacy task projection under replay, role separation (doctor cannot
+  dispense), idempotency-key replay (200 cached response, no double-dispense).
+  The idempotency-replay status (200) and the raw-SQL `lockBatchRows` caveat
+  are documented in `docs/limitations.md`. Unit suites added for
+  fefo, stock-risk/ledger, and the prescription-flow / po-flow domains (27
+  suites / 182 unit tests total).
 
 ## Notes
 
@@ -411,6 +481,6 @@ Done:
   work was committed earlier under the label "Phase 2" and is documented here as
   Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
   keep git history unchanged; git history is unchanged.
-- The e2e suite reaches 89 tests across 8 suites (identity, patients,
-  documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, and the new
-  phase-4 clinical spec).
+- The e2e suite reaches 105 tests across 9 suites (identity, patients,
+  documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, the phase-4
+  clinical spec, and the phase-5 inventory/pharmacy spec).
