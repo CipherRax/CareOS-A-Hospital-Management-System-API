@@ -37,7 +37,7 @@ import type {
 } from './dto/billing.dto';
 
 /**
- * Billing & invoicing (brief Phase 6): org price-list (billable items),
+ * Billing & invoicing (brief Phase 7): org price-list (billable items),
  * invoices (DRAFT → ISSUED → … → PAID), payments (desk settlement with
  * atomic balance guards), and insurance (payers → patient policies → claims).
  *

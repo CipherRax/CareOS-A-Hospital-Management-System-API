@@ -126,13 +126,25 @@ model Organization {
   prescriptions          Prescription[]
   prescriptionItems      PrescriptionItem[]
 
-  billableItems           BillableItem[]
-  invoices                Invoice[]
-  invoiceItems            InvoiceItem[]
-  payments                Payment[]
-  insurancePayers         InsurancePayer[]
+  billableItems            BillableItem[]
+  invoices                 Invoice[]
+  invoiceItems             InvoiceItem[]
+  payments                 Payment[]
+  insurancePayers          InsurancePayer[]
   patientInsurancePolicies PatientInsurancePolicy[]
-  insuranceClaims         InsuranceClaim[]
+  insuranceClaims          InsuranceClaim[]
+
+  labTestCategories LabTestCategory[]
+  labTests          LabTest[]
+  labTestFields     LabTestField[]
+  labOrders         LabOrder[]
+  labOrderItems     LabOrderItem[]
+  labSamples        LabSample[]
+  labResults        LabResult[]
+  labResultVersions LabResultVersion[]
+  criticalResults   CriticalResult[]
+  radiologyOrders   RadiologyOrder[]
+  imagingReports    ImagingReport[]
 }
 
 // ---------------------------------------------------------------------------
@@ -316,13 +328,16 @@ model Branch {
   stockBatches           StockBatch[]
   inventoryLedgerEntries InventoryLedgerEntry[]
   purchaseOrders         PurchaseOrder[]
-  stockTransfersFrom     StockTransfer[]           @relation("TransferFromBranch")
-  stockTransfersTo       StockTransfer[]           @relation("TransferToBranch")
+  stockTransfersFrom     StockTransfer[]        @relation("TransferFromBranch")
+  stockTransfersTo       StockTransfer[]        @relation("TransferToBranch")
   stockCounts            StockCount[]
   prescriptions          Prescription[]
 
-  billableItems BillableItem[]
-  invoices      Invoice[]
+  billableItems   BillableItem[]
+  invoices        Invoice[]
+  labOrders       LabOrder[]
+  labSamples      LabSample[]
+  radiologyOrders RadiologyOrder[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -794,6 +809,10 @@ model Patient {
   payments          Payment[]
   insurancePolicies PatientInsurancePolicy[]
   insuranceClaims   InsuranceClaim[]
+
+  labOrders       LabOrder[]
+  labSamples      LabSample[]
+  radiologyOrders RadiologyOrder[]
 
   @@unique([organizationId, patientNumber])
   @@index([organizationId, lastName, firstName, dateOfBirth])
@@ -1862,25 +1881,25 @@ model Medication {
   genericName    String?
   strength       String?
   form           String?
-  unit           String           @default("unit")
+  unit           String            @default("unit")
   sku            String?
   barcode        String?
-  isControlled   Boolean          @default(false)
-  isActive       Boolean          @default(true)
-  version        Int              @default(0)
+  isControlled   Boolean           @default(false)
+  isActive       Boolean           @default(true)
+  version        Int               @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  batches             StockBatch[]
-  ledgerEntries       InventoryLedgerEntry[]
-  purchaseOrderItems  PurchaseOrderItem[]
-  transferItems       StockTransferItem[]
-  countItems          StockCountItem[]
-  prescriptionItems   PrescriptionItem[]
-  invoiceItems        InvoiceItem[]
+  batches            StockBatch[]
+  ledgerEntries      InventoryLedgerEntry[]
+  purchaseOrderItems PurchaseOrderItem[]
+  transferItems      StockTransferItem[]
+  countItems         StockCountItem[]
+  prescriptionItems  PrescriptionItem[]
+  invoiceItems       InvoiceItem[]
 
   @@unique([organizationId, name, genericName, strength, form, unit])
   @@index([organizationId, isActive])
@@ -1889,7 +1908,7 @@ model Medication {
 
 // Vendor / distributor a facility buys from.
 model Supplier {
-  id             String   @id
+  id             String  @id
   organizationId String
   name           String
   contactName    String?
@@ -1897,7 +1916,7 @@ model Supplier {
   email          String?
   address        String?
   taxNumber      String?
-  isActive       Boolean  @default(true)
+  isActive       Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1977,7 +1996,7 @@ model InventoryLedgerEntry {
 }
 
 model PurchaseOrder {
-  id             String             @id
+  id             String              @id
   organizationId String
   branchId       String
   supplierId     String
@@ -1993,7 +2012,7 @@ model PurchaseOrder {
   approvedAt    DateTime?
   receivedAt    DateTime?
   closedAt      DateTime?
-  version       Int                 @default(0)
+  version       Int       @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2010,19 +2029,19 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderItem {
-  id             String   @id
-  organizationId String
-  purchaseOrderId String
-  medicationId   String
-  quantityOrdered Int
-  quantityReceived Int    @default(0)
-  unitCost       Decimal? @db.Decimal(12, 2)
+  id               String   @id
+  organizationId   String
+  purchaseOrderId  String
+  medicationId     String
+  quantityOrdered  Int
+  quantityReceived Int      @default(0)
+  unitCost         Decimal? @db.Decimal(12, 2)
 
   createdAt DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  medication   Medication   @relation(fields: [medicationId], references: [id], onDelete: Restrict)
+  medication    Medication    @relation(fields: [medicationId], references: [id], onDelete: Restrict)
 
   @@index([organizationId, purchaseOrderId])
   @@map("purchase_order_items")
@@ -2060,7 +2079,7 @@ model StockTransfer {
 }
 
 model StockTransferItem {
-  id             String        @id
+  id             String  @id
   organizationId String
   transferId     String
   medicationId   String
@@ -2069,10 +2088,10 @@ model StockTransferItem {
 
   createdAt DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   transfer     StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
-  medication   Medication   @relation(fields: [medicationId], references: [id], onDelete: Restrict)
-  batch        StockBatch?  @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  medication   Medication    @relation(fields: [medicationId], references: [id], onDelete: Restrict)
+  batch        StockBatch?   @relation(fields: [batchId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, transferId])
   @@map("stock_transfer_items")
@@ -2101,20 +2120,20 @@ model StockCount {
 }
 
 model StockCountItem {
-  id             String   @id
-  organizationId String
-  countId        String
-  medicationId   String
-  batchId        String?
-  systemQuantity Int
+  id              String  @id
+  organizationId  String
+  countId         String
+  medicationId    String
+  batchId         String?
+  systemQuantity  Int
   countedQuantity Int
 
   createdAt DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  count        StockCount  @relation(fields: [countId], references: [id], onDelete: Cascade)
-  medication   Medication  @relation(fields: [medicationId], references: [id], onDelete: Restrict)
-  batch        StockBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  count        StockCount   @relation(fields: [countId], references: [id], onDelete: Cascade)
+  medication   Medication   @relation(fields: [medicationId], references: [id], onDelete: Restrict)
+  batch        StockBatch?  @relation(fields: [batchId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, countId])
   @@map("stock_count_items")
@@ -2124,12 +2143,12 @@ model StockCountItem {
 // dispensed once; status walks DRAFT → ISSUED → (PARTIALLY_)DISPENSED; CANCELLED
 // closes an ISSUED/partial prescription.
 model Prescription {
-  id             String              @id
+  id             String             @id
   organizationId String
   branchId       String
   patientId      String
   providerId     String
-  status         PrescriptionStatus  @default(DRAFT)
+  status         PrescriptionStatus @default(DRAFT)
   notes          String?
   issuedById     String?
   issuedAt       DateTime?
@@ -2137,7 +2156,7 @@ model Prescription {
   cancelledById  String?
   cancelledAt    DateTime?
   cancelReason   String?
-  version        Int                 @default(0)
+  version        Int                @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2155,16 +2174,16 @@ model Prescription {
 }
 
 model PrescriptionItem {
-  id             String   @id
-  organizationId String
-  prescriptionId String
-  medicationId   String
-  quantity       Int
+  id                String  @id
+  organizationId    String
+  prescriptionId    String
+  medicationId      String
+  quantity          Int
   dispensedQuantity Int     @default(0)
-  dosage         String?
-  frequency      String?
-  durationDays   Int?
-  instructions   String?
+  dosage            String?
+  frequency         String?
+  durationDays      Int?
+  instructions      String?
 
   createdAt DateTime @default(now())
 
@@ -2177,7 +2196,7 @@ model PrescriptionItem {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Billing & invoicing (brief Phase 6)
+// Billing & invoicing (brief Phase 7)
 // ═══════════════════════════════════════════════════════════════════════════
 
 enum BillableItemCategory {
@@ -2235,16 +2254,16 @@ enum ClaimStatus {
 // Org price-list item a facility charges for. Prices are money
 // (ADR-029): Decimal(12, 2), surfaced to clients as strings.
 model BillableItem {
-  id             String               @id
-  organizationId String
-  branchId       String?
-  category       BillableItemCategory
-  name           String
-  description    String?
-  price          Decimal              @db.Decimal(12, 2)
-  isActive          Boolean @default(true)
-  insuranceEligible Boolean @default(false)
-  version           Int     @default(0)
+  id                String               @id
+  organizationId    String
+  branchId          String?
+  category          BillableItemCategory
+  name              String
+  description       String?
+  price             Decimal              @db.Decimal(12, 2)
+  isActive          Boolean              @default(true)
+  insuranceEligible Boolean              @default(false)
+  version           Int                  @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2276,8 +2295,8 @@ model Invoice {
   encounterId String?
 
   subtotal       Decimal @db.Decimal(12, 2)
-  discountAmount Decimal @db.Decimal(12, 2) @default(0)
-  taxAmount      Decimal @db.Decimal(12, 2) @default(0)
+  discountAmount Decimal @default(0) @db.Decimal(12, 2)
+  taxAmount      Decimal @default(0) @db.Decimal(12, 2)
   total          Decimal @db.Decimal(12, 2)
   balanceDue     Decimal @db.Decimal(12, 2)
 
@@ -2286,13 +2305,13 @@ model Invoice {
   issuedById String?
   issuedAt   DateTime?
 
-  cancelledById  String?
-  cancelledAt    DateTime?
-  cancelReason   String?
-  refundedById   String?
-  refundedAt     DateTime?
-  refundReason   String?
-  version        Int     @default(0)
+  cancelledById String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+  refundedById  String?
+  refundedAt    DateTime?
+  refundReason  String?
+  version       Int       @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2315,23 +2334,23 @@ model Invoice {
 // price-list edit never rewrites history. referenceType/referenceId pin the
 // source document (prescription, encounter, visit, ...) as a soft link.
 model InvoiceItem {
-  id             String   @id
+  id             String  @id
   organizationId String
   invoiceId      String
   billableItemId String?
   medicationId   String?
   description    String
   quantity       Int
-  unitPrice      Decimal  @db.Decimal(12, 2)
-  lineTotal      Decimal  @db.Decimal(12, 2)
+  unitPrice      Decimal @db.Decimal(12, 2)
+  lineTotal      Decimal @db.Decimal(12, 2)
   referenceType  String?
   referenceId    String?
   createdById    String?
 
   createdAt DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  invoice      Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice      Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   billableItem BillableItem? @relation(fields: [billableItemId], references: [id], onDelete: SetNull)
   medication   Medication?   @relation(fields: [medicationId], references: [id], onDelete: SetNull)
 
@@ -2343,21 +2362,21 @@ model InvoiceItem {
 // move it (atomic status guards prevent double-apply). COMPLETED payments
 // reduce the invoice's balanceDue in the same transaction; refunds restore it.
 model Payment {
-  id             String         @id
-  organizationId String
-  invoiceId      String
-  patientId      String
-  receiptNumber  String
-  amount         Decimal        @db.Decimal(12, 2)
-  method         PaymentMethod
-  status         PaymentStatus  @default(PENDING)
+  id                String        @id
+  organizationId    String
+  invoiceId         String
+  patientId         String
+  receiptNumber     String
+  amount            Decimal       @db.Decimal(12, 2)
+  method            PaymentMethod
+  status            PaymentStatus @default(PENDING)
   externalReference String?
-  note           String?
-  recordedById   String?
-  recordedAt     DateTime?
-  refundedById   String?
-  refundedAt     DateTime?
-  refundReason   String?
+  note              String?
+  recordedById      String?
+  recordedAt        DateTime?
+  refundedById      String?
+  refundedAt        DateTime?
+  refundReason      String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2411,8 +2430,8 @@ model PatientInsurancePolicy {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  patient      Patient        @relation(fields: [patientId], references: [id], onDelete: Restrict)
   payer        InsurancePayer @relation(fields: [payerId], references: [id], onDelete: Restrict)
 
   claims InsuranceClaim[]
@@ -2437,29 +2456,427 @@ model InsuranceClaim {
   status         ClaimStatus @default(DRAFT)
   notes          String?
 
-  submittedById      String?
-  submittedAt        DateTime?
-  approvedById       String?
-  approvedAt         DateTime?
-  approvedAmount     Decimal? @db.Decimal(12, 2)
-  deniedById         String?
-  deniedAt           DateTime?
-  denyReason         String?
-  paidById           String?
-  paidAt             DateTime?
-  version            Int      @default(0)
+  submittedById  String?
+  submittedAt    DateTime?
+  approvedById   String?
+  approvedAt     DateTime?
+  approvedAmount Decimal?  @db.Decimal(12, 2)
+  deniedById     String?
+  deniedAt       DateTime?
+  denyReason     String?
+  paidById       String?
+  paidAt         DateTime?
+  version        Int       @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  invoice      Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice      Invoice                @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
   policy       PatientInsurancePolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
-  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  patient      Patient                @relation(fields: [patientId], references: [id], onDelete: Restrict)
 
   @@unique([organizationId, claimNumber])
   @@index([organizationId, invoiceId])
   @@index([organizationId, patientId, createdAt])
   @@index([organizationId, status])
   @@map("insurance_claims")
+}
+
+// ============================================================================
+// Laboratory & radiology (brief Phase 6)
+//
+// LabOrders are the workflow aggregate (entity type 'lab_order'); LabSample
+// mirrors the order's progress through a pure status mapping (both are updated
+// in the same transaction, so they never drift). Results are versioned:
+// routine corrections produce a new LabResultVersion, and post-release edits
+// are amendments that keep the original author + a revisionReason. Reference
+// ranges and critical thresholds live on LabTestField (org-configured); the
+// abnormal/critical flags are pure functions of those configured values only.
+// Radiology keeps its own order workflow ('radiology_order'); DICOM is out of
+// scope (ImagingProvider/PacsGateway interfaces are no-op in src/integrations).
+// ============================================================================
+
+enum LabTestFieldType {
+  NUMERIC
+  TEXT
+  CATEGORICAL
+}
+
+enum LabOrderStatus {
+  ORDERED
+  COLLECTED
+  RECEIVED
+  PROCESSING
+  RESULT_READY
+  VERIFIED
+  RELEASED
+  REJECTED
+  CANCELLED
+}
+
+enum LabSampleStatus {
+  ORDERED
+  COLLECTED
+  RECEIVED
+  PROCESSING
+  COMPLETED
+  REJECTED
+}
+
+enum LabSampleType {
+  BLOOD
+  URINE
+  STOOL
+  SWAB
+  SPUTUM
+  TISSUE
+  FLUID
+  OTHER
+}
+
+enum LabOrderPriority {
+  ROUTINE
+  URGENT
+  STAT
+}
+
+enum RadiologyOrderStatus {
+  ORDERED
+  SCHEDULED
+  PERFORMED
+  REPORTED
+  VERIFIED
+  RELEASED
+  CANCELLED
+}
+
+enum ImagingModality {
+  XRAY
+  CT
+  MRI
+  ULTRASOUND
+  MAMMOGRAPHY
+  DEXA
+  FLUOROSCOPY
+  OTHER
+}
+
+// A grouping of panel-style lab tests (e.g. Hematology, Biochemistry).
+model LabTestCategory {
+  id             String  @id
+  organizationId String
+  name           String
+  description    String?
+  isActive       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  tests        LabTest[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, isActive])
+  @@map("lab_test_categories")
+}
+
+// A lab test offered by the facility. version enables optimistic locking on
+// catalog edits; no price here (pricing is a billing (Phase 7) concern).
+model LabTest {
+  id                   String        @id
+  organizationId       String
+  code                 String
+  name                 String
+  categoryId           String?
+  sampleType           LabSampleType @default(OTHER)
+  specimenInstructions String?
+  isActive             Boolean       @default(true)
+  version              Int           @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  category     LabTestCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  fields       LabTestField[]
+  orderItems   LabOrderItem[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, name])
+  @@index([organizationId, categoryId, isActive])
+  @@map("lab_tests")
+}
+
+// A measurable/output field of a test with org-configured units, reference
+// range and critical thresholds. NUMERIC carries the ranges; TEXT/CATEGORICAL
+// may define allowed values (allowsValues). Flags are derived FROM THESE ONLY.
+model LabTestField {
+  id             String           @id
+  organizationId String
+  testId         String
+  name           String
+  fieldType      LabTestFieldType @default(NUMERIC)
+  unit           String?
+  referenceMin   Decimal?         @db.Decimal(12, 4)
+  referenceMax   Decimal?         @db.Decimal(12, 4)
+  criticalMin    Decimal?         @db.Decimal(12, 4)
+  criticalMax    Decimal?         @db.Decimal(12, 4)
+  allowsValues   String?
+  displayOrder   Int              @default(0)
+  isActive       Boolean          @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  test         LabTest      @relation(fields: [testId], references: [id], onDelete: Cascade)
+  results      LabResult[]
+
+  @@index([organizationId, testId, isActive])
+  @@map("lab_test_fields")
+}
+
+// A laboratory order (workflow aggregate). encounterId is a soft pointer to
+// the source encounter/visit (RLS scoping follows patientId+branchId). When a
+// sample is rejected and re-collected, a NEW order is linked via
+// LabSample.recollectsFromOrderId; rememberingOrderId points back for audit.
+model LabOrder {
+  id              String           @id
+  organizationId  String
+  orderNumber     String
+  patientId       String
+  branchId        String
+  encounterId     String?
+  status          LabOrderStatus   @default(ORDERED)
+  priority        LabOrderPriority @default(ROUTINE)
+  clinicalNotes   String?
+  orderedById     String?
+  orderedAt       DateTime         @default(now())
+  rejectionReason String?
+  cancelledById   String?
+  cancelledAt     DateTime?
+  cancelledReason String?
+  releasedById    String?
+  releasedAt      DateTime?
+  version         Int              @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  items   LabOrderItem[]
+  samples LabSample[]
+
+  @@unique([organizationId, orderNumber])
+  @@index([organizationId, patientId, createdAt])
+  @@index([organizationId, branchId, status, createdAt])
+  @@map("lab_orders")
+}
+
+// A line of a lab order - pins the catalog test that was ordered.
+model LabOrderItem {
+  id             String  @id
+  organizationId String
+  orderId        String
+  testId         String
+  notes          String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  order        LabOrder     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  test         LabTest      @relation(fields: [testId], references: [id], onDelete: Restrict)
+
+  results LabResult[]
+
+  @@unique([organizationId, orderId, testId])
+  @@index([organizationId, orderId])
+  @@map("lab_order_items")
+}
+
+// The physical specimen. Number LAB-SMP-<YYYY>-<xxxxxx> via the org counter
+// 'lab_sample_number'. Status mirrors the order through a pure mapping and is
+// kept in sync inside the same transaction as the order transition.
+model LabSample {
+  id             String          @id
+  organizationId String
+  sampleNumber   String
+  orderId        String
+  patientId      String
+  branchId       String
+  sampleType     LabSampleType   @default(BLOOD)
+  status         LabSampleStatus @default(ORDERED)
+
+  collectedById         String?
+  collectedAt           DateTime?
+  receivedById          String?
+  receivedAt            DateTime?
+  processingById        String?
+  processingAt          DateTime?
+  completedById         String?
+  completedAt           DateTime?
+  rejectedAt            DateTime?
+  rejectedReason        String?
+  recollectsFromOrderId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  order        LabOrder     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, sampleNumber])
+  @@index([organizationId, orderId])
+  @@index([organizationId, patientId, createdAt])
+  @@index([organizationId, status])
+  @@map("lab_samples")
+}
+
+// A result value, one per (order item, test field). createdBy/verifiedBy and
+// versioned history live on versions; the latest version is denormalized.
+model LabResult {
+  id             String  @id
+  organizationId String
+  orderItemId    String
+  testFieldId    String
+  currentVersion Int     @default(1)
+  value          String
+  isAbnormal     Boolean @default(false)
+  isCritical     Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  orderItem    LabOrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  testField    LabTestField @relation(fields: [testFieldId], references: [id], onDelete: Restrict)
+
+  versions    LabResultVersion[]
+  criticality CriticalResult?
+
+  @@unique([organizationId, orderItemId, testFieldId])
+  @@index([organizationId, testFieldId])
+  @@map("lab_results")
+}
+
+// Immutable history. If the result is entered/held then corrected on
+// version 1, revisionNumber stays 1 with reason = correction; a change AFTER
+// RELEASE bumps revisionNumber and requires reason (an amendment, as the brief
+// requires an audit trail for changes after release).
+model LabResultVersion {
+  id             String    @id
+  organizationId String
+  resultId       String
+  revisionNumber Int       @default(1)
+  value          String
+  isAbnormal     Boolean   @default(false)
+  isCritical     Boolean   @default(false)
+  enteredById    String?
+  verifiedById   String?
+  verifiedAt     DateTime?
+  amended        Boolean   @default(false)
+  reason         String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  result       LabResult    @relation(fields: [resultId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, resultId, revisionNumber])
+  @@index([organizationId, resultId])
+  @@map("lab_result_versions")
+}
+
+// A critical result awaiting clinical acknowledgement. Release is blocked
+// until every flagged result has been acknowledged. notifiedToId is the
+// ordering clinician (order.orderedById) unless otherwise set.
+model CriticalResult {
+  id               String    @id
+  organizationId   String
+  resultId         String    @unique
+  notifiedToId     String
+  notifiedAt       DateTime  @default(now())
+  acknowledgedById String?
+  acknowledgedAt   DateTime?
+  escalationAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  result       LabResult    @relation(fields: [resultId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, resultId])
+  @@index([organizationId, acknowledgedById, acknowledgedAt])
+  @@map("critical_results")
+}
+
+// A radiology order (workflow aggregate, entity 'radiology_order').
+model RadiologyOrder {
+  id              String               @id
+  organizationId  String
+  orderNumber     String
+  patientId       String
+  branchId        String
+  encounterId     String?
+  modality        ImagingModality      @default(OTHER)
+  region          String?
+  status          RadiologyOrderStatus @default(ORDERED)
+  clinicalNotes   String?
+  orderedById     String?
+  orderedAt       DateTime             @default(now())
+  requestedAt     DateTime?
+  performedById   String?
+  performedAt     DateTime?
+  cancelledById   String?
+  cancelledAt     DateTime?
+  cancelledReason String?
+  releasedById    String?
+  releasedAt      DateTime?
+  version         Int                  @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  report ImagingReport?
+
+  @@unique([organizationId, orderNumber])
+  @@index([organizationId, patientId, createdAt])
+  @@index([organizationId, branchId, status, createdAt])
+  @@map("radiology_orders")
+}
+
+// 1:1 radiology report. Finding/summary entered then verified then released
+// with the order; attachments are document URLs (storage handled elsewhere).
+model ImagingReport {
+  id             String    @id
+  organizationId String
+  orderId        String    @unique
+  findings       String?
+  summary        String?
+  impression     String?
+  enteredById    String?
+  enteredAt      DateTime?
+  verifiedById   String?
+  verifiedAt     DateTime?
+  version        Int       @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  order        RadiologyOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, orderId])
+  @@map("imaging_reports")
 }

@@ -45,6 +45,8 @@ describe('workflow-core', () => {
       expect(isValidWorkflowEntityType('prescription')).toBe(true);
       expect(isValidWorkflowEntityType('invoice')).toBe(true);
       expect(isValidWorkflowEntityType('insurance_claim')).toBe(true);
+      expect(isValidWorkflowEntityType('lab_order')).toBe(true);
+      expect(isValidWorkflowEntityType('radiology_order')).toBe(true);
       expect(isValidWorkflowEntityType('$sql')).toBe(false);
     });
   });
@@ -124,6 +126,14 @@ describe('workflow-core', () => {
         ['task', ['DONE', 'OPEN']], // terminal → reopen
         ['referral', ['ACCEPTED', 'SENT']],
         ['diagnosis', ['RESOLVED', 'ACTIVE']],
+        ['lab_order', ['ORDERED', 'PROCESSING']], // skip straight to processing
+        ['lab_order', ['REJECTED', 'COLLECTED']], // terminal rejection → reopen
+        ['lab_order', ['VERIFIED', 'RESULT_READY']], // un-verify
+        ['lab_order', ['PROCESSING', 'CANCELLED']], // too late to cancel
+        ['lab_order', ['RESULT_READY', 'RELEASED']], // skip verification
+        ['radiology_order', ['ORDERED', 'PERFORMED']],
+        ['radiology_order', ['VERIFIED', 'REPORTED']],
+        ['radiology_order', ['CANCELLED', 'SCHEDULED']],
       ];
       for (const [entityType, [from, to]] of cases) {
         try {

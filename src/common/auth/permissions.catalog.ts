@@ -152,9 +152,20 @@ export const PERMISSION_GROUPS = {
     manage: 'inventory.manage',
   },
   lab: {
+    read: 'lab.read',
     order: 'lab.order',
+    collect: 'lab.collect',
     process: 'lab.process',
     verify: 'lab.verify',
+    release: 'lab.release',
+    acknowledge: 'lab.acknowledge',
+  },
+  radiology: {
+    read: 'radiology.read',
+    order: 'radiology.order',
+    process: 'radiology.process',
+    verify: 'radiology.verify',
+    release: 'radiology.release',
   },
   pharmacy: {
     dispense: 'pharmacy.dispense',

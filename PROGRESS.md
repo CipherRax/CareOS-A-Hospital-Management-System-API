@@ -470,7 +470,7 @@ Done:
   fefo, stock-risk/ledger, and the prescription-flow / po-flow domains (27
   suites / 182 unit tests total).
 
-## Phase 6 — Billing & invoicing (COMPLETE; the brief's Phase 6)
+## Phase 7 — Billing & invoicing (COMPLETE; the brief's Phase 7)
 
 Price list, invoices, payments, and insurance claims with money kept as
 `Decimal(12, 2)` and surfaced as strings (ADR-029, `toFixed(2)`). Invoices and
@@ -534,6 +534,85 @@ Done:
   action guards) and `billing-number` (counter keys + formatting) — 29 suites /
   196 unit tests total.
 
+## Phase 8 — Laboratory & radiology (COMPLETE; the brief's Phase 6)
+
+Org-configurable lab-test catalog, order/sample/results lifecycle on the
+workflow engine, and a radiology order + imaging-report flow behind seams
+(`ImagingProvider` / `PacsGateway`) so modality/PACS integration can land later
+without touching the domain.
+
+Done:
+
+- **Test catalog.** `src/modules/laboratory/` — org-scoped `LabTest` CRUD with
+  `version` optimistic concurrency (stale update → 409) and categories
+  (BLOOD / URINE / MICROBIOLOGY / HISTOPATHOLOGY / GENETICS / OTHER). Reference
+  and critical ranges live on `LabTestField` (org-configurable), and flags are
+  derived from those configured ranges only — non-numeric fields never
+  auto-flag. `isActive` toggles; ordering a deactivated test is rejected.
+- **Orders + samples.** `lab_order` ordered → collected → received → processing
+  → result_ready → verified → released on the workflow engine, with a mirrored
+  `LabSample` row (numbering `LAB-ORD-YYYY-NNNNNN` / `LAB-SMP-YYYY-NNNNNN` via
+  the `counters` table). Rejection is terminal for the sample (`REJECTED`);
+  recollection records `recollectsFromOrderId` pointing at the rejected
+  sample's **order** (not the sample id). Sample status mirrors the order and
+  lands `COMPLETED` once results are ready/verified/released.
+- **Versioned results.** `enterResults` writes `versionNumber` ORIGINAL results
+  (one per test field, unique per `(organizationId, orderId, testId)`,
+  upsert-style on the field rows) with `isAbnormal` / `isCritical` computed
+  against the current catalog ranges. Amending pre-release appends a
+  superseding version (`versionNumber` + 1, `amendedById` / `amendedAt` /
+  `amendmentReason` required) — nothing is mutated in place, and the DTO
+  surfaces `results` grouped per test item. Verification stamps
+  `verifiedById` / `verifiedAt`; the org setting
+  `settings.laboratory.requireDifferentVerifier` (default false) forces a
+  different actor when enabled. Critical results must pass through
+  `acknowledgeCriticalResult` before release (409 `LAB_RESULT_NOT_ACKNOWLEDGED`
+  otherwise); acknowledging twice is idempotent. The `criticalResults` array is
+  surfaced on the serialized order.
+- **Release + amendment after release.** `release` is the last transition;
+  post-release amendments are rejected. `reopen` (released → result_ready)
+  then re-enter + re-verify + re-release; reopened rows snapshot the flag
+  computation at re-enter time (no history rewrite).
+- **TAT aggregation.** `GET /lab/tat` returns min/avg/max + p95 turnaround
+  across completed orders, filtered by `parseDateRange` + optional
+  branch/priority/section, computed in-memory from the `releasedAt` −
+  `orderedAt` window (a derived aggregate at query time, not a rollup column).
+- **Radiology.** `src/modules/radiology/` — `radiology_order` ordered →
+  scheduled → performed → reported → verified → released (+ cancelled only
+  before performed) on the workflow engine; numbering `RAD-YYYY-NNNNNN`. An
+  `ImagingReport` row is created at perform, `submitReport` writes contents +
+  `performedById`, it must be verified before release, and release returns it
+  on the serialized order. All imaging access goes through the
+  `IMAGING_PROVIDER` / `PACS_GATEWAY` tokens backed by no-op implementations
+  (`src/integrations/imaging/`) — the seam is swappable without touching the
+  domain.
+- **Schema + RLS (migration `20260926090000_phase7_laboratory`):**
+  lab_test, lab_test_field, lab_test_category, lab_order, lab_order_item,
+  lab_sample, lab_result, lab_result_criticality, lab_rejection,
+  radiology_order, imaging_report tables, each with `tenant_isolation` policies
+  + `GRANT`s, verified via `prisma migrate deploy` on a fresh DB in e2e.
+- **Permissions + events.** Catalog additions: `lab.*` (read/order/collect/
+  process/verify/release/acknowledge) and `radiology.*` (read/order/process/
+  verify/release); role-matrix grants LAB_TECHNICIAN the full lab set (plus
+  `radiology.order`), NURSE read + collect, RECORDS_OFFICER / MANAGER / AUDITOR
+  read-only. Events:
+  `Lab.OrderCreated/SampleCollected/SampleRejected/ResultEntered/ResultAmended/
+  ResultVerified/ResultReleased/CriticalResultRaised/CriticalResultAcknowledged`
+  and `Radiology.OrderCreated/Performed/ReportSubmitted/ReportReleased`, all
+  wired into the timeline consumer. New error codes
+  `LAB_RESULT_NOT_ACKNOWLEDGED` (and the existing
+  `LAB_RESULT_NOT_VERIFIED`).
+- **Acceptance.** `test/e2e/phase7-laboratory.e2e-spec.ts` — 12 tests: catalog
+  CRUD + optimistic lock + range flagging, the full order lifecycle with sample
+  mirroring, verify-then-release, critical acknowledgement (idempotent) +
+  un-acknowledged release rejection, post-release reopen/re-enter/re-verify,
+  rejection + recollection pointing at the rejected order, TAT aggregation,
+  the radiology lifecycle (cancel window before performed), role separation
+  (NURSE cannot process; RECORDS_OFFICER read-only), and cross-tenant
+  isolation. Unit suites added for `lab-flow` (transition guards), `lab-number`
+  (counter keys + formatting), and `radiology-flow` (action guards) — 32
+  suites / 220 unit tests total, e2e 131 tests / 11 suites.
+
 ## Notes
 
 - Testcontainers uses `postgres:17-alpine` by default because `postgres:16-alpine`
@@ -545,6 +624,8 @@ Done:
   work was committed earlier under the label "Phase 2" and is documented here as
   Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
   keep git history unchanged; git history is unchanged.
-- The e2e suite reaches 105 tests across 9 suites (identity, patients,
+- The e2e suite reaches 131 tests across 11 suites (identity, patients,
   documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, the phase-4
-  clinical spec, and the phase-5 inventory/pharmacy spec).
+  clinical spec, the phase-5 inventory/pharmacy spec, the phase-6 billing
+  spec, and the phase-7 laboratory/radiology spec; file names keep the old
+  labels to avoid churn while the sections here track the brief's phases).

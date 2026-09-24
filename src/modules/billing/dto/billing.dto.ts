@@ -2,7 +2,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 /**
- * Billing & invoicing (brief Phase 6). Money is accepted as a decimal string
+ * Billing & invoicing (brief Phase 7). Money is accepted as a decimal string
  * (or number) and is always surfaced as a string on the wire — see ADR-029
  * (Decimal(12,2), never integer cents).
  */

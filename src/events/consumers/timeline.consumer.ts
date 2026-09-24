@@ -41,6 +41,12 @@ export class TimelineProjectionConsumer implements OutboxConsumer {
     EventTypes.ClaimSubmitted,
     EventTypes.ClaimDecided,
     EventTypes.ClaimPaid,
+    EventTypes.LabOrderCreated,
+    EventTypes.LabResultReleased,
+    EventTypes.LabCriticalResultRaised,
+    EventTypes.LabCriticalResultAcknowledged,
+    EventTypes.RadiologyOrderCreated,
+    EventTypes.RadiologyReportReleased,
   ];
 
   async handle(ctx: OutboxConsumerContext): Promise<void> {
@@ -104,4 +110,10 @@ const TIMELINE_MAP: Record<string, TimelineSpec> = {
   [EventTypes.ClaimSubmitted]: { type: 'billing.claim.submitted', title: 'Insurance claim submitted', requiredPermission: 'insurance.read' },
   [EventTypes.ClaimDecided]: { type: 'billing.claim.decided', title: 'Insurance claim decided', requiredPermission: 'insurance.read' },
   [EventTypes.ClaimPaid]: { type: 'billing.claim.paid', title: 'Insurance claim paid', requiredPermission: 'insurance.read' },
+  [EventTypes.LabOrderCreated]: { type: 'lab.order.created', title: 'Lab order placed', requiredPermission: 'lab.read' },
+  [EventTypes.LabResultReleased]: { type: 'lab.result.released', title: 'Lab result released', requiredPermission: 'lab.read' },
+  [EventTypes.LabCriticalResultRaised]: { type: 'lab.critical.raised', title: 'Critical lab result flagged', requiredPermission: 'lab.read' },
+  [EventTypes.LabCriticalResultAcknowledged]: { type: 'lab.critical.acknowledged', title: 'Critical lab result acknowledged', requiredPermission: 'lab.read' },
+  [EventTypes.RadiologyOrderCreated]: { type: 'radiology.order.created', title: 'Radiology order placed', requiredPermission: 'radiology.read' },
+  [EventTypes.RadiologyReportReleased]: { type: 'radiology.report.released', title: 'Radiology report released', requiredPermission: 'radiology.read' },
 };

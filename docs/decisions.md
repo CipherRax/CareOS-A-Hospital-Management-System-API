@@ -3,9 +3,59 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-031 — Radiology rides workflow seams, not a PACS client
+
+**Status:** accepted (Phase 8, the brief's Phase 6)
+
+**Context:** radiology orders need a lifecycle (order → schedule → perform →
+submit → verify → release) but the real modality/PACS/DICOM surface is out of
+scope for this phase; hard-coding a PACS client would couple the domain to an
+external system that does not exist yet.
+
+**Decision:** the radiology domain only knows two tokens — `IMAGING_PROVIDER`
+and `PACS_GATEWAY` (`src/integrations/imaging/imaging.module.ts`). They are
+backed by no-op implementations (`NoopImagingProvider` / `NoopPacsGateway`)
+registered as the defaults, so `radiology.service.ts` calls them purely as a
+seam: a real provider/gateway can be swapped in later without touching the
+workflow, numbering, or report code. `ImagingReport` stores metadata (contents,
+perform/verify/release stamps) only — no imaging bytes.
+
+**Consequences:** the domain is decoupled from imaging infrastructure by
+construction; the only cost is a harmless no-op call per action. Orders,
+numbers (`RAD-YYYY-NNNNNN`), the performed/reported/verified/released graph,
+and role gates are all real and e2e-tested.
+
+## ADR-030 — Lab results are versioned; verify/release gates publication
+
+**Status:** accepted (Phase 8, the brief's Phase 6)
+
+**Context:** lab results carry clinical weight: an edited result in place
+breaks audit, an unverified result released is a safety hazard, and a critical
+value that nobody acknowledged disappears in the stream.
+
+**Decision:** `LabResult` rows are immutable-appended: `enterResults` writes
+`versionNumber` 1 (ORIGINAL), and any pre-release amendment appends a
+superseding version (`+1`, `amendedById`/`amendedAt`/`amendmentReason`
+required) — never an in-place edit. The result DTO surfaces the current
+version per test item. Publication is gated by two workflow transitions
+(`verify` then `release`) on the workflow engine; `settings.laboratory.
+requireDifferentVerifier` (default false) forces a distinct verifier actor
+when enabled. A result computed as `isCritical` blocks release until
+`acknowledgeCriticalResult` records an acknowledgement in
+`LabResultCriticality` (409 `LAB_RESULT_NOT_ACKNOWLEDGED` otherwise);
+acknowledgement is idempotent. Normal vs critical is derived from the
+org-configured reference/critical ranges on `LabTestField`, and non-numeric
+fields never auto-flag.
+
+**Consequences:** every result state is attributable and replay-safe (nothing
+is deleted or overwritten); release is the last transition, so post-release
+amendment requires `reopen` → re-enter → re-verify → re-release, which
+keyboards the whole audit chain rather than silently mutating history.
+Critical values get an explicit, idempotent ack trail.
+
 ## ADR-029 — Money is `Decimal(12, 2)`, surfaced as string; not integer cents
 
-**Status:** accepted (Phase 6 inventory & pharmacy; billing)
+**Status:** accepted (Phase 6 inventory & pharmacy; Phase 7 billing)
 
 **Context:** purchase-order line items carry monetary amounts (unit cost). Two
 representations were possible: integer minor units (cents) or a fixed-precision
@@ -28,7 +78,7 @@ accumulation. No integer-cents ADR or conversion is needed for later phases.
 
 ## ADR-028 — Patient timeline projected from outbox consumers (real consumer)
 
-**Status:** accepted (Phase 4 clinical, extended through Phase 6 billing)
+**Status:** accepted (Phase 4 clinical, extended through Phase 7 billing)
 
 **Context:** Phase 2 wrote `PatientTimelineEntry` rows inline from the patients
 module. Phase 4 modules emit domain events (encounters, notes, diagnoses,
@@ -36,8 +86,8 @@ follow-ups, referrals, tasks), and the timeline should be built FROM events so
 it stays correct as clinical modules evolve.
 
 **Decision:** a real `OutboxConsumer` ("timeline-projection",
-`src/events/consumers/timeline.consumer.ts`) subscribes to 20 event types
-(12 clinical + 8 billing) and
+`src/events/consumers/timeline.consumer.ts`) subscribes to 26 event types
+(12 clinical + 8 billing + 6 laboratory/radiology) and
 maps each to a `PatientTimelineEntry` row pinned to its source event via the
 unique `(organizationId, sourceEventId)`, so a replay upserts instead of
 duplicating. Delivery is deduped per (org, consumer, eventId) through

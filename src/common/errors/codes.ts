@@ -51,6 +51,7 @@ export const ErrorCodes = {
   BED_UNAVAILABLE: 'BED_UNAVAILABLE',
   PERIOD_LOCKED: 'PERIOD_LOCKED',
   LAB_RESULT_NOT_VERIFIED: 'LAB_RESULT_NOT_VERIFIED',
+  LAB_RESULT_NOT_ACKNOWLEDGED: 'LAB_RESULT_NOT_ACKNOWLEDGED',
 
   // display devices
   PAIRING_CODE_INVALID: 'PAIRING_CODE_INVALID',
@@ -132,6 +133,7 @@ export const ERROR_CODE_HTTP: Record<ErrorCode, ErrorCodeMeta> = {
   [ErrorCodes.BED_UNAVAILABLE]: { httpStatus: 409 },
   [ErrorCodes.PERIOD_LOCKED]: { httpStatus: 409 },
   [ErrorCodes.LAB_RESULT_NOT_VERIFIED]: { httpStatus: 409 },
+  [ErrorCodes.LAB_RESULT_NOT_ACKNOWLEDGED]: { httpStatus: 409 },
 
   [ErrorCodes.PAIRING_CODE_INVALID]: { httpStatus: 401 },
   [ErrorCodes.PAIRING_CODE_EXPIRED]: { httpStatus: 401 },

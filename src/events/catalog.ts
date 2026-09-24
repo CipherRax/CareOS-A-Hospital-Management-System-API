@@ -78,7 +78,7 @@ export const EventTypes = {
   StockAdjusted: 'Pharmacy.StockAdjusted',
   StockTransferReceived: 'Pharmacy.StockTransferReceived',
   PurchaseOrderReceived: 'Pharmacy.PurchaseOrderReceived',
-  /** Billing & invoicing (brief Phase 6). Payloads carry IDs only. */
+  /** Billing & invoicing (brief Phase 7). Payloads carry IDs only. */
   InvoiceIssued: 'Billing.InvoiceIssued',
   InvoiceCancelled: 'Billing.InvoiceCancelled',
   InvoiceRefunded: 'Billing.InvoiceRefunded',
@@ -87,6 +87,20 @@ export const EventTypes = {
   ClaimSubmitted: 'Billing.ClaimSubmitted',
   ClaimDecided: 'Billing.ClaimDecided',
   ClaimPaid: 'Billing.ClaimPaid',
+  /** Laboratory & radiology (brief Phase 6). Payloads carry IDs only. */
+  LabOrderCreated: 'Lab.OrderCreated',
+  LabSampleCollected: 'Lab.SampleCollected',
+  LabSampleRejected: 'Lab.SampleRejected',
+  LabResultEntered: 'Lab.ResultEntered',
+  LabResultAmended: 'Lab.ResultAmended',
+  LabResultVerified: 'Lab.ResultVerified',
+  LabResultReleased: 'Lab.ResultReleased',
+  LabCriticalResultRaised: 'Lab.CriticalResultRaised',
+  LabCriticalResultAcknowledged: 'Lab.CriticalResultAcknowledged',
+  RadiologyOrderCreated: 'Radiology.OrderCreated',
+  RadiologyPerformed: 'Radiology.Performed',
+  RadiologyReportSubmitted: 'Radiology.ReportSubmitted',
+  RadiologyReportReleased: 'Radiology.ReportReleased',
   /**
    * Test/demo signal used by the Phase 0 harness (see modules/demo and
    * docs/limitations.md). Removed from the catalog before production use.
@@ -173,5 +187,18 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.ClaimSubmitted]: 1,
   [EventTypes.ClaimDecided]: 1,
   [EventTypes.ClaimPaid]: 1,
+  [EventTypes.LabOrderCreated]: 1,
+  [EventTypes.LabSampleCollected]: 1,
+  [EventTypes.LabSampleRejected]: 1,
+  [EventTypes.LabResultEntered]: 1,
+  [EventTypes.LabResultAmended]: 1,
+  [EventTypes.LabResultVerified]: 1,
+  [EventTypes.LabResultReleased]: 1,
+  [EventTypes.LabCriticalResultRaised]: 1,
+  [EventTypes.LabCriticalResultAcknowledged]: 1,
+  [EventTypes.RadiologyOrderCreated]: 1,
+  [EventTypes.RadiologyPerformed]: 1,
+  [EventTypes.RadiologyReportSubmitted]: 1,
+  [EventTypes.RadiologyReportReleased]: 1,
   [EventTypes.Probe]: 1,
 };

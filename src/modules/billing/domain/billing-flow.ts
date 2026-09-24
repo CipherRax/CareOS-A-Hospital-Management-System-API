@@ -16,7 +16,7 @@ export interface InvoiceLineInput {
 }
 
 /**
- * Billing lifecycle core (brief Phase 6).
+ * Billing lifecycle core (brief Phase 7).
  *
  * Money is always Decimal (ADR-029: `Decimal(12,2)` surfaced as a string on
  * the wire). Every computed amount rounds to 2dp. Status machines below are

@@ -22,6 +22,8 @@ export const WORKFLOW_ENTITY_TYPES = [
   'stock_transfer',
   'invoice',
   'insurance_claim',
+  'lab_order',
+  'radiology_order',
 ] as const;
 
 export type WorkflowEntityType = (typeof WORKFLOW_ENTITY_TYPES)[number];
@@ -44,6 +46,26 @@ export const WORKFLOW_VALID_STATUSES: Record<WorkflowEntityType, readonly string
   stock_transfer: ['REQUESTED', 'APPROVED', 'IN_TRANSIT', 'RECEIVED', 'CANCELLED'],
   invoice: ['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'CANCELLED', 'REFUNDED'],
   insurance_claim: ['DRAFT', 'SUBMITTED', 'APPROVED', 'PARTIALLY_APPROVED', 'DENIED', 'PAID'],
+  lab_order: [
+    'ORDERED',
+    'COLLECTED',
+    'RECEIVED',
+    'PROCESSING',
+    'RESULT_READY',
+    'VERIFIED',
+    'RELEASED',
+    'REJECTED',
+    'CANCELLED',
+  ],
+  radiology_order: [
+    'ORDERED',
+    'SCHEDULED',
+    'PERFORMED',
+    'REPORTED',
+    'VERIFIED',
+    'RELEASED',
+    'CANCELLED',
+  ],
 };
 
 /** Built-in, mandatory edges for each entity type (the safe core). */
@@ -132,6 +154,27 @@ export const SYSTEM_TRANSITIONS: Record<WorkflowEntityType, readonly WorkflowEdg
     { fromStatus: 'SUBMITTED', toStatus: 'DENIED' },
     { fromStatus: 'APPROVED', toStatus: 'PAID' },
     { fromStatus: 'PARTIALLY_APPROVED', toStatus: 'PAID' },
+  ],
+  lab_order: [
+    { fromStatus: 'ORDERED', toStatus: 'COLLECTED' },
+    { fromStatus: 'ORDERED', toStatus: 'CANCELLED' },
+    { fromStatus: 'COLLECTED', toStatus: 'RECEIVED' },
+    { fromStatus: 'COLLECTED', toStatus: 'REJECTED' },
+    { fromStatus: 'COLLECTED', toStatus: 'CANCELLED' },
+    { fromStatus: 'RECEIVED', toStatus: 'PROCESSING' },
+    { fromStatus: 'RECEIVED', toStatus: 'REJECTED' },
+    { fromStatus: 'PROCESSING', toStatus: 'RESULT_READY' },
+    { fromStatus: 'RESULT_READY', toStatus: 'VERIFIED' },
+    { fromStatus: 'VERIFIED', toStatus: 'RELEASED' },
+  ],
+  radiology_order: [
+    { fromStatus: 'ORDERED', toStatus: 'SCHEDULED' },
+    { fromStatus: 'ORDERED', toStatus: 'CANCELLED' },
+    { fromStatus: 'SCHEDULED', toStatus: 'PERFORMED' },
+    { fromStatus: 'SCHEDULED', toStatus: 'CANCELLED' },
+    { fromStatus: 'PERFORMED', toStatus: 'REPORTED' },
+    { fromStatus: 'REPORTED', toStatus: 'VERIFIED' },
+    { fromStatus: 'VERIFIED', toStatus: 'RELEASED' },
   ],
 };
 

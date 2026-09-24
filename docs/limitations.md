@@ -162,6 +162,25 @@ working code with a caveat.
 - **Insurance claims can only be sized down, not up.** A claim is created from
   the invoice's current balance, and `approvedAmount` is capped at the claim
   amount; partial approvals cannot later be raised above the approved amount.
+- **Lab TAT aggregation is query-time, not a materialized rollup.** `GET
+  /lab/tat` computes min/avg/max/p95 from completed orders in memory
+  (releasedAt − orderedAt); on large histories it scans the window rather than
+  reading pre-aggregated counters. A rollup (e.g. a per-day/hour histogram) is
+  a later phase.
+- **A rejected lab sample is terminal; recollection is a new order.** There is
+  no "reopen" of a rejected sample — recollection creates a fresh order whose
+  sample references the rejected one via `recollectsFromOrderId` (the rejected
+  sample's order id). Operators must re-order explicitly rather than resume.
+- **Radiology is a metadata-only seam (ADR-031).** `IMAGING_PROVIDER` /
+  `PACS_GATEWAY` default to no-op implementations; there is no DICOM/PACS
+  integration, no imaging bytes, and report contents live only in
+  `ImagingReport`. The tokens exist so a real integration can be swapped in
+  without changing the domain.
+- **Critical-value flagging is catalog-driven, not clinical.** `isCritical`
+  (and `isAbnormal`) derive solely from the org-configured numeric
+  reference/critical ranges on `LabTestField`; borderline clinical judgement,
+  inter-lab standardization, or organ-specific interpretable ranges are not
+  modeled. Non-numeric fields never auto-flag.
 
 ## Operational notes
 

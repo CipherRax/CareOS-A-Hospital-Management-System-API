@@ -46,6 +46,8 @@ import { PurchaseOrdersModule } from '../modules/purchase-orders/purchase-orders
 import { InventoryModule } from '../modules/inventory/inventory.module';
 import { PrescriptionsModule } from '../modules/prescriptions/prescriptions.module';
 import { BillingModule } from '../modules/billing/billing.module';
+import { LaboratoryModule } from '../modules/laboratory/laboratory.module';
+import { RadiologyModule } from '../modules/radiology/radiology.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -107,6 +109,8 @@ import { newId } from '../common/lib/uuidv7';
     InventoryModule,
     PrescriptionsModule,
     BillingModule,
+    LaboratoryModule,
+    RadiologyModule,
   ],
   providers: [
     // Guard order: throttler (outer) -> JWT identity -> session/tenant
