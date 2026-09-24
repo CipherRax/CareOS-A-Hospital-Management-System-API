@@ -11,7 +11,9 @@ import { TenantContext } from './tenant-context';
 import { TxRunner } from './tx';
 import { AuditService } from './audit.service';
 import { OutboxPublisherService } from './outbox-publisher.service';
-import { NoopOutboxDispatcher } from '../jobs/outbox/noop-outbox-dispatcher';
+import { ConsumerOutboxDispatcher } from '../events/outbox-consumer/consumer-outbox-dispatcher';
+import { OUTBOX_CONSUMERS } from '../events/outbox-consumer/outbox-consumer.types';
+import { TimelineProjectionConsumer } from '../events/consumers/timeline.consumer';
 import { OUTBOX_DISPATCHER } from './outbox.tokens';
 
 @Global()
@@ -47,8 +49,17 @@ import { OUTBOX_DISPATCHER } from './outbox.tokens';
     TxRunner,
     AuditService,
     OutboxPublisherService,
-    NoopOutboxDispatcher,
-    { provide: OUTBOX_DISPATCHER, useExisting: NoopOutboxDispatcher },
+    // Registered consumers are fanned out by ConsumerOutboxDispatcher per event
+    // type (idempotent via ProcessedEvent). Timeline projection lands first;
+    // more consumers register in later phases.
+    TimelineProjectionConsumer,
+    {
+      provide: OUTBOX_CONSUMERS,
+      useFactory: (timeline: TimelineProjectionConsumer) => [timeline],
+      inject: [TimelineProjectionConsumer],
+    },
+    ConsumerOutboxDispatcher,
+    { provide: OUTBOX_DISPATCHER, useExisting: ConsumerOutboxDispatcher },
   ],
   exports: [
     CacheModule,

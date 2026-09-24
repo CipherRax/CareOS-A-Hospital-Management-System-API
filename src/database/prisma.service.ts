@@ -59,6 +59,19 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'QueueEntry',
   'VitalRecord',
   'DisplayDevice',
+  // Clinical core (brief Phase 4).
+  'Encounter',
+  'ClinicalNote',
+  'ClinicalNoteVersion',
+  'ClinicalNoteTemplate',
+  'Diagnosis',
+  'CodingSystem',
+  'CodeConcept',
+  'FollowUp',
+  'Referral',
+  'Task',
+  'Workflow',
+  'WorkflowTransition',
 ]);
 
 type Op = string;
@@ -85,9 +98,11 @@ function injectTenant(op: Op, args: unknown, organizationId: string): unknown {
       ...((a.create ?? {}) as Record<string, unknown>),
       organizationId,
     };
-    const data = { ...((a.data ?? {}) as Record<string, unknown>) };
-    delete data.organizationId;
-    return { ...a, create, data };
+    const update = {
+      ...((a.update ?? {}) as Record<string, unknown>),
+      organizationId,
+    };
+    return { ...a, create, update };
   }
   if (op === 'findUnique' || op === 'findUniqueOrThrow') {
     return { ...a, where: { ...where, organizationId } };

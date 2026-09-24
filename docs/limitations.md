@@ -6,17 +6,20 @@ working code with a caveat.
 
 ## Explicit stubs (named in code)
 
-- **Outbox dispatcher — `src/jobs/outbox/noop-outbox-dispatcher.ts`** `[stub]`
-  Outbox rows are written reliably in the same transaction as domain writes
-  (ADR-007), but nothing consumes them yet. The dispatcher pointer advancing
-  logic lives in `src/database/outbox-publisher.service.ts`; the per-event
-  handler is a no-op placeholder. A later phase will add a worker-based
-  dispatcher (`worker.ts` bootstrap exists in `npm run worker`).
+- **Outbox delivery has no scheduler yet.** `[stub]` Outbox rows are written
+  reliably in the same transaction as domain writes (ADR-007), and the
+  dispatcher pointer now drives REAL consumers (the timeline projection,
+  ADR-028). Delivery must be triggered — the worker bootstrap exists
+  (`worker.ts`, `npm run worker`) but there is no BullMQ queue or cron yet, so
+  in e2e `publishReadyEvents` is called synchronously to prove the pipeline.
+  Failed deliveries retry with exponential backoff and go DEAD after
+  `MAX_OUTBOX_ATTEMPTS` (8).
+- **`Storage.DocumentUploaded` and `Reference.CodingSystemImported` events have
+  no consumer yet.** `[stub]` The timeline consumer subscribes to
+  `Clinical.*` types only; documents/coding-reference rows wait for their
+  downstream processors (later phase).
 - **Emergency access flow** — `TenantScope.emergency` exists as a marker but
   nothing sets it (by design; a later phase).
-- **Outbox consumers beyond the probe** — `Storage.DocumentUploaded` rows are
-  written by the documents module, but the no-op dispatcher (above) still means
-  no worker reacts to them yet (later phase).
 - **Metrics/OTel** — `METRICS_ENABLED`/`OTEL_*` envs exist but telemetry
   serving/wiring is not implemented.
 - **Seeder** — `SEED_ALLOWED=false` by default; `prisma/seed.ts` seeds only
@@ -109,6 +112,19 @@ working code with a caveat.
 - **Device tokens are opaque and low-scope, but long-lived until revoked.**
   Rotation/revocation endpoints exist; there is no idle-timeout sweeper, so an
   abandoned device session stays valid until explicitly revoked.
+- **`OUTBOX_CONSUMERS` uses a factory, not `multi: true`.** NestJS multi
+  providers do not compose with `useExisting` (the injected value is the single
+  provider, not an array), so the consumer token is registered through a
+  `useFactory` in `src/database/database.module.ts` (ADR-028).
+- **The timeline mixes inline and event-sourced rows.** `patient.*` entries
+  (registration, merge, guardians, consents, allergies, medical history) are
+  written by the patients module in the owning transaction and have no
+  `sourceEventId`; `Clinical.*` entries are projected from outbox events and
+  always pin one. Replay safety applies to the event-sourced subset.
+- **Workflow edges are validated as a widening union, never replacing core.**
+  Organisations may only ADD edges (`workflows.manage`); there is intentionally
+  no endpoint to delete or re-create a core edge (ADR-026), so a mis-keyed
+  custom edge can only be corrected offline.
 
 ## Operational notes
 

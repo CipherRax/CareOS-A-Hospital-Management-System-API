@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 123/123 unit (18 suites) |
+| `npm test`   | 160/160 unit (24 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 76/76 (7 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 89/89 (8 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -306,7 +306,99 @@ Done:
   waitlist/offers, queue flow + ticket, vitals, and display pairing
   (18 suites / 123 unit tests total).
 
-## Phase 5 — Next
+## Phase 5 — Clinical core (COMPLETE; the brief's Phase 4)
+
+Encounters with a workflow-gated lifecycle, versioned (append-only) clinical
+notes with templates, coded diagnoses backed by org coding systems plus a
+problem list, follow-ups / referrals / tasks, a central workflow engine, and a
+patient timeline projected from outbox events.
+
+Done:
+
+- **Workflow engine.** `src/modules/workflows` — `domain/workflow-core.ts`
+  holds the built-in mandatory edge set per entity (`SYSTEM_TRANSITIONS`).
+  Orgs ADD custom edges via `POST /workflows/:entityType/transitions`
+  (evaluated on `workflow.manage`), but core edges can never be removed and the
+  effective set is the always-widening union (`effectiveEdges` / `addableEdges`).
+  Every transition service funnels through `WorkflowsService.assertAllowed`, so
+  a misconfigured workflow can widen a flow but never unlock a locked state.
+  `GET /workflows/:entityType` (workflows.read) returns system/custom/effective
+  edges + the addable set. `Workflow`/`WorkflowTransition` rows are tenant-owned
+  (RLS-enabled).
+- **Encounters.** `src/modules/encounters` — OPEN → IN_PROGRESS → COMPLETED.
+  `assertEncounterTransition` is the module-level safety rail: COMPLETED is a
+  hard lock no custom edge can reopen, and same-status transitions are rejected.
+  `PATCH /encounters/:id/status` emits `Clinical.EncounterStarted/Completed`,
+  bumps `version` for optimistic concurrency, and writes audit rows. Clinical
+  entries (notes/diagnoses/follow-ups/referrals) require an OPEN or IN_PROGRESS
+  encounter (`assertEncounterOpen`, `assertEncounterActive`).
+- **Clinical notes.** `src/modules/clinical-notes` — versioned append-only
+  notes (`ClinicalNote` + `ClinicalNoteVersion`, unique
+  `(organizationId, noteId, versionNumber)`). DRAFT remains editable; `finalize`
+  writes the ORIGINAL version; `amend` (reason required) appends a superseding
+  AMENDMENT — FINAL notes are never edited in place (`assertNoteStatus`). Note
+  sections are validated against the 8-key `NOTE_SECTION_KEYS` set; invalid keys
+  are a 400. Reusable `ClinicalNoteTemplate` rows (create/list,
+  `createdById`).
+- **Coded diagnoses + problem list.** `src/modules/diagnoses` +
+  `src/modules/coding` — org coding systems (`CodingSystem.key` unique per org,
+  active-gated) with idempotent concept import (`CodeConcept` upsert on
+  `(organizationId, systemId, code)`, returned inserted/updated counts) and
+  free-text code search. Diagnoses record against an imported `CodeConcept` or
+  as explicit free text (`codeConceptId` NULL); `GET /diagnoses/problems` lists
+  the `ACTIVE` + `onProblemList` set; resolve / classification updates are
+  `version`-bumped and emit `Clinical.DiagnosisRecorded/Updated/Resolved`.
+- **Follow-ups / referrals / tasks.** `src/modules/follow-ups`, `referrals`,
+  `tasks` — each a pure-domain flow (`*-flow.ts`) plus workflow assertion:
+  follow-up transitions from SCHEDULED/REMINDED
+  (`FollowUpCreated`/`FollowUpStatusChanged`), referral
+  CREATED→SENT→ACCEPTED→COMPLETED (or REJECTED/CANCELLED; `accept` only from
+  SENT — send is the mandatory gate), and task OPEN→IN_PROGRESS→DONE/CANCELLED.
+- **Timeline projection from outbox events.** `src/events/consumers/
+  timeline.consumer.ts` is a real `OutboxConsumer` ("timeline-projection")
+  mapping 12 event types onto `PatientTimelineEntry` rows. Each entry is pinned
+  to its source event via unique `(organizationId, sourceEventId)` so replays
+  upsert instead of duplicating; `ProcessedEvent` rows (unique org+consumer+
+  eventId) dedupe delivery. Consumers register under the `OUTBOX_CONSUMERS`
+  multi-token (`src/events/outbox-consumer`) and run on the unscoped client
+  with explicit `organizationId`. `src/database/outbox-publisher.service.ts`
+  claims rows with `FOR UPDATE SKIP LOCKED`, dispatches, and records
+  PUBLISHED/FAILED/DEAD. **Two product bugs found and fixed by the e2e
+  acceptance:** (1) the tenant extension's `upsert` branch injected an invalid
+  `data` argument — Prisma upserts take `create`/`update`, so `CodeConcept`
+  imports blew up; fixed in `src/database/prisma.service.ts`. (2) the publisher
+  ran its whole dispatch loop inside one interactive transaction, hitting
+  Prisma's 5 s default timeout as soon as a batch exceeded a few events —
+  restructured to claim in a short transaction, dispatch outside any
+  transaction, and mark each row's status in its own short transaction (safe
+  because consumers are idempotent).
+- **Schema + RLS (migration `20260923120000_phase4_clinical`):**
+  encounter, clinical_note, clinical_note_version, clinical_note_template,
+  diagnosis, coding_system, code_concept, follow_up, referral, task, workflow,
+  workflow_transition tables with `tenant_isolation` policies + `GRANT`s and the
+  `processed_event` / timeline-unique indexes, verified against scratch Postgres
+  and applied via `prisma migrate deploy` in e2e.
+- **Permissions + events.** Catalog additions: `diagnosis.read/create/update`,
+  `clinical_notes.manage`, `encounters.manage`, `coding.read/manage`.
+  `role-matrix.ts` grants clinical roles (DOCTOR / CLINICAL_OFFICER /
+  NURSE / RECORDS_OFFICER / MANAGER / HOSPITAL_ADMIN, etc.) `workflows.*`,
+  `encounters.*`, `referrals.*`, `tasks.*`, `codings.*` and the clinical-groups
+  per the matrix. New events: `Clinical.*` (encounter, note, diagnosis,
+  follow-up, referral, task) and `Reference.CodingSystemImported`.
+- **Acceptance.** `test/e2e/phase4-clinical.e2e-spec.ts` — 13 tests covering
+  the encounter walk + terminal lock (no new clinical entries after COMPLETED),
+  encounter list filtering, versioned note draft → finalize → amend with a 2-row
+  history (direct FINAL edits rejected), invalid sections 400, coding-system
+  import (inserted=2) → search → coded diagnosis → resolve → empty problem list,
+  fabricated codes 404, follow-up / referral / task flows, workflow custom edges
+  (OPEN→COMPLETED blocked before, allowed after; reopen stays locked), the
+  event-built patient timeline idempotent under replay, and role separation
+  (receptionist / accountant / nurse-shaped permission sets). Unit suites added
+  for workflow-core, encounter-flow, note-versioning, coding-import,
+  diagnosis-flow, and the follow-up/referral/task flows (24 suites / 160 unit
+  tests total).
+
+## Phase 6 — Next
 
 ## Notes
 
@@ -319,6 +411,6 @@ Done:
   work was committed earlier under the label "Phase 2" and is documented here as
   Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
   keep git history unchanged; git history is unchanged.
-- The e2e suite reaches 76 tests across 7 suites (identity, patients,
-  documents, rls, tenant-pipeline, app-boot, and the new phase-3 scheduling
-  spec).
+- The e2e suite reaches 89 tests across 8 suites (identity, patients,
+  documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, and the new
+  phase-4 clinical spec).

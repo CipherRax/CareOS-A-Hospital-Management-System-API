@@ -50,8 +50,12 @@ export class OutboxPublisherService {
   async publishReadyEvents(limit = 100): Promise<number> {
     const db = this.prisma.unscoped();
 
+    // Claim ready rows in a SHORT transaction (the SKIP LOCKED read releases as
+    // soon as it commits). Dispatch happens OUTSIDE any transaction — consumers
+    // perform network-bound projection work, and Prisma interactive
+    // transactions must not be held open across remote side-effects.
     const rows = await db.$transaction(async (tx) => {
-      const ready = await tx.$queryRaw<OutboxRow[]>`
+      return tx.$queryRaw<OutboxRow[]>`
         SELECT "id", "organizationId", "type", "version", "aggregateType", "aggregateId",
                "actorId", "correlationId", "occurredAt", "payload", "attemptCount"
         FROM "outbox_events"
@@ -61,55 +65,60 @@ export class OutboxPublisherService {
         LIMIT ${limit}
         FOR UPDATE SKIP LOCKED
       `;
-
-      const published: string[] = [];
-
-      for (const row of ready) {
-        let delivered = false;
-        try {
-          delivered = await this.dispatcher.dispatch(row);
-        } catch (err) {
-          this.logger.error(
-            { eventId: row.id, type: row.type, err: String(err) },
-            'outbox dispatch failed',
-          );
-        }
-
-        if (delivered) {
-          await tx.outboxEvent.update({
-            where: { id: row.id, organizationId: row.organizationId },
-            data: { status: 'PUBLISHED', publishedAt: new Date() },
-          });
-          published.push(row.id);
-        } else {
-          const next = row.attemptCount + 1;
-          if (next >= MAX_OUTBOX_ATTEMPTS) {
-            await tx.outboxEvent.update({
-              where: { id: row.id, organizationId: row.organizationId },
-              data: {
-                status: 'DEAD',
-                deadAt: new Date(),
-                attemptCount: next,
-                lastError: 'max attempts reached',
-              },
-            });
-            this.logger.warn({ eventId: row.id, type: row.type }, 'outbox event dead');
-          } else {
-            await tx.outboxEvent.update({
-              where: { id: row.id, organizationId: row.organizationId },
-              data: {
-                attemptCount: next,
-                nextAttemptAt: new Date(Date.now() + BASE_BACKOFF_MS * 2 ** next),
-                lastError: 'dispatch not acknowledged',
-              },
-            });
-          }
-        }
-      }
-
-      return published.length;
     });
 
-    return rows;
+    let published = 0;
+
+    for (const row of rows) {
+      let delivered = false;
+      try {
+        delivered = await this.dispatcher.dispatch(row);
+      } catch (err) {
+        this.logger.error(
+          { eventId: row.id, type: row.type, err: String(err) },
+          'outbox dispatch failed',
+        );
+      }
+
+      if (delivered) {
+        await db.$transaction((tx) =>
+          tx.outboxEvent.update({
+            where: { id: row.id, organizationId: row.organizationId },
+            data: { status: 'PUBLISHED', publishedAt: new Date() },
+          }),
+        );
+        published += 1;
+        continue;
+      }
+
+      const next = row.attemptCount + 1;
+      if (next >= MAX_OUTBOX_ATTEMPTS) {
+        await db.$transaction((tx) =>
+          tx.outboxEvent.update({
+            where: { id: row.id, organizationId: row.organizationId },
+            data: {
+              status: 'DEAD',
+              deadAt: new Date(),
+              attemptCount: next,
+              lastError: 'max attempts reached',
+            },
+          }),
+        );
+        this.logger.warn({ eventId: row.id, type: row.type }, 'outbox event dead');
+      } else {
+        await db.$transaction((tx) =>
+          tx.outboxEvent.update({
+            where: { id: row.id, organizationId: row.organizationId },
+            data: {
+              attemptCount: next,
+              nextAttemptAt: new Date(Date.now() + BASE_BACKOFF_MS * 2 ** next),
+              lastError: 'dispatch not acknowledged',
+            },
+          }),
+        );
+      }
+    }
+
+    return published;
   }
 }

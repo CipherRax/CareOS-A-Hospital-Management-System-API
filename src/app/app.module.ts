@@ -32,6 +32,14 @@ import { QueueModule } from '../modules/queue/queue.module';
 import { VitalsModule } from '../modules/vitals/vitals.module';
 import { DisplayModule } from '../modules/display/display.module';
 import { RealtimeModule } from '../modules/realtime/realtime.module';
+import { WorkflowsModule } from '../modules/workflows/workflows.module';
+import { EncountersModule } from '../modules/encounters/encounters.module';
+import { ClinicalNotesModule } from '../modules/clinical-notes/clinical-notes.module';
+import { DiagnosesModule } from '../modules/diagnoses/diagnoses.module';
+import { CodingModule } from '../modules/coding/coding.module';
+import { FollowUpsModule } from '../modules/follow-ups/follow-ups.module';
+import { ReferralsModule } from '../modules/referrals/referrals.module';
+import { TasksModule } from '../modules/tasks/tasks.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -79,6 +87,14 @@ import { newId } from '../common/lib/uuidv7';
     VitalsModule,
     DisplayModule,
     RealtimeModule,
+    WorkflowsModule,
+    EncountersModule,
+    ClinicalNotesModule,
+    DiagnosesModule,
+    CodingModule,
+    FollowUpsModule,
+    ReferralsModule,
+    TasksModule,
   ],
   providers: [
     // Guard order: throttler (outer) -> JWT identity -> session/tenant

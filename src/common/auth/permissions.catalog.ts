@@ -88,9 +88,43 @@ export const PERMISSION_GROUPS = {
   clinicalNotes: {
     read: 'clinical_notes.read',
     create: 'clinical_notes.create',
+    update: 'clinical_notes.update',
+    manage: 'clinical_notes.manage',
   },
   diagnoses: {
+    read: 'diagnosis.read',
     create: 'diagnosis.create',
+    update: 'diagnosis.update',
+    manage: 'diagnosis.manage',
+  },
+  encounters: {
+    read: 'encounters.read',
+    create: 'encounters.create',
+    update: 'encounters.update',
+    manage: 'encounters.manage',
+  },
+  followUps: {
+    read: 'follow_ups.read',
+    create: 'follow_ups.create',
+    update: 'follow_ups.update',
+  },
+  referrals: {
+    read: 'referrals.read',
+    create: 'referrals.create',
+    update: 'referrals.update',
+  },
+  tasks: {
+    read: 'tasks.read',
+    create: 'tasks.create',
+    update: 'tasks.update',
+  },
+  workflows: {
+    read: 'workflows.read',
+    manage: 'workflows.manage',
+  },
+  codings: {
+    read: 'coding.read',
+    manage: 'coding.manage',
   },
   prescriptions: {
     create: 'prescription.create',

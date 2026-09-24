@@ -3,6 +3,116 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-028 — Patient timeline projected from outbox consumers (real consumer)
+
+**Status:** accepted (Phase 4 clinical)
+
+**Context:** Phase 2 wrote `PatientTimelineEntry` rows inline from the patients
+module. Phase 4 modules emit domain events (encounters, notes, diagnoses,
+follow-ups, referrals, tasks), and the timeline should be built FROM events so
+it stays correct as clinical modules evolve.
+
+**Decision:** a real `OutboxConsumer` ("timeline-projection",
+`src/events/consumers/timeline.consumer.ts`) subscribes to 12 event types and
+maps each to a `PatientTimelineEntry` row pinned to its source event via the
+unique `(organizationId, sourceEventId)`, so a replay upserts instead of
+duplicating. Delivery is deduped per (org, consumer, eventId) through
+`ProcessedEvent` rows. Consumers are registered under the `OUTBOX_CONSUMERS`
+multi-token (`src/events/outbox-consumer`) and run on the raw unscoped client,
+setting `organizationId` explicitly (never through the request scope). Event
+payloads carry ids only (encounterId, patientId, etc.), never PHI.
+
+**Consequences:** the timeline is event-truthful and replay-safe by
+construction (idempotent). Inline `patient.*` entries (registration, merge,
+guardians, consents, allergies, medical history) are written by the patients
+module in the owning transaction and carry no `sourceEventId` — the timeline is
+therefore a deliberate mix of inline patient rows and event-projected clinical
+rows (the e2e asserts both exist and that event rows always carry a
+`sourceEventId`).
+
+## ADR-027 — Outbox publisher dispatches outside the claim transaction
+
+**Status:** accepted (Phase 4 clinical fix)
+
+**Context:** the first e2e acceptance run published a batch and Prisma aborted
+with "Transaction already closed: … 5000 ms … expired transaction" — the
+publisher held ONE interactive transaction across the whole claim+dispatch+mark
+loop, so any batch over a few events blew the 5 s interactive-transaction
+budget while waiting on consumer side-effects.
+
+**Decision:** `publishReadyEvents` claims rows with `FOR UPDATE SKIP LOCKED`
+inside a short transaction, then dispatches each row OUTSIDE any transaction,
+and marks each row's status (PUBLISHED / DEAD / attempt+backoff) inside its own
+short transaction. Safety relies on consumer idempotency (ADR-028): an
+overlapping claim is replayed safely, never double-applied.
+
+**Consequences:** no DB transaction is held open across remote side-effects;
+large batches progress bounded by work, not by a transaction budget. The
+hand-rolled per-row bookkeeping is slightly more verbose than the previous
+single-transaction form but is what makes batch publishing correct.
+
+## ADR-026 — Workflow engine: mandatory core edges + additive org custom edges
+
+**Status:** accepted (Phase 4 clinical)
+
+**Context:** clinical entities are state machines (encounters, notes,
+diagnoses, follow-ups, referrals, tasks), and orgs need local adaptations (e.g.
+a shortcut `OPEN → COMPLETED`) without being able to weaken safety guarantees
+(reopening a completed encounter).
+
+**Decision:** the mandatory edge set lives in code
+(`SYSTEM_TRANSITIONS`, `src/modules/workflows/domain/workflow-core.ts`); org
+custom edges are stored rows (`workflow_transitions`, `workflows.manage` gates
+`POST /workflows/:entityType/transitions`) and are strictly ADDITIVE — the
+effective set is the union and never shrinks (`effectiveEdges`/`addableEdges`).
+Every transition service funnels through `WorkflowsService.assertAllowed`, and
+module-level guards enforce invariants the engine must not override:
+`assertEncounterTransition` hard-locks COMPLETED, `assertNoteStatus`,
+`assertReferralAction`, `assertTaskAction`, and follow-up/diagnosis guards
+reject `from === to` so the engine's no-op for identical statuses can never
+mask a no-op client call.
+
+**Consequences:** org customization is bounded; a misconfigured workflow can
+widen a flow but never unlock a terminal state or anonymize a transition. The
+system↔custom split keeps the mandatory core auditable in code.
+
+## ADR-025 — Clinical notes are immutable after finalize; amendments supersede
+
+**Status:** accepted (Phase 4 clinical)
+
+**Context:** notes carry clinical-legal weight; a FINAL note edited in place is
+indistinguishable from the original and breaks audit.
+
+**Decision:** `finalize` writes version ORIGINAL (`versionNumber` 1); `amend`
+(reason required, `clinical_notes.update`) appends a superseding AMENDMENT
+version. `ClinicalNoteVersion` is unique on `(organizationId, noteId,
+versionNumber)`, nothing is deleted, and direct edits of a FINAL note are
+rejected (`assertNoteStatus`). DRAFT notes stay editable in place.
+
+**Consequences:** version history is recoverable and attributable; the newest
+superseding version is the effective clinical record. Sections are validated
+against the fixed 8-key set (`NOTE_SECTION_KEYS`) on both create and update.
+
+## ADR-024 — Tenant extension rewrites upsert args correctly (found-and-fixed)
+
+**Status:** accepted (Phase 4 clinical fix)
+
+**Context:** Phase 1's tenancy extension (`injectTenant`,
+`src/database/prisma.service.ts`) handled `upsert` by injecting `organizationId`
+into a `data` key. Prisma's `upsert` takes `create`/`update`, NOT `data`, so the
+first tenant-model upsert (idempotent `CodeConcept` import) failed at runtime
+with `Unknown argument "data". Did you mean "update"?` — e2e surfaced it as an
+INTERNAL_ERROR 500.
+
+**Decision:** the `upsert` branch now injects `organizationId` into both
+`create` and `update` payloads (the update rewrite keeps RLS/extension scoping
+on the existing row). No app code relied on the old (broken) shape.
+
+**Consequences:** upserts now exercise the same tenant guarantees as every other
+write; the coding-system concept importer works. An explicit regression path:
+`test/e2e/phase4-clinical.e2e-spec.ts` imports two concepts and asserts
+inserted counts.
+
 ## ADR-023 — Device tokens are ingest-scoped bearer credentials, not JWTs
 
 **Status:** accepted (Phase 3 scheduling)
