@@ -33,6 +33,14 @@ export class TimelineProjectionConsumer implements OutboxConsumer {
     EventTypes.ReferralCreated,
     EventTypes.ReferralCompleted,
     EventTypes.TaskCreated,
+    EventTypes.InvoiceIssued,
+    EventTypes.InvoiceCancelled,
+    EventTypes.InvoiceRefunded,
+    EventTypes.PaymentCompleted,
+    EventTypes.PaymentRefunded,
+    EventTypes.ClaimSubmitted,
+    EventTypes.ClaimDecided,
+    EventTypes.ClaimPaid,
   ];
 
   async handle(ctx: OutboxConsumerContext): Promise<void> {
@@ -88,4 +96,12 @@ const TIMELINE_MAP: Record<string, TimelineSpec> = {
   [EventTypes.ReferralCreated]: { type: 'referral.created', title: 'Referral created', requiredPermission: 'referrals.read' },
   [EventTypes.ReferralCompleted]: { type: 'referral.completed', title: 'Referral completed', requiredPermission: 'referrals.read' },
   [EventTypes.TaskCreated]: { type: 'task.created', title: 'Task created', requiredPermission: 'tasks.read' },
+  [EventTypes.InvoiceIssued]: { type: 'billing.invoice.issued', title: 'Invoice issued', requiredPermission: 'billing.read' },
+  [EventTypes.InvoiceCancelled]: { type: 'billing.invoice.cancelled', title: 'Invoice cancelled', requiredPermission: 'billing.read' },
+  [EventTypes.InvoiceRefunded]: { type: 'billing.invoice.refunded', title: 'Invoice refunded', requiredPermission: 'billing.read' },
+  [EventTypes.PaymentCompleted]: { type: 'billing.payment.completed', title: 'Payment received', requiredPermission: 'billing.read' },
+  [EventTypes.PaymentRefunded]: { type: 'billing.payment.refunded', title: 'Payment refunded', requiredPermission: 'billing.read' },
+  [EventTypes.ClaimSubmitted]: { type: 'billing.claim.submitted', title: 'Insurance claim submitted', requiredPermission: 'insurance.read' },
+  [EventTypes.ClaimDecided]: { type: 'billing.claim.decided', title: 'Insurance claim decided', requiredPermission: 'insurance.read' },
+  [EventTypes.ClaimPaid]: { type: 'billing.claim.paid', title: 'Insurance claim paid', requiredPermission: 'insurance.read' },
 };

@@ -5,7 +5,7 @@ context, the decision, and its consequences.
 
 ## ADR-029 — Money is `Decimal(12, 2)`, surfaced as string; not integer cents
 
-**Status:** accepted (Phase 6 inventory & pharmacy)
+**Status:** accepted (Phase 6 inventory & pharmacy; billing)
 
 **Context:** purchase-order line items carry monetary amounts (unit cost). Two
 representations were possible: integer minor units (cents) or a fixed-precision
@@ -15,7 +15,9 @@ decimal.
 schema (e.g. `purchase_order_items.unitCost`). Prisma maps these to
 `Prisma.Decimal`, which serializes to a JSON string (e.g. `"12.50"`), so the
 client never touches floating-point cents. Two-fractional-digit arithmetic is
-exact at the DB layer.
+exact at the DB layer. Billing serializers normalize with `money() →
+toFixed(2)` so zero balances surface as `"0.00"` (never `"0"`) — one stable
+wire format for every money field.
 
 **Consequences:** response DTO schemas are documentation-only — the transform
 interceptor wraps responses but does NOT validate them, so a `z.number()` on an
@@ -26,7 +28,7 @@ accumulation. No integer-cents ADR or conversion is needed for later phases.
 
 ## ADR-028 — Patient timeline projected from outbox consumers (real consumer)
 
-**Status:** accepted (Phase 4 clinical)
+**Status:** accepted (Phase 4 clinical, extended through Phase 6 billing)
 
 **Context:** Phase 2 wrote `PatientTimelineEntry` rows inline from the patients
 module. Phase 4 modules emit domain events (encounters, notes, diagnoses,
@@ -34,7 +36,8 @@ follow-ups, referrals, tasks), and the timeline should be built FROM events so
 it stays correct as clinical modules evolve.
 
 **Decision:** a real `OutboxConsumer` ("timeline-projection",
-`src/events/consumers/timeline.consumer.ts`) subscribes to 12 event types and
+`src/events/consumers/timeline.consumer.ts`) subscribes to 20 event types
+(12 clinical + 8 billing) and
 maps each to a `PatientTimelineEntry` row pinned to its source event via the
 unique `(organizationId, sourceEventId)`, so a replay upserts instead of
 duplicating. Delivery is deduped per (org, consumer, eventId) through

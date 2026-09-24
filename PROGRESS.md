@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 182/182 unit (27 suites) |
+| `npm test`   | 196/196 unit (29 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 105/105 (9 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 119/119 (10 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -469,6 +469,70 @@ Done:
   are documented in `docs/limitations.md`. Unit suites added for
   fefo, stock-risk/ledger, and the prescription-flow / po-flow domains (27
   suites / 182 unit tests total).
+
+## Phase 6 — Billing & invoicing (COMPLETE; the brief's Phase 6)
+
+Price list, invoices, payments, and insurance claims with money kept as
+`Decimal(12, 2)` and surfaced as strings (ADR-029, `toFixed(2)`). Invoices and
+payments ride the workflow engine, and claim payouts post
+`method: INSURANCE` payments that settle the underlying invoice.
+
+Done:
+
+- **Price list.** `src/modules/billing/` — org-scoped active/inactive
+  `BillableItem` CRUD (`version` optimistic concurrency, stale update → 409),
+  categories CONSULTATION / LAB / IMAGING / PROCEDURE / MEDICATION / OTHER,
+  optional branch scoping, `insuranceEligible` flag. Prices snapshot onto
+  `InvoiceItem` rows at create time (later repricing never rewrites history).
+- **Invoices.** `src/modules/billing` — DRAFT → ISSUED → PARTIALLY_PAID → PAID
+  (or CANCELLED only while unpaid) with derived-settle transitions on the
+  workflow engine. Line totals / subtotal / tax (`taxRate` as percentage) /
+  discount / total / balanceDue computed in a pure domain function
+  (`billing-flow.ts`). Discount cap + per-line price math rejects
+  over-discounting; a line must reference a price-list item or carry
+  `description + unitPrice` (ad-hoc is legal). `INV-YYYY-NNNNNN` numbering via
+  the `counters` table inside the same tx (idempotent on a unique
+  invoice_number). Refund flows go through the same action controller
+  (`PAID → REFUNDED` keeps the ledger, payments are marked REFUNDED and the
+  balance reopens).
+- **Payments.** `createPayment` under an atomic `updateMany { dueBalance >=
+  amount }` guard (concurrent double-payment → one 201 + one 409), status
+  recomputed via `settleInvoiceStatus`; `RCT-YYYY-NNNNNN` receipts. Overpayment
+  is rejected (400); payment on DRAFT is rejected (409
+  `INVALID_WORKFLOW_TRANSITION`); refunding a payment re-opens the invoice
+  (PAID → ISSUED edge). Idempotency-key replays return the cached 200.
+- **Insurance.** Payers (active flag), patient policies (FULL / PARTIAL with
+  `coveragePercent`, patient-number + policy-number matching), and claims
+  DRAFT → SUBMITTED → APPROVED / PARTIALLY_APPROVED / DENIED → PAID. Actions
+  validate amount bounds (`approvedAmount` cannot exceed the claim), require a
+  deny reason, and `pay` posts an `INSURANCE` payment for the approved amount,
+  settling the invoice's remaining balance.
+- **Schema + RLS (migration `20260925090000_phase6_billing`):** billable_item,
+  invoice, invoice_item, payment, insurance_payer, patient_insurance_policy,
+  insurance_claim tables with `tenant_isolation` policies + `GRANT`s, appended
+  to the preceding 8 migrations and verified against a scratch Postgres and via
+  `prisma migrate deploy` in e2e.
+- **Permissions + events.** Catalog additions: `billing.manage` plus
+  `billing.read/create/update`, `payments.create/read`, and a new `insurance`
+  group (`insurance.manage/read`). `role-matrix.ts` grants RECEPTIONIST
+  (billing create, payments, insurance.read), ACCOUNTANT (manage + insurance.
+  manage), MANAGER (read), AUDITOR (read-only). New events:
+  `Billing.InvoiceIssued/InvoiceCancelled/InvoiceRefunded`,
+  `Billing.PaymentCompleted/PaymentRefunded`, and
+  `Billing.ClaimSubmitted/ClaimDecided/ClaimPaid`, wired into the timeline
+  consumer.
+- **Acceptance.** `test/e2e/phase6-billing.e2e-spec.ts` — 14 tests: price-list
+  CRUD + optimistic locking + string money, DRAFT invoice price-snapshots +
+  INV numbering, discount/tax math + inactive/cross-branch rejection,
+  partial-then-full settle with RCT receipts + move to PAID, payment refund
+  reopening the balance, full invoice refund (payments → REFUNDED), cancel-only-
+  while-unpaid, idempotent payment replay, payer/policy matching (including a
+  patient-mismatch 400), the full insurance claim lifecycle posting an INSURANCE
+  payout, partial approval + cash top-up, role separation (auditor read-only),
+  and a cross-tenant isolation check (org B's invoice is 404 from org A).
+  Unit suites added for `billing-flow` (invoice settle math, line totals,
+  action guards) and `billing-number` (counter keys + formatting) — 29 suites /
+  196 unit tests total.
 
 ## Notes
 

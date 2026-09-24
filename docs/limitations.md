@@ -150,6 +150,18 @@ working code with a caveat.
   columns in the WHERE clause (raw statements bypass the Prisma extension);
   the branch that owns the rows is the one written into the lock call from the
   request context.
+- **Billing payments land directly in `COMPLETED`.** There is no `PENDING` /
+  `AUTHORIZED` leg and no payment gateway; `PENDING` is reserved for a future
+  gateway adapter. Cash/card/mobile/insurance are recorded as already-settled.
+- **Invoice `OVERDUE` is derived, not materialized.** `balanceDue` is exact
+  (`Decimal(12,2)` accumulated, surfaced as `toFixed(2)` strings); overdue
+  status is a query-time filter (balanceDue > 0 and dueAt < now()), not a
+  stored state on the workflow graph. Refunding a payment re-settles via the
+  `PAID → PARTIALLY_PAID/ISSUED` edges, so `REFUNDED` invoices cannot be
+  re-opened.
+- **Insurance claims can only be sized down, not up.** A claim is created from
+  the invoice's current balance, and `approvedAmount` is capped at the claim
+  amount; partial approvals cannot later be raised above the approved amount.
 
 ## Operational notes
 

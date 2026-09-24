@@ -78,6 +78,15 @@ export const EventTypes = {
   StockAdjusted: 'Pharmacy.StockAdjusted',
   StockTransferReceived: 'Pharmacy.StockTransferReceived',
   PurchaseOrderReceived: 'Pharmacy.PurchaseOrderReceived',
+  /** Billing & invoicing (brief Phase 6). Payloads carry IDs only. */
+  InvoiceIssued: 'Billing.InvoiceIssued',
+  InvoiceCancelled: 'Billing.InvoiceCancelled',
+  InvoiceRefunded: 'Billing.InvoiceRefunded',
+  PaymentCompleted: 'Billing.PaymentCompleted',
+  PaymentRefunded: 'Billing.PaymentRefunded',
+  ClaimSubmitted: 'Billing.ClaimSubmitted',
+  ClaimDecided: 'Billing.ClaimDecided',
+  ClaimPaid: 'Billing.ClaimPaid',
   /**
    * Test/demo signal used by the Phase 0 harness (see modules/demo and
    * docs/limitations.md). Removed from the catalog before production use.
@@ -156,5 +165,13 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.StockAdjusted]: 1,
   [EventTypes.StockTransferReceived]: 1,
   [EventTypes.PurchaseOrderReceived]: 1,
+  [EventTypes.InvoiceIssued]: 1,
+  [EventTypes.InvoiceCancelled]: 1,
+  [EventTypes.InvoiceRefunded]: 1,
+  [EventTypes.PaymentCompleted]: 1,
+  [EventTypes.PaymentRefunded]: 1,
+  [EventTypes.ClaimSubmitted]: 1,
+  [EventTypes.ClaimDecided]: 1,
+  [EventTypes.ClaimPaid]: 1,
   [EventTypes.Probe]: 1,
 };

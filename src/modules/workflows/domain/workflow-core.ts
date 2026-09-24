@@ -20,6 +20,8 @@ export const WORKFLOW_ENTITY_TYPES = [
   'prescription',
   'purchase_order',
   'stock_transfer',
+  'invoice',
+  'insurance_claim',
 ] as const;
 
 export type WorkflowEntityType = (typeof WORKFLOW_ENTITY_TYPES)[number];
@@ -40,6 +42,8 @@ export const WORKFLOW_VALID_STATUSES: Record<WorkflowEntityType, readonly string
   prescription: ['DRAFT', 'ISSUED', 'PARTIALLY_DISPENSED', 'DISPENSED', 'CANCELLED'],
   purchase_order: ['DRAFT', 'SUBMITTED', 'APPROVED', 'ORDERED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CLOSED', 'CANCELLED'],
   stock_transfer: ['REQUESTED', 'APPROVED', 'IN_TRANSIT', 'RECEIVED', 'CANCELLED'],
+  invoice: ['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'CANCELLED', 'REFUNDED'],
+  insurance_claim: ['DRAFT', 'SUBMITTED', 'APPROVED', 'PARTIALLY_APPROVED', 'DENIED', 'PAID'],
 };
 
 /** Built-in, mandatory edges for each entity type (the safe core). */
@@ -108,6 +112,26 @@ export const SYSTEM_TRANSITIONS: Record<WorkflowEntityType, readonly WorkflowEdg
     { fromStatus: 'APPROVED', toStatus: 'IN_TRANSIT' },
     { fromStatus: 'APPROVED', toStatus: 'CANCELLED' },
     { fromStatus: 'IN_TRANSIT', toStatus: 'RECEIVED' },
+  ],
+  invoice: [
+    { fromStatus: 'DRAFT', toStatus: 'ISSUED' },
+    { fromStatus: 'DRAFT', toStatus: 'CANCELLED' },
+    { fromStatus: 'ISSUED', toStatus: 'PARTIALLY_PAID' },
+    { fromStatus: 'ISSUED', toStatus: 'PAID' },
+    { fromStatus: 'ISSUED', toStatus: 'CANCELLED' },
+    { fromStatus: 'PARTIALLY_PAID', toStatus: 'ISSUED' },
+    { fromStatus: 'PARTIALLY_PAID', toStatus: 'PAID' },
+    { fromStatus: 'PAID', toStatus: 'PARTIALLY_PAID' },
+    { fromStatus: 'PAID', toStatus: 'ISSUED' },
+    { fromStatus: 'PAID', toStatus: 'REFUNDED' },
+  ],
+  insurance_claim: [
+    { fromStatus: 'DRAFT', toStatus: 'SUBMITTED' },
+    { fromStatus: 'SUBMITTED', toStatus: 'APPROVED' },
+    { fromStatus: 'SUBMITTED', toStatus: 'PARTIALLY_APPROVED' },
+    { fromStatus: 'SUBMITTED', toStatus: 'DENIED' },
+    { fromStatus: 'APPROVED', toStatus: 'PAID' },
+    { fromStatus: 'PARTIALLY_APPROVED', toStatus: 'PAID' },
   ],
 };
 

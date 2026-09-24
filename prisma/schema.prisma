@@ -125,6 +125,14 @@ model Organization {
   stockCountItems        StockCountItem[]
   prescriptions          Prescription[]
   prescriptionItems      PrescriptionItem[]
+
+  billableItems           BillableItem[]
+  invoices                Invoice[]
+  invoiceItems            InvoiceItem[]
+  payments                Payment[]
+  insurancePayers         InsurancePayer[]
+  patientInsurancePolicies PatientInsurancePolicy[]
+  insuranceClaims         InsuranceClaim[]
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +320,9 @@ model Branch {
   stockTransfersTo       StockTransfer[]           @relation("TransferToBranch")
   stockCounts            StockCount[]
   prescriptions          Prescription[]
+
+  billableItems BillableItem[]
+  invoices      Invoice[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -778,6 +789,11 @@ model Patient {
   referrals     Referral[]
 
   prescriptions Prescription[]
+
+  invoices          Invoice[]
+  payments          Payment[]
+  insurancePolicies PatientInsurancePolicy[]
+  insuranceClaims   InsuranceClaim[]
 
   @@unique([organizationId, patientNumber])
   @@index([organizationId, lastName, firstName, dateOfBirth])
@@ -1864,6 +1880,7 @@ model Medication {
   transferItems       StockTransferItem[]
   countItems          StockCountItem[]
   prescriptionItems   PrescriptionItem[]
+  invoiceItems        InvoiceItem[]
 
   @@unique([organizationId, name, genericName, strength, form, unit])
   @@index([organizationId, isActive])
@@ -2157,4 +2174,292 @@ model PrescriptionItem {
 
   @@index([organizationId, prescriptionId])
   @@map("prescription_items")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Billing & invoicing (brief Phase 6)
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum BillableItemCategory {
+  CONSULTATION
+  LAB
+  RADIOLOGY
+  PHARMACY
+  PROCEDURE
+  ADMISSION
+  OTHER
+}
+
+// Overdue is DERIVED at query time (ISSUED/PARTIALLY_PAID with dueAt in the
+// past), never stored — it would be a backdated snapshot, not a state.
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  MOBILE_MONEY
+  BANK_TRANSFER
+  CHEQUE
+  INSURANCE
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum CoverageType {
+  FULL // the payer covers 100%.
+  PARTIAL // the payer covers coveragePercent; the patient owes the rest.
+}
+
+enum ClaimStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  PARTIALLY_APPROVED
+  DENIED
+  PAID
+}
+
+// Org price-list item a facility charges for. Prices are money
+// (ADR-029): Decimal(12, 2), surfaced to clients as strings.
+model BillableItem {
+  id             String               @id
+  organizationId String
+  branchId       String?
+  category       BillableItemCategory
+  name           String
+  description    String?
+  price          Decimal              @db.Decimal(12, 2)
+  isActive          Boolean @default(true)
+  insuranceEligible Boolean @default(false)
+  version           Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  invoiceItems InvoiceItem[]
+
+  @@unique([organizationId, name, category])
+  @@index([organizationId, category, isActive])
+  @@map("billable_items")
+}
+
+// Invoice aggregate root. Amount math is Decimal (ADR-029). Status walks
+// DRAFT → ISSUED → (PARTIALLY_PAID →) PAID; CANCELLED closes an unpaid
+// invoice, REFUNDED closes a fully-refunded one. visitId/encounterId are soft
+// forward-pointers so invoicing can attach to a visit/appointment without FK
+// coupling across modules.
+model Invoice {
+  id             String        @id
+  organizationId String
+  branchId       String
+  patientId      String
+  invoiceNumber  String
+  status         InvoiceStatus @default(DRAFT)
+
+  visitId     String?
+  encounterId String?
+
+  subtotal       Decimal @db.Decimal(12, 2)
+  discountAmount Decimal @db.Decimal(12, 2) @default(0)
+  taxAmount      Decimal @db.Decimal(12, 2) @default(0)
+  total          Decimal @db.Decimal(12, 2)
+  balanceDue     Decimal @db.Decimal(12, 2)
+
+  dueAt      DateTime?
+  notes      String?
+  issuedById String?
+  issuedAt   DateTime?
+
+  cancelledById  String?
+  cancelledAt    DateTime?
+  cancelReason   String?
+  refundedById   String?
+  refundedAt     DateTime?
+  refundReason   String?
+  version        Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  items    InvoiceItem[]
+  payments Payment[]
+  claims   InsuranceClaim[]
+
+  @@unique([organizationId, invoiceNumber])
+  @@index([organizationId, patientId, createdAt])
+  @@index([organizationId, branchId, status, createdAt])
+  @@map("invoices")
+}
+
+// A billed line. Snapshot costs (description + unitPrice) at create time so a
+// price-list edit never rewrites history. referenceType/referenceId pin the
+// source document (prescription, encounter, visit, ...) as a soft link.
+model InvoiceItem {
+  id             String   @id
+  organizationId String
+  invoiceId      String
+  billableItemId String?
+  medicationId   String?
+  description    String
+  quantity       Int
+  unitPrice      Decimal  @db.Decimal(12, 2)
+  lineTotal      Decimal  @db.Decimal(12, 2)
+  referenceType  String?
+  referenceId    String?
+  createdById    String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice      Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  billableItem BillableItem? @relation(fields: [billableItemId], references: [id], onDelete: SetNull)
+  medication   Medication?   @relation(fields: [medicationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, invoiceId])
+  @@map("invoice_items")
+}
+
+// A payment toward an invoice. Created PENDING; settle/complete/fail/refund
+// move it (atomic status guards prevent double-apply). COMPLETED payments
+// reduce the invoice's balanceDue in the same transaction; refunds restore it.
+model Payment {
+  id             String         @id
+  organizationId String
+  invoiceId      String
+  patientId      String
+  receiptNumber  String
+  amount         Decimal        @db.Decimal(12, 2)
+  method         PaymentMethod
+  status         PaymentStatus  @default(PENDING)
+  externalReference String?
+  note           String?
+  recordedById   String?
+  recordedAt     DateTime?
+  refundedById   String?
+  refundedAt     DateTime?
+  refundReason   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice      Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, receiptNumber])
+  @@index([organizationId, invoiceId])
+  @@index([organizationId, patientId, createdAt])
+  @@map("payments")
+}
+
+// Insurer (NHIF-style, private HMO, ...) a facility works with.
+model InsurancePayer {
+  id             String  @id
+  organizationId String
+  name           String
+  contactPhone   String?
+  email          String?
+  isActive       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  policies PatientInsurancePolicy[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, isActive])
+  @@map("insurance_payers")
+}
+
+// A patient's active cover under a payer. FULL = payer covers everything;
+// PARTIAL = coveragePercent of charges, the patient owes the difference.
+model PatientInsurancePolicy {
+  id              String       @id
+  organizationId  String
+  patientId       String
+  payerId         String
+  policyNumber    String
+  coverageType    CoverageType @default(PARTIAL)
+  coveragePercent Int          @default(0)
+  validityStart   DateTime?
+  validityEnd     DateTime?
+  isActive        Boolean      @default(true)
+  version         Int          @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  payer        InsurancePayer @relation(fields: [payerId], references: [id], onDelete: Restrict)
+
+  claims InsuranceClaim[]
+
+  @@unique([organizationId, patientId, payerId, policyNumber])
+  @@index([organizationId, patientId])
+  @@map("patient_insurance_policies")
+}
+
+// An insurance claim against an invoice. Lifecycle walks
+// DRAFT → SUBMITTED → APPROVED (or PARTIALLY_APPROVED / DENIED) → PAID.
+// PAID posts an INSURANCE-method payment for the approved amount, which
+// reduces the invoice's balanceDue exactly like any other settlement.
+model InsuranceClaim {
+  id             String      @id
+  organizationId String
+  claimNumber    String
+  invoiceId      String
+  policyId       String
+  patientId      String
+  amount         Decimal     @db.Decimal(12, 2)
+  status         ClaimStatus @default(DRAFT)
+  notes          String?
+
+  submittedById      String?
+  submittedAt        DateTime?
+  approvedById       String?
+  approvedAt         DateTime?
+  approvedAmount     Decimal? @db.Decimal(12, 2)
+  deniedById         String?
+  deniedAt           DateTime?
+  denyReason         String?
+  paidById           String?
+  paidAt             DateTime?
+  version            Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice      Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  policy       PatientInsurancePolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, claimNumber])
+  @@index([organizationId, invoiceId])
+  @@index([organizationId, patientId, createdAt])
+  @@index([organizationId, status])
+  @@map("insurance_claims")
 }

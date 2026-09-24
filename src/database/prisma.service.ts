@@ -85,6 +85,14 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'StockCountItem',
   'Prescription',
   'PrescriptionItem',
+  // Billing & invoicing (brief Phase 6).
+  'BillableItem',
+  'Invoice',
+  'InvoiceItem',
+  'Payment',
+  'InsurancePayer',
+  'PatientInsurancePolicy',
+  'InsuranceClaim',
 ]);
 
 type Op = string;

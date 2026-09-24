@@ -43,7 +43,8 @@ describe('workflow-core', () => {
       expect(isValidWorkflowEntityType('encounter')).toBe(true);
       expect(isValidWorkflowEntityType('task')).toBe(true);
       expect(isValidWorkflowEntityType('prescription')).toBe(true);
-      expect(isValidWorkflowEntityType('invoice')).toBe(false);
+      expect(isValidWorkflowEntityType('invoice')).toBe(true);
+      expect(isValidWorkflowEntityType('insurance_claim')).toBe(true);
       expect(isValidWorkflowEntityType('$sql')).toBe(false);
     });
   });

@@ -163,10 +163,15 @@ export const PERMISSION_GROUPS = {
   billing: {
     read: 'billing.read',
     create: 'billing.create',
+    manage: 'billing.manage',
   },
   payments: {
     create: 'payments.create',
     refund: 'payments.refund',
+  },
+  insurance: {
+    read: 'insurance.read',
+    manage: 'insurance.manage',
   },
   reports: { read: 'reports.read' },
   audit: { read: 'audit.read' },
