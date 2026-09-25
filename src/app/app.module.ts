@@ -48,6 +48,8 @@ import { PrescriptionsModule } from '../modules/prescriptions/prescriptions.modu
 import { BillingModule } from '../modules/billing/billing.module';
 import { LaboratoryModule } from '../modules/laboratory/laboratory.module';
 import { RadiologyModule } from '../modules/radiology/radiology.module';
+import { InpatientModule } from '../modules/inpatient/inpatient.module';
+import { EmergencyModule } from '../modules/emergency/emergency.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -111,6 +113,8 @@ import { newId } from '../common/lib/uuidv7';
     BillingModule,
     LaboratoryModule,
     RadiologyModule,
+    InpatientModule,
+    EmergencyModule,
   ],
   providers: [
     // Guard order: throttler (outer) -> JWT identity -> session/tenant

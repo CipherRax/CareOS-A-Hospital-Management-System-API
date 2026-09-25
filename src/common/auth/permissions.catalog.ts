@@ -186,6 +186,26 @@ export const PERMISSION_GROUPS = {
   },
   reports: { read: 'reports.read' },
   audit: { read: 'audit.read' },
+  wards: {
+    read: 'wards.read',
+    manage: 'wards.manage',
+  },
+  beds: {
+    read: 'beds.read',
+    manage: 'beds.manage',
+  },
+  inpatient: {
+    read: 'inpatient.read',
+    create: 'inpatient.create',
+    transfer: 'inpatient.transfer',
+    discharge: 'inpatient.discharge',
+  },
+  emergency: {
+    read: 'emergency.read',
+    register: 'emergency.register',
+    triage: 'emergency.triage',
+    manage: 'emergency.manage',
+  },
 } as const;
 
 export type Permission = string;

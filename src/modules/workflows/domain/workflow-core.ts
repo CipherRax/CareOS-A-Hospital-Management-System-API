@@ -24,6 +24,8 @@ export const WORKFLOW_ENTITY_TYPES = [
   'insurance_claim',
   'lab_order',
   'radiology_order',
+  'admission',
+  'emergency_visit',
 ] as const;
 
 export type WorkflowEntityType = (typeof WORKFLOW_ENTITY_TYPES)[number];
@@ -65,6 +67,17 @@ export const WORKFLOW_VALID_STATUSES: Record<WorkflowEntityType, readonly string
     'VERIFIED',
     'RELEASED',
     'CANCELLED',
+  ],
+  admission: ['ADMITTED', 'DISCHARGED'],
+  emergency_visit: [
+    'ARRIVED',
+    'TRIAGED',
+    'ASSESSED',
+    'IN_TREATMENT',
+    'OBSERVATION',
+    'DISCHARGED',
+    'ADMITTED',
+    'REFERRED',
   ],
 };
 
@@ -175,6 +188,23 @@ export const SYSTEM_TRANSITIONS: Record<WorkflowEntityType, readonly WorkflowEdg
     { fromStatus: 'PERFORMED', toStatus: 'REPORTED' },
     { fromStatus: 'REPORTED', toStatus: 'VERIFIED' },
     { fromStatus: 'VERIFIED', toStatus: 'RELEASED' },
+  ],
+  admission: [{ fromStatus: 'ADMITTED', toStatus: 'DISCHARGED' }],
+  emergency_visit: [
+    { fromStatus: 'ARRIVED', toStatus: 'TRIAGED' },
+    { fromStatus: 'TRIAGED', toStatus: 'ASSESSED' },
+    { fromStatus: 'ASSESSED', toStatus: 'IN_TREATMENT' },
+    { fromStatus: 'ASSESSED', toStatus: 'OBSERVATION' },
+    { fromStatus: 'ASSESSED', toStatus: 'DISCHARGED' },
+    { fromStatus: 'ASSESSED', toStatus: 'ADMITTED' },
+    { fromStatus: 'ASSESSED', toStatus: 'REFERRED' },
+    { fromStatus: 'IN_TREATMENT', toStatus: 'OBSERVATION' },
+    { fromStatus: 'IN_TREATMENT', toStatus: 'DISCHARGED' },
+    { fromStatus: 'IN_TREATMENT', toStatus: 'ADMITTED' },
+    { fromStatus: 'IN_TREATMENT', toStatus: 'REFERRED' },
+    { fromStatus: 'OBSERVATION', toStatus: 'DISCHARGED' },
+    { fromStatus: 'OBSERVATION', toStatus: 'ADMITTED' },
+    { fromStatus: 'OBSERVATION', toStatus: 'REFERRED' },
   ],
 };
 

@@ -105,6 +105,14 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'CriticalResult',
   'RadiologyOrder',
   'ImagingReport',
+  // Inpatient & emergency (brief Phase 8).
+  'Ward',
+  'Room',
+  'Bed',
+  'BedAssignment',
+  'Admission',
+  'Discharge',
+  'EmergencyVisit',
 ]);
 
 type Op = string;

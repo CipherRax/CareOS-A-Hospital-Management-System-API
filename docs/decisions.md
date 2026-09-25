@@ -3,6 +3,38 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-032 — One bed, one patient: row lock + partial unique index backstop
+
+**Status:** accepted (Phase 9, the brief's Phase 8)
+
+**Context:** an admission must never double-book a bed. The application checks
+bed state before assigning, but a naive check-then-write is racy: two
+concurrent admits against the same AVAILABLE bed can both read "AVAILABLE".
+Optimistic locking on the bed's `version` alone only rejects at write time and
+still needs a sentinel; and the health record demands a database-level
+guarantee, not just a happy-path service check.
+
+**Decision:** assignment is guarded at two layers inside the same interactive
+transaction. First, `lockBedForAssignment` (`inpatient.service.ts`) issues
+`SELECT … FOR UPDATE` on the bed row within the admission/transfer
+transaction, so concurrent callers serialize on the row and re-read the
+committed state; an `AVAILABLE`-only gate plus an "no active assignment" check
+reject everything that is not assignable (`BED_UNAVAILABLE`, 409). Second, the
+migration adds a partial unique index
+`bed_assignments_active_bed_uidx ON bed_assignments (bedId) WHERE
+"releasedAt" IS NULL` as a hard DB backstop — any path that would create a
+second open assignment violates the index and the transaction maps the `P2002`
+to `BED_UNAVAILABLE`. The parallel service check also catches
+`ADMISSION_ALREADY_ACTIVE` (one open admission per patient) before the lock.
+
+**Consequences:** the one-bed-one-patient rule holds even under a missed check
+or a future code path. The FOR UPDATE lock additionally makes
+transfer-vs-admit collisions safe (the target bed is row-locked before the old
+assignment is released, so there is no AVAILABLE gap to race). The cost is a
+raw-SQL lock statement that bypasses the tenant-aware Prisma extension, so it
+uses explicit quoted `"organizationId"`/`"bedId"` columns (same pattern as the
+inventory `lockBatchRows`, ADR-notes in limitations).
+
 ## ADR-031 — Radiology rides workflow seams, not a PACS client
 
 **Status:** accepted (Phase 8, the brief's Phase 6)

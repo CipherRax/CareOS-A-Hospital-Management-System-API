@@ -613,6 +613,78 @@ Done:
   (counter keys + formatting), and `radiology-flow` (action guards) — 32
   suites / 220 unit tests total, e2e 131 tests / 11 suites.
 
+## Phase 9 — Inpatient & emergency (COMPLETE; the brief's Phase 8)
+
+Implemented `src/modules/inpatient/` and `src/modules/emergency/` per brief
+§6.9. Unit suites `inpatient-flow`, `inpatient-number`, `emergency-flow` (3
+suites / 15 tests) and the e2e `phase8-inpatient` spec (9 tests) land green;
+the whole gate passes (35 unit suites / 235 tests, 12 e2e suites / 140 tests).
+Wire surface (migration `20260927090000_phase8_inpatient_emergency`): `ward`,
+`room`, `bed`, `bed_assignment`, `admission`, `discharge`, `emergency_visit`
+(plus a `beds`-scoped `counters` key) — each tenant-isolated with RLS; the
+already-shipped `Workflow`/`Event` machinery is reused for admission discharges
+and every ED disposition. Access: `wards.*`, `beds.*`, `inpatient.*` and
+`emergency.*` groups; HOSPITAL_ADMIN (and above) gets `manage`, DOCTOR /
+CLINICAL_OFFICER get the clinical set (inpatient create/transfer/discharge +
+emergency register/triage), NURSE read + triage, RECORDS_OFFICER / MANAGER /
+AUDITOR read-only.
+
+- **Ward → room → bed hierarchy.** List endpoints nest `rooms`+`beds`;
+  `PATCH /wards/:id` is a plain (non-optimistic, no `version` column) update;
+  `PATCH /beds/:id/status` is version-guarded (409
+  `OPTIMISTIC_LOCK_CONFLICT` on a stale `version`) and accepts only
+  AVAILABLE/RESERVED/CLEANING/MAINTENANCE/BLOCKED — OCCUPIED is
+  assignment-driven and rejected at the DTO edge (400). `GET /beds` filters by
+  `wardId`/`branchId`/`status` with pagination.
+- **Admissions with one-bed-one-patient (ADR-032).** `POST /admissions`
+  validates an AVAILABLE bed inside an interactive transaction:
+  `lockBedForAssignment` issues `SELECT … FOR UPDATE` on the bed row (concurrent
+  admit/transfer for the same bed serializes and re-reads committed state), and
+  the migration adds the partial unique index `bed_assignments_active_bed_uidx`
+  on `(bedId) WHERE "releasedAt" IS NULL` as a hard DB backstop — the index
+  violation surfaces as `BED_UNAVAILABLE` (409). The same patient cannot hold
+  two active admissions (`ADMISSION_ALREADY_ACTIVE`). Admission numbers
+  `ADM-YYYY-NNNNNN` via the org-scoped `counters`. A shared
+  `createAdmissionInTx(ctx, …)` runs inside the **caller's** transaction so the
+  emergency module commits an ED admit atomically with the inpatient admission
+  (source `EMERGENCY`); the direct controller path defaults to
+  `OUTPATIENT_CLINIC`.
+- **Transfer + discharge.** Transfers close the active `BedAssignment`
+  (`releasedById`/`releasedAt`/`reason`) — history is preserved — move the old
+  bed to AVAILABLE, and row-lock/claim the target (same-bed transfer is
+  400 `VALIDATION_ERROR`). Discharge writes a `Discharge` record (summary,
+  instructions, medications/follow-up/document IDs as JSON,
+  `hasOutstandingBilling`), steps the admission ADMITTED → DISCHARGED through
+  the workflow engine, frees the bed to CLEANING and is single-fire
+  (`INVALID_WORKFLOW_TRANSITION` on a second discharge).
+- **Emergency department.** `POST /emergency/visits` registers an arrival
+  (`ER-YYYY-NNNNNN`), then triage (priority + complaint → `chiefComplaint`),
+  optional priority correction, assess (`assessment`), treat (`treatment`) and
+  observe drive it to one of three terminal dispositions: admit (creates the
+  inpatient admission in-tx and records `admittedAdmissionId`), refer
+  (`referredTo` + `referralNotes`) or discharge. All transitions stamp their
+  timestamps (`arrivedAt`/`triagedAt`/`assessedAt`/`treatmentStartedAt`/
+  `observedAt`/`dispositionAt`); terminal visits reject every action with
+  `EMERGENCY_VISIT_CLOSED` (409). `GET /emergency/summary` answers today's
+  arrivals/active buckets, avg minutes to triage and disposition, plus
+  by-priority/by-disposition tallies.
+- **Events, roles, isolation.** New catalog events
+  `Inpatient.AdmissionCreated/AdmissionTransferred/AdmissionDischarged/
+  BedStatusChanged` and `Emergency.VisitRegistered/VisitTriaged/
+  PriorityRecorded/VisitAssessed/VisitTreatmentStarted/VisitObserved/
+  VisitAdmitted/VisitReferred/VisitDischarged`, all consumed by the timeline
+  projection. Permissions land in `permissions.catalog.ts` + role-matrix.
+  E2e asserts role separation (clerk 403 on triage; auditor read-only) and
+  cross-tenant invisibility (another org's ward/bed/admission/visit return
+  404/empty).
+- **Acceptance.** `test/e2e/phase8-inpatient.e2e-spec.ts` — 9 tests: hierarchy
+  + manual bed status rules; admission onto an AVAILABLE bed (OCCUPIED bed
+  state, `ADM-` number, active-assignment invariant); `Promise.all` concurrent
+  admits for the same bed → exactly `[201, 409]`; transfer history + bed states;
+  single-fire discharge to CLEANING; the full ED workflow through an inpatient
+  admission (source EMERGENCY on the linked admission) + terminal-visit
+  rejection; refer/discharge + summary analytics; clerk 403; cross-tenant.
+
 ## Notes
 
 - Testcontainers uses `postgres:17-alpine` by default because `postgres:16-alpine`
@@ -624,8 +696,9 @@ Done:
   work was committed earlier under the label "Phase 2" and is documented here as
   Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
   keep git history unchanged; git history is unchanged.
-- The e2e suite reaches 131 tests across 11 suites (identity, patients,
+- The e2e suite reaches 140 tests across 12 suites (identity, patients,
   documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, the phase-4
   clinical spec, the phase-5 inventory/pharmacy spec, the phase-6 billing
-  spec, and the phase-7 laboratory/radiology spec; file names keep the old
+  spec, the phase-7 laboratory/radiology spec, and the phase-8
+  inpatient/emergency spec; file names keep the old
   labels to avoid churn while the sections here track the brief's phases).

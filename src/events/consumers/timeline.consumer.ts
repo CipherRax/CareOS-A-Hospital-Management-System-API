@@ -47,6 +47,13 @@ export class TimelineProjectionConsumer implements OutboxConsumer {
     EventTypes.LabCriticalResultAcknowledged,
     EventTypes.RadiologyOrderCreated,
     EventTypes.RadiologyReportReleased,
+    EventTypes.AdmissionCreated,
+    EventTypes.AdmissionTransferred,
+    EventTypes.AdmissionDischarged,
+    EventTypes.EmergencyVisitRegistered,
+    EventTypes.EmergencyVisitTriaged,
+    EventTypes.EmergencyVisitAdmitted,
+    EventTypes.EmergencyVisitDischarged,
   ];
 
   async handle(ctx: OutboxConsumerContext): Promise<void> {
@@ -116,4 +123,11 @@ const TIMELINE_MAP: Record<string, TimelineSpec> = {
   [EventTypes.LabCriticalResultAcknowledged]: { type: 'lab.critical.acknowledged', title: 'Critical lab result acknowledged', requiredPermission: 'lab.read' },
   [EventTypes.RadiologyOrderCreated]: { type: 'radiology.order.created', title: 'Radiology order placed', requiredPermission: 'radiology.read' },
   [EventTypes.RadiologyReportReleased]: { type: 'radiology.report.released', title: 'Radiology report released', requiredPermission: 'radiology.read' },
+  [EventTypes.AdmissionCreated]: { type: 'inpatient.admission.created', title: 'Admitted to ward', requiredPermission: 'inpatient.read' },
+  [EventTypes.AdmissionTransferred]: { type: 'inpatient.admission.transferred', title: 'Bed transfer completed', requiredPermission: 'inpatient.read' },
+  [EventTypes.AdmissionDischarged]: { type: 'inpatient.admission.discharged', title: 'Discharged', requiredPermission: 'inpatient.read' },
+  [EventTypes.EmergencyVisitRegistered]: { type: 'emergency.visit.registered', title: 'Emergency visit registered', requiredPermission: 'emergency.read' },
+  [EventTypes.EmergencyVisitTriaged]: { type: 'emergency.visit.triaged', title: 'Emergency triage completed', requiredPermission: 'emergency.read' },
+  [EventTypes.EmergencyVisitAdmitted]: { type: 'emergency.visit.admitted', title: 'Admitted from emergency', requiredPermission: 'emergency.read' },
+  [EventTypes.EmergencyVisitDischarged]: { type: 'emergency.visit.discharged', title: 'Emergency visit discharged', requiredPermission: 'emergency.read' },
 };

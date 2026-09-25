@@ -181,6 +181,31 @@ working code with a caveat.
   reference/critical ranges on `LabTestField`; borderline clinical judgement,
   inter-lab standardization, or organ-specific interpretable ranges are not
   modeled. Non-numeric fields never auto-flag.
+- **Bed assignment depends on the partial unique index at insert time.**
+  `bed_assignments_active_bed_uidx` (ADR-032) prevents a second ACTIVE
+  assignment per bed in the database, but nothing enforces it via a DB trigger
+  on the old row when the app releases outside a transaction; the application
+  always releases the old assignment inside the same transaction it opens the
+  new one, so the window never exists in practice.
+- **`ward` has no optimistic lock.** `PATCH /wards/:id` updates by id without a
+  `version` column, so two concurrent ward edits last-write-wins (beds are
+  version-guarded). Ward metadata is low-churn; a `version` column is a later
+  concern.
+- **ED summary is query-time analytics, not a rollup.** `GET /emergency/summary`
+  scans today's visits in memory for arrivals/active/avg minutes and
+  by-priority/by-disposition tallies; on a busy department this is a full-day
+  scan rather than pre-aggregated counters. A materialized per-hour rollup is a
+  later phase.
+- **Emergency dispositions are single-fire by workflow, and discharge notes are
+  free-text only.** A referred/discharged/admitted visit rejects all further
+  actions (`EMERGENCY_VISIT_CLOSED`); there is no reopen. `discharge`/`refer`
+  persist `referralNotes`/disposition but the brief's "discharge summary
+  document" is not generated as a `Document` — the inpatient discharge record
+  holds summary/instructions/medications as JSON fields instead.
+- **Admission numbers and ED numbers share the `counters` table.** `ADM-` and
+  `ER-` sequences are separate org-scoped keys, but they ride the same physical
+  `(organizationId, key)` `counters` rows as lab/billing numbers, so all go
+  through the same atomic `ON CONFLICT UPDATE` primitive.
 
 ## Operational notes
 

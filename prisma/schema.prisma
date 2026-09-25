@@ -145,6 +145,13 @@ model Organization {
   criticalResults   CriticalResult[]
   radiologyOrders   RadiologyOrder[]
   imagingReports    ImagingReport[]
+  wards             Ward[]
+  rooms             Room[]
+  beds              Bed[]
+  bedAssignments    BedAssignment[]
+  admissions        Admission[]
+  discharges        Discharge[]
+  emergencyVisits   EmergencyVisit[]
 }
 
 // ---------------------------------------------------------------------------
@@ -339,6 +346,10 @@ model Branch {
   labSamples      LabSample[]
   radiologyOrders RadiologyOrder[]
 
+  wards           Ward[]
+  admissions      Admission[]
+  emergencyVisits EmergencyVisit[]
+
   @@unique([organizationId, code])
   @@index([organizationId])
   @@map("branches")
@@ -420,6 +431,11 @@ model User {
   referralsFrom         Referral[]            @relation("ReferralFromProvider")
   tasksAssignedBy       Task[]                @relation("TaskCreatedBy")
   prescriptionsProvided Prescription[]        @relation("PrescriptionProvider")
+
+  bedAssignmentsAssignedBy BedAssignment[] @relation("BedAssignedBy")
+  bedAssignmentsReleasedBy BedAssignment[] @relation("BedReleasedBy")
+  admissionsAdmittedBy     Admission[]     @relation("AdmissionAdmittedBy")
+  dischargesDischargedBy   Discharge[]     @relation("DischargeDischargedBy")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -813,6 +829,9 @@ model Patient {
   labOrders       LabOrder[]
   labSamples      LabSample[]
   radiologyOrders RadiologyOrder[]
+
+  admissions      Admission[]
+  emergencyVisits EmergencyVisit[]
 
   @@unique([organizationId, patientNumber])
   @@index([organizationId, lastName, firstName, dateOfBirth])
@@ -2879,4 +2898,270 @@ model ImagingReport {
 
   @@unique([organizationId, orderId])
   @@map("imaging_reports")
+}
+
+// ---------------------------------------------------------------------------
+// Inpatient & emergency (brief Phase 8). Wards → rooms → beds; admissions with
+// bed assignments (one patient per active bed, enforced by a PARTIAL UNIQUE
+// INDEX on active assignments added in the migration); discharge with summary.
+// Emergency covers Arrival → Triage → Assessment → Treatment → Observation →
+// Admission | Referral | Discharge with priority set by clinicians only.
+// ---------------------------------------------------------------------------
+
+enum BedStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  CLEANING
+  MAINTENANCE
+  BLOCKED
+}
+
+enum AdmissionSource {
+  EMERGENCY
+  OUTPATIENT_CLINIC
+  REFERRAL
+  PLANNED
+  DIRECT
+}
+
+enum AdmissionStatus {
+  ADMITTED
+  DISCHARGED
+}
+
+enum EmergencyVisitStatus {
+  ARRIVED
+  TRIAGED
+  ASSESSED
+  IN_TREATMENT
+  OBSERVATION
+  DISCHARGED
+  ADMITTED
+  REFERRED
+}
+
+enum EmergencyPriority {
+  RESUSCITATION
+  EMERGENT
+  URGENT
+  SEMI_URGENT
+  NON_URGENT
+}
+
+enum EmergencyDisposition {
+  ADMITTED
+  REFERRED
+  DISCHARGED
+}
+
+// A hospital ward, scoped to a branch. Contains rooms, which contain beds.
+model Ward {
+  id             String  @id
+  organizationId String
+  branchId       String
+  name           String
+  code           String?
+  floor          String?
+  description    String?
+  isActive       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  rooms Room[]
+
+  @@unique([organizationId, branchId, name])
+  @@index([organizationId, branchId, isActive])
+  @@map("wards")
+}
+
+// A room within a ward (e.g. "A-101"). Beds live under rooms.
+model Room {
+  id             String  @id
+  organizationId String
+  wardId         String
+  name           String
+  description    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  ward         Ward         @relation(fields: [wardId], references: [id], onDelete: Cascade)
+
+  beds Bed[]
+
+  @@unique([organizationId, wardId, name])
+  @@index([organizationId, wardId])
+  @@map("rooms")
+}
+
+// A physical bed. status is the working state; OCCUPIED is assignment-driven
+// and is never set directly (available/reserved/cleaning/maintenance/blocked
+// go through the status endpoint with optimistic locking via `version`).
+model Bed {
+  id             String    @id
+  organizationId String
+  roomId         String
+  bedNumber      String
+  status         BedStatus @default(AVAILABLE)
+  version        Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  room         Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  assignments BedAssignment[]
+
+  @@unique([organizationId, roomId, bedNumber])
+  @@index([organizationId, roomId, status])
+  @@index([organizationId, status])
+  @@map("beds")
+}
+
+// A stay of an admission in a bed. Transfer/readmission history is preserved:
+// a transfer closes the current row (releasedAt) and opens a new one, so every
+// bed an admission occupied is reconstructable. One-bed-one-patient is enforced
+// by a PARTIAL UNIQUE INDEX on (organizationId, bedId) WHERE releasedAt IS NULL
+// created in the migration (Prisma cannot declare partial indexes) PLUS a row
+// lock on the bed inside the assignment transaction (brief §6.9).
+model BedAssignment {
+  id             String    @id
+  organizationId String
+  bedId          String
+  admissionId    String
+  assignedById   String
+  assignedAt     DateTime  @default(now())
+  releasedById   String?
+  releasedAt     DateTime?
+  reason         String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  bed          Bed          @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  admission    Admission    @relation(fields: [admissionId], references: [id], onDelete: Restrict)
+  assignedBy   User         @relation("BedAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+  releasedBy   User?        @relation("BedReleasedBy", fields: [releasedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, bedId, releasedAt])
+  @@index([organizationId, admissionId, assignedAt])
+  @@map("bed_assignments")
+}
+
+// An inpatient admission (workflow aggregate, entity type 'admission').
+// Doctor authorizes (permission inpatient.create) → available bed row-locked →
+// admission created → bed assigned → patient is inpatient. Number ADM-<YYYY>-NNNNNN.
+model Admission {
+  id                   String          @id
+  organizationId       String
+  admissionNumber      String
+  patientId            String
+  branchId             String
+  departmentId         String? // soft pointer: admitting department/service.
+  encounterId          String? // soft pointer to the source encounter.
+  source               AdmissionSource @default(OUTPATIENT_CLINIC)
+  status               AdmissionStatus @default(ADMITTED)
+  admittedById         String?
+  admittedAt           DateTime        @default(now())
+  expectedDischargeAt  DateTime?
+  provisionalDiagnosis String?
+
+  version Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  admittedBy   User?        @relation("AdmissionAdmittedBy", fields: [admittedById], references: [id], onDelete: SetNull)
+
+  assignments BedAssignment[]
+  discharge   Discharge?
+
+  @@unique([organizationId, admissionNumber])
+  @@index([organizationId, patientId, admittedAt])
+  @@index([organizationId, branchId, status, admittedAt])
+  @@map("admissions")
+}
+
+// 1:1 discharge record. Discharge closes the active bed assignment and flips
+// the bed to CLEANING in the same transaction. The discharge-summary PDF is
+// generated asynchronously (a later phase); this row holds the structured
+// content. Medications/follow-up carry IDs/structure, never PHI blobs.
+model Discharge {
+  id                    String   @id
+  organizationId        String
+  admissionId           String   @unique
+  dischargedById        String?
+  dischargedAt          DateTime @default(now())
+  summary               String?
+  instructions          String?
+  medications           Json? // [{ name, dose, instructions }]
+  followUp              Json? // { type, date, notes } — structured plan
+  hasOutstandingBilling Boolean  @default(false)
+  documentIds           Json? // discharge documents/scans (document service ids)
+  version               Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  admission    Admission    @relation(fields: [admissionId], references: [id], onDelete: Restrict)
+  dischargedBy User?        @relation("DischargeDischargedBy", fields: [dischargedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, admissionId])
+  @@index([organizationId, dischargedAt])
+  @@map("discharges")
+}
+
+// An emergency department visit (workflow aggregate, entity type
+// 'emergency_visit'). Timestamps for arrival/triage/assessment/treatment/
+// observation/disposition feed ED performance analytics. Priority is recorded
+// ONLY by authorized clinicians (permission emergency.triage). Number ER-<YYYY>-NNNNNN.
+model EmergencyVisit {
+  id                  String                @id
+  organizationId      String
+  visitNumber         String
+  branchId            String
+  patientId           String
+  status              EmergencyVisitStatus  @default(ARRIVED)
+  priority            EmergencyPriority?
+  registeredById      String?
+  arrivedById         String?
+  arrivedAt           DateTime              @default(now())
+  chiefComplaint      String?
+  triagedById         String?
+  triagedAt           DateTime?
+  assessedAt          DateTime?
+  assessment          String? // clinical assessment recorded by the clinician.
+  treatmentStartedAt  DateTime?
+  treatment           String? // treatment started in the emergency department.
+  observedAt          DateTime?
+  dispositionAt       DateTime?
+  disposition         EmergencyDisposition?
+  admittedAdmissionId String? // soft pointer to the Admission created on ADMIT.
+  referredTo          String? // referral destination on REFERRED.
+  referralNotes       String?
+
+  version Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, visitNumber])
+  @@index([organizationId, branchId, status, arrivedAt])
+  @@index([organizationId, patientId, arrivedAt])
+  @@map("emergency_visits")
 }

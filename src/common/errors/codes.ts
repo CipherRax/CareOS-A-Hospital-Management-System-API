@@ -53,6 +53,10 @@ export const ErrorCodes = {
   LAB_RESULT_NOT_VERIFIED: 'LAB_RESULT_NOT_VERIFIED',
   LAB_RESULT_NOT_ACKNOWLEDGED: 'LAB_RESULT_NOT_ACKNOWLEDGED',
 
+  // inpatient & emergency (brief Phase 8)
+  ADMISSION_ALREADY_ACTIVE: 'ADMISSION_ALREADY_ACTIVE',
+  EMERGENCY_VISIT_CLOSED: 'EMERGENCY_VISIT_CLOSED',
+
   // display devices
   PAIRING_CODE_INVALID: 'PAIRING_CODE_INVALID',
   PAIRING_CODE_EXPIRED: 'PAIRING_CODE_EXPIRED',
@@ -134,6 +138,8 @@ export const ERROR_CODE_HTTP: Record<ErrorCode, ErrorCodeMeta> = {
   [ErrorCodes.PERIOD_LOCKED]: { httpStatus: 409 },
   [ErrorCodes.LAB_RESULT_NOT_VERIFIED]: { httpStatus: 409 },
   [ErrorCodes.LAB_RESULT_NOT_ACKNOWLEDGED]: { httpStatus: 409 },
+  [ErrorCodes.ADMISSION_ALREADY_ACTIVE]: { httpStatus: 409 },
+  [ErrorCodes.EMERGENCY_VISIT_CLOSED]: { httpStatus: 409 },
 
   [ErrorCodes.PAIRING_CODE_INVALID]: { httpStatus: 401 },
   [ErrorCodes.PAIRING_CODE_EXPIRED]: { httpStatus: 401 },
