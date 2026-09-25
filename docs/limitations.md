@@ -43,6 +43,20 @@ working code with a caveat.
 - **Patient portal auth keeps the Phase 1 role surface.** A self-scoped
   patient uses the same test-principal header seam as staff (`x-careos-test-patient-id`);
   real patient-facing JWT auth is a later phase.
+- **Notification delivery adapters are structural no-ops.** `[stub]` The
+  provider layer (`src/integrations/notifications`) exposes push/email/SMS
+  contracts but each adapter records intent only; in-app rows are the only real
+  channel. Preferences/opt-outs are stored and applied, but nothing is actually
+  sent off-system.
+- **PDF rendering is a stub.** `[stub]` `POST /document-jobs/pdf` validates
+  permissions, merges the document map and audits `pdf.rendered`, but the
+  `PdfRenderer` provider returns a placeholder payload — no real PDF bytes are
+  produced. `health.os` still returns wall-clock time: healthcheck versioning is
+  explicitly not implemented.
+- **Provider directory is not built yet.** `[stub]` `Provider`, `ProviderSchedule`
+  and integration tokens back tenant-scoped scheduling data used by Phase 4 and
+  Phase 10 e2e, but there is no provider-facing onboarding/directory surface
+  yet — that lands in a later phase.
 
 ## Known caveats in shipped code
 

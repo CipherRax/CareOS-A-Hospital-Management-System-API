@@ -685,6 +685,67 @@ AUDITOR read-only.
   admission (source EMERGENCY on the linked admission) + terminal-visit
   rejection; refer/discharge + summary analytics; clerk 403; cross-tenant.
 
+## Phase 10 — Communication & documents (COMPLETE; the brief's Phase 9)
+
+- **Notifications.** `Notification` model (organization, recipient user,
+  channel `IN_APP`, `templateKey`, subject/body copy, `status`, read-flag,
+  `recipientPatientId`). Neutral-only templates: built-ins
+  (`appointment.booked`, `task.assigned`, `lab.result.released`) carry only
+  entity-id references; custom templates are created via
+  `POST /notifications/templates` under `notifications.manage`, each render is
+  gated by `ensureNeutralBody` which strips uuid-shaped references before
+  scanning for emails/phones/national IDs/passwords
+  (`NOTIFICATION_TEMPLATE_FORBIDDEN` 400 otherwise), and `renderTemplate`
+  rejects any variable outside the template allowlist. `NotificationConsumer`
+  turns `Scheduling.AppointmentBooked`, `Task.StatusChanged` and
+  `Lab.ResultReleased` outbox events into in-app notifications for the actor.
+  Delivery adapters (push/email/SMS/null) are structural no-ops — see
+  `docs/limitations.md`. Read/unread listing + bulk `PATCH /notifications` +
+  preference toggle round out the module (`notifications.read`).
+- **Messaging & telemedicine.** Peer conversations (`Conversation`,
+  `ConversationParticipant`, `Message`) with `messaging.*` permissions and an
+  `isAllowedInConversation` access domain (participant/tenant checks); patients
+  messaging is subject to `MESSAGING_RESTRICTED`/`PATIENT_MESSAGING_PERMITTED`
+  org settings; `MessageSent` events feed the timeline. Telemedicine `Session`
+  state machine SCHEDULED → STARTED → ENDED / CANCELLED with
+  `TELEMEDICINE_CONSENT_REQUIRED` (409) blocking START until recorded consent
+  and provider-actor enforcement; `Conference.ProviderCreated` event.
+- **Quality.** `Feedback` (rating/submission, NEW → ACKNOWLEDGED → RESOLVED →
+  CLOSED), `Complaint` (OPEN → ASSIGNED → INVESTIGATING → RESOLVED → CLOSED;
+  close requires a resolution first) and `Incident` (OPEN → INVESTIGATING →
+  ACTION_PLAN → RESOLVED → CLOSED) state machines, each with the corresponding
+  `notifications/feedback/complaints/incidents` permission axes and timeline
+  events (`Patient.FeedbackSubmitted`, `Quality.ComplaintOpened`, etc.).
+- **Portal.** Patient-self subset of the API: `/portal/me`,
+  `/portal/appointments` (upcoming + historical), `/portal/lab-results`,
+  `/portal/feedback` — resolved through a `SelfScopeResolver` that forces the
+  caller's own patient id and `portal.read` (floor-scoped) so a patient cannot
+  read another tenant's data.
+- **Document jobs.** `POST /document-jobs/pdf` is a dependency-free skeleton
+  driven by `DocumentRenderer` + a no-op `PdfRenderer` provider — merges
+  document map data and audits `pdf.rendered`/`document.accessed` events,
+  returning the renderer output (200). See `docs/limitations.md`.
+- **Outbox composition root.** The database↔modules boundary was flaky when
+  built on Nest `multi: true` OUTBOX_CONSUMERS across global module scopes (the
+  merged array silently dropped the database-registered consumers). A @Global
+  `OutboxModule` now composes it as a single factory array
+  `[timeline, pharmacyTasks, notifications]` plus the dispatcher and
+  `OutboxPublisherService` (ADR-033). Notification delivery robustness fix:
+  `ensureNeutralBody` masks uuid-formatted references before PHI pattern
+  matching because `uuidv7` suffixes frequently contain 8+ digit runs that
+  tripped the phone regex and poison-messaged the outbox (ADR-034).
+- **Schema/RLS.** Back-relations/settings on existing tenants + ten new models
+  regulated by the shared tenant `RLS` policy; migration verified with
+  `migrate deploy` on `careos_fresh`.
+- **Acceptance.** `test/e2e/phase10-communication.e2e-spec.ts` — 12 tests:
+  booking a slot emits a neutral staff notification (no patient PHI, read +
+  preferences lifecycle under `notifications.read`); conversation create/send/
+  list + participant-tenant isolation; telemedicine consent gating + provider
+  transition enforcement; feedback/complaint/incident state machines incl.
+  close-before-resolve rejection; portal self-scope (other tenant's
+  appointment/lab-result/feedback invisible, `portal.read` floor); document
+  job render + audit events; cross-tenant isolation.
+
 ## Notes
 
 - Testcontainers uses `postgres:17-alpine` by default because `postgres:16-alpine`
@@ -696,9 +757,10 @@ AUDITOR read-only.
   work was committed earlier under the label "Phase 2" and is documented here as
   Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
   keep git history unchanged; git history is unchanged.
-- The e2e suite reaches 140 tests across 12 suites (identity, patients,
+- The e2e suite reaches 152 tests across 13 suites (identity, patients,
   documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, the phase-4
   clinical spec, the phase-5 inventory/pharmacy spec, the phase-6 billing
-  spec, the phase-7 laboratory/radiology spec, and the phase-8
-  inpatient/emergency spec; file names keep the old
-  labels to avoid churn while the sections here track the brief's phases).
+  spec, the phase-7 laboratory/radiology spec, the phase-8
+  inpatient/emergency spec, and the phase-10 communication spec; file names
+  keep the old labels to avoid churn while the sections here track the brief's
+  phases).

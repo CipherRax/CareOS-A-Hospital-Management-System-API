@@ -113,6 +113,17 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'Admission',
   'Discharge',
   'EmergencyVisit',
+  // Communication & documents (brief Phase 9).
+  'VirtualSession',
+  'Notification',
+  'NotificationTemplate',
+  'NotificationPreference',
+  'Conversation',
+  'ConversationParticipant',
+  'ConversationMessage',
+  'Feedback',
+  'Complaint',
+  'Incident',
 ]);
 
 type Op = string;

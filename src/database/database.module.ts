@@ -10,12 +10,8 @@ import { PrismaService } from './prisma.service';
 import { TenantContext } from './tenant-context';
 import { TxRunner } from './tx';
 import { AuditService } from './audit.service';
-import { OutboxPublisherService } from './outbox-publisher.service';
-import { ConsumerOutboxDispatcher } from '../events/outbox-consumer/consumer-outbox-dispatcher';
-import { OUTBOX_CONSUMERS } from '../events/outbox-consumer/outbox-consumer.types';
 import { TimelineProjectionConsumer } from '../events/consumers/timeline.consumer';
 import { PharmacyTaskConsumer } from '../events/consumers/pharmacy-tasks.consumer';
-import { OUTBOX_DISPATCHER } from './outbox.tokens';
 
 @Global()
 @Module({
@@ -49,22 +45,8 @@ import { OUTBOX_DISPATCHER } from './outbox.tokens';
     PrismaService,
     TxRunner,
     AuditService,
-    OutboxPublisherService,
-    // Registered consumers are fanned out by ConsumerOutboxDispatcher per event
-    // type (idempotent via ProcessedEvent). Timeline projection lands first;
-    // more consumers register in later phases.
     TimelineProjectionConsumer,
     PharmacyTaskConsumer,
-    {
-      provide: OUTBOX_CONSUMERS,
-      useFactory: (timeline: TimelineProjectionConsumer, pharmacyTasks: PharmacyTaskConsumer) => [
-        timeline,
-        pharmacyTasks,
-      ],
-      inject: [TimelineProjectionConsumer, PharmacyTaskConsumer],
-    },
-    ConsumerOutboxDispatcher,
-    { provide: OUTBOX_DISPATCHER, useExisting: ConsumerOutboxDispatcher },
   ],
   exports: [
     CacheModule,
@@ -73,8 +55,9 @@ import { OUTBOX_DISPATCHER } from './outbox.tokens';
     PrismaService,
     TxRunner,
     AuditService,
-    OutboxPublisherService,
     ThrottlerModule,
+    TimelineProjectionConsumer,
+    PharmacyTaskConsumer,
   ],
 })
 export class DatabaseModule {}

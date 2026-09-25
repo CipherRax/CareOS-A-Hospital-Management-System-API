@@ -3,6 +3,67 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-034 — Neutral-body guard masks entity ids before PHI matching
+
+**Status:** accepted (Phase 10)
+
+**Context:** notification copy must never contain contact or credential data.
+`ensureNeutralBody` flagged rendered content by scanning for email/phone/
+national-ID/password patterns. `uuidv7` ids take the form
+`tttttttt-vvvv-7yyy-nnnn-rrrrrrrrrrrr`; nothing forces a digit run boundary
+inside the hex groups, so an id suffix frequently contains 8+ consecutive
+digits (e.g. `…ec268312027d`), tripping the 8–16 digit phone pattern. Rendered
+built-in templates substitute the full id into the body, so a completely
+neutral, PHI-free notification sporadically failed the gate, the outbox
+consumer threw, the row retried with exponential backoff and never delivered —
+a poison message that only reproduced when an unlucky id happened to be
+generated (hence flaky across e2e runs).
+
+**Decision:** `ensureNeutralBody` first replaces uuid-formatted references
+(`\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`) with an
+`id` placeholder before running the PHI detectors. Entity references are not
+PHI; a phone number cannot be encoded as a bare v7 uuid, so the mask does not
+weaken real signal. All other patterns are unchanged and their order is
+preserved.
+
+**Consequences:** entity-id references render and deliver reliably; real
+phones/emails/IDs/passwords are still detected (unit tests cover filtered-and-
+still-detected cases). Any future non-uuid id scheme with a digit run could
+theoretically trip the phone pattern again, so a new id format should revisit
+this mask.
+
+## ADR-033 — One outbox composition root beats multi-provider fan-out
+
+**Status:** accepted (Phase 10)
+
+**Context:** the outbox dispatcher's consumer set (`OUTBOX_CONSUMERS`) had to
+span the core projections (timeline, pharmacy tasks, born in `DatabaseModule`)
+and the feature consumers (notifications). Wiring each module to register via
+`provide: OUTBOX_CONSUMERS, multi: true` looked clean but turned out to be
+order- and scope-dependent: when the modules lived at different global-module
+depths, Nest's multi-provider merge silently produced an array containing only
+one module's contribution, so the dispatcher had an empty consumer list for
+most event types. Rows were acked (`PUBLISHED`) with `processed_events` empty
+and notifications never created — deterministic when the registration order
+changed, invisible in isolated spec runs, and a `no-database-to-modules`
+dependency-rule violation if `DatabaseModule` simply imported feature modules.
+
+**Decision:** a `@Global` `OutboxModule` (`src/modules/outbox/outbox.module.ts`)
+is the single composition root. It imports `DatabaseModule` + `NotificationsModule`,
+and its `OutboxPublisherService` provisions `OUTBOX_CONSUMERS` via one
+`useFactory` that injects `TimelineProjectionConsumer`,
+`PharmacyTaskConsumer` and `NotificationConsumer` directly, yielding an
+explicit, always-complete array `[timeline, pharmacyTasks, notifications]`. It
+also provides `ConsumerOutboxDispatcher` and `OUTBOX_DISPATCHER` and exports
+`OutboxPublisherService`. The database and notifications modules keep their own
+consumers as providers (and export them) but register no multi-providers.
+
+**Consequences:** the consumer set is deterministic in every spec order;
+`AppModule` imports `OutboxModule` once and all downstream modules resolve the
+shared publisher. The section keeps dependency rules intact (no
+database→modules edge). The trade-off is a single point that must be updated
+when a new consumer joins — documented in the module header.
+
 ## ADR-032 — One bed, one patient: row lock + partial unique index backstop
 
 **Status:** accepted (Phase 9, the brief's Phase 8)

@@ -115,6 +115,17 @@ export const EventTypes = {
   EmergencyVisitAdmitted: 'Emergency.VisitAdmitted',
   EmergencyVisitReferred: 'Emergency.VisitReferred',
   EmergencyVisitDischarged: 'Emergency.VisitDischarged',
+  /** Communication & documents (brief Phase 9). Payloads carry IDs only. */
+  NotificationsQueued: 'Communications.NotificationsQueued',
+  ConversationCreated: 'Communications.ConversationCreated',
+  ConversationMessageSent: 'Communications.ConversationMessageSent',
+  TelemedicineScheduled: 'Telemedicine.Scheduled',
+  TelemedicineStarted: 'Telemedicine.Started',
+  TelemedicineEnded: 'Telemedicine.Ended',
+  TelemedicineCancelled: 'Telemedicine.Cancelled',
+  FeedbackSubmitted: 'Quality.FeedbackSubmitted',
+  ComplaintStatusChanged: 'Quality.ComplaintStatusChanged',
+  IncidentStatusChanged: 'Quality.IncidentStatusChanged',
   /**
    * Test/demo signal used by the Phase 0 harness (see modules/demo and
    * docs/limitations.md). Removed from the catalog before production use.
@@ -227,5 +238,15 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.EmergencyVisitAdmitted]: 1,
   [EventTypes.EmergencyVisitReferred]: 1,
   [EventTypes.EmergencyVisitDischarged]: 1,
+  [EventTypes.NotificationsQueued]: 1,
+  [EventTypes.ConversationCreated]: 1,
+  [EventTypes.ConversationMessageSent]: 1,
+  [EventTypes.TelemedicineScheduled]: 1,
+  [EventTypes.TelemedicineStarted]: 1,
+  [EventTypes.TelemedicineEnded]: 1,
+  [EventTypes.TelemedicineCancelled]: 1,
+  [EventTypes.FeedbackSubmitted]: 1,
+  [EventTypes.ComplaintStatusChanged]: 1,
+  [EventTypes.IncidentStatusChanged]: 1,
   [EventTypes.Probe]: 1,
 };

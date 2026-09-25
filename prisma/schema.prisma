@@ -152,6 +152,17 @@ model Organization {
   admissions        Admission[]
   discharges        Discharge[]
   emergencyVisits   EmergencyVisit[]
+
+  notifications            Notification[]
+  notificationTemplates    NotificationTemplate[]
+  notificationPreferences  NotificationPreference[]
+  conversations            Conversation[]
+  conversationParticipants ConversationParticipant[]
+  conversationMessages     ConversationMessage[]
+  virtualSessions          VirtualSession[]
+  feedback                 Feedback[]
+  complaints               Complaint[]
+  incidents                Incident[]
 }
 
 // ---------------------------------------------------------------------------
@@ -349,6 +360,7 @@ model Branch {
   wards           Ward[]
   admissions      Admission[]
   emergencyVisits EmergencyVisit[]
+  virtualSessions VirtualSession[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -436,6 +448,23 @@ model User {
   bedAssignmentsReleasedBy BedAssignment[] @relation("BedReleasedBy")
   admissionsAdmittedBy     Admission[]     @relation("AdmissionAdmittedBy")
   dischargesDischargedBy   Discharge[]     @relation("DischargeDischargedBy")
+
+  notificationTemplatesEdited NotificationTemplate[]    @relation("NotificationTemplateEditor")
+  notificationsReceived       Notification[]            @relation("NotificationRecipientUser")
+  notificationPreferences     NotificationPreference[]  @relation("NotificationPreferenceUser")
+  conversationsStarted        Conversation[]            @relation("ConversationStarter")
+  conversationParticipants    ConversationParticipant[]
+  conversationMessagesSent    ConversationMessage[]     @relation("ConversationMessageSender")
+  virtualSessionsProvided     VirtualSession[]          @relation("VirtualSessionProvider")
+  virtualSessionsCancelled    VirtualSession[]          @relation("VirtualSessionCanceller")
+  feedbackSubmitted           Feedback[]                @relation("FeedbackSubmitter")
+  feedbackHandled             Feedback[]                @relation("FeedbackHandler")
+  complaintsSubmitted         Complaint[]               @relation("ComplaintSubmitter")
+  complaintsAssigned          Complaint[]               @relation("ComplaintAssignee")
+  complaintsClosed            Complaint[]               @relation("ComplaintCloser")
+  incidentsReported           Incident[]                @relation("IncidentReporter")
+  incidentsResolved           Incident[]                @relation("IncidentResolver")
+  incidentsClosed             Incident[]                @relation("IncidentCloser")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -688,8 +717,9 @@ model Document {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  uploadedBy   User         @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  organization       Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  uploadedBy         User                  @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  messageAttachments ConversationMessage[]
 
   @@unique([organizationId, storageKey])
   @@index([organizationId, status, createdAt])
@@ -832,6 +862,13 @@ model Patient {
 
   admissions      Admission[]
   emergencyVisits EmergencyVisit[]
+
+  notificationsReceived   Notification[]           @relation("NotificationRecipientPatient")
+  notificationPreferences NotificationPreference[] @relation("NotificationPreferencePatient")
+  conversations           Conversation[]
+  virtualSessions         VirtualSession[]
+  feedback                Feedback[]
+  complaints              Complaint[]
 
   @@unique([organizationId, patientNumber])
   @@index([organizationId, lastName, firstName, dateOfBirth])
@@ -1144,17 +1181,52 @@ model Appointment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
-  provider     User         @relation("AppointmentProvider", fields: [providerId], references: [id], onDelete: Restrict)
-  createdBy    User         @relation("AppointmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch          Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  department      Department       @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  patient         Patient          @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  provider        User             @relation("AppointmentProvider", fields: [providerId], references: [id], onDelete: Restrict)
+  createdBy       User             @relation("AppointmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  virtualSessions VirtualSession[]
 
   @@index([organizationId, branchId, startsAt])
   @@index([organizationId, patientId, startsAt])
   @@index([organizationId, providerId, startsAt, status])
   @@map("appointments")
+}
+
+model VirtualSession {
+  id               String               @id
+  organizationId   String
+  branchId         String
+  appointmentId    String?
+  patientId        String
+  providerId       String
+  status           VirtualSessionStatus @default(SCHEDULED)
+  consentRecorded  Boolean              @default(false)
+  consentId        String?
+  meetingRef       String?
+  scheduledStartAt DateTime
+  scheduledEndAt   DateTime?
+  startedAt        DateTime?
+  endedAt          DateTime?
+  cancelledById    String?
+  cancelledAt      DateTime?
+  cancelReason     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  appointment  Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  provider     User         @relation("VirtualSessionProvider", fields: [providerId], references: [id], onDelete: Restrict)
+  cancelledBy  User?        @relation("VirtualSessionCanceller", fields: [cancelledById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, branchId, status, scheduledStartAt])
+  @@index([organizationId, patientId, scheduledStartAt])
+  @@map("virtual_sessions")
 }
 
 enum WaitlistStatus {
@@ -3164,4 +3236,301 @@ model EmergencyVisit {
   @@index([organizationId, branchId, status, arrivedAt])
   @@index([organizationId, patientId, arrivedAt])
   @@map("emergency_visits")
+}
+
+// ---------------------------------------------------------------------------
+// Communication & documents (brief Phase 9 / repo Phase 10). Notifications,
+// templates, preferences, secure in-org messaging (append-only), telemedicine
+// sessions (consent-gated), feedback, complaints and incident reporting.
+// Notification bodies/templates are neutral (never carry PHI); the payload of
+// the underlying outbox event carries IDs only.
+// ---------------------------------------------------------------------------
+
+enum NotificationChannel {
+  IN_APP
+  SMS
+  EMAIL
+  PUSH
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model Notification {
+  id                 String              @id
+  organizationId     String
+  recipientUserId    String? // present for staff recipients.
+  recipientPatientId String? // present for patient recipients.
+  channel            NotificationChannel
+  templateKey        String // resolves against NotificationTemplate.key.
+  subject            String
+  body               String
+  variables          Json? // only values allow-listed on the template.
+  status             NotificationStatus  @default(PENDING)
+  attemptCount       Int                 @default(0)
+  errorCode          String?
+  readAt             DateTime? // IN_APP acknowledgement.
+  sentAt             DateTime?
+  createdAt          DateTime            @default(now())
+
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  recipientUser    User?        @relation("NotificationRecipientUser", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  recipientPatient Patient?     @relation("NotificationRecipientPatient", fields: [recipientPatientId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, recipientUserId, createdAt])
+  @@index([organizationId, recipientPatientId, createdAt])
+  @@index([organizationId, status, createdAt])
+  @@map("notifications")
+}
+
+// Org-scoped neutral templates. `allowlistedVariables` is the set of variable
+// keys the renderer accepts; anything else is rejected so notifications can
+// never leak clinical data.
+model NotificationTemplate {
+  id                   String   @id
+  organizationId       String
+  key                  String   @unique
+  name                 String
+  description          String?
+  subjectTemplate      String
+  bodyTemplate         String
+  allowlistedVariables String[] // rendered via [key] substitution.
+  isDefault            Boolean  @default(false)
+  isActive             Boolean  @default(true)
+  updatedById          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  updatedBy    User?        @relation("NotificationTemplateEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, isActive])
+  @@map("notification_templates")
+}
+
+model NotificationPreference {
+  id                 String              @id
+  organizationId     String
+  recipientUserId    String? // staff preference; xor with recipientPatientId.
+  recipientPatientId String? // patient preference.
+  category           String // matches the template key / purpose.
+  channel            NotificationChannel
+  enabled            Boolean             @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  recipientUser    User?        @relation("NotificationPreferenceUser", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  recipientPatient Patient?     @relation("NotificationPreferencePatient", fields: [recipientPatientId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, recipientUserId, category, channel])
+  @@unique([organizationId, recipientPatientId, category, channel])
+  @@map("notification_preferences")
+}
+
+model Conversation {
+  id             String   @id
+  organizationId String
+  branchId       String?
+  subject        String
+  patientId      String? // optional clinical context; messages remain PHI-strict.
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdBy    User         @relation("ConversationStarter", fields: [createdById], references: [id], onDelete: Restrict)
+  patient      Patient?     @relation(fields: [patientId], references: [id], onDelete: SetNull)
+
+  participants ConversationParticipant[]
+  messages     ConversationMessage[]
+
+  @@index([organizationId, branchId, createdAt])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id             String    @id
+  organizationId String
+  conversationId String
+  userId         String
+  joinedAt       DateTime  @default(now())
+  lastReadAt     DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, conversationId, userId])
+  @@map("conversation_participants")
+}
+
+// Append-only: no update or delete endpoint is exposed; edits/appends create
+// new rows so the clinical thread is immutable once written.
+model ConversationMessage {
+  id             String   @id
+  organizationId String
+  conversationId String
+  senderId       String
+  body           String
+  documentId     String? // optional shareable attachment.
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("ConversationMessageSender", fields: [senderId], references: [id], onDelete: Restrict)
+  document     Document?    @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, conversationId, createdAt])
+  @@map("conversation_messages")
+}
+
+enum VirtualSessionStatus {
+  SCHEDULED
+  STARTED
+  ENDED
+  CANCELLED
+  NO_SHOW
+}
+
+enum FeedbackCategory {
+  SERVICE
+  WAITING_TIME
+  STAFF
+  BILLING
+  FACILITY
+  PHARMACY
+  LABORATORY
+  OTHER
+}
+
+enum FeedbackStatus {
+  NEW
+  ACKNOWLEDGED
+  RESOLVED
+  CLOSED
+}
+
+model Feedback {
+  id             String           @id
+  organizationId String
+  branchId       String?
+  patientId      String?
+  submittedById  String? // staff may log feedback on behalf of a patient.
+  category       FeedbackCategory
+  rating         Int
+  comment        String?
+  status         FeedbackStatus   @default(NEW)
+  response       String?
+  handledById    String?
+  handledAt      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  submittedBy  User?        @relation("FeedbackSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
+  handledBy    User?        @relation("FeedbackHandler", fields: [handledById], references: [id], onDelete: SetNull)
+  patient      Patient?     @relation(fields: [patientId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, branchId, status, createdAt])
+  @@map("feedback")
+}
+
+enum ComplaintOrigin {
+  PATIENT
+  STAFF
+  OTHER
+}
+
+enum ComplaintStatus {
+  OPEN
+  ASSIGNED
+  INVESTIGATING
+  RESOLVED
+  CLOSED
+}
+
+model Complaint {
+  id             String          @id
+  organizationId String
+  branchId       String?
+  origin         ComplaintOrigin
+  patientId      String?
+  submittedById  String? // may be a patient account or staff member.
+  category       String
+  description    String
+  status         ComplaintStatus @default(OPEN)
+  assignedToId   String?
+  dueAt          DateTime?
+  resolution     String?
+  closedById     String?
+  closedAt       DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  submittedBy  User?        @relation("ComplaintSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
+  assignedTo   User?        @relation("ComplaintAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  closedBy     User?        @relation("ComplaintCloser", fields: [closedById], references: [id], onDelete: SetNull)
+  patient      Patient?     @relation(fields: [patientId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, branchId, status, createdAt])
+  @@map("complaints")
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IncidentCategory {
+  OUTAGE
+  EQUIPMENT
+  STOCK_DISCREPANCY
+  DATA_ACCESS
+  FACILITY
+  PATIENT_SAFETY
+  OTHER
+}
+
+enum IncidentStatus {
+  OPEN
+  INVESTIGATING
+  ACTION_PLAN
+  RESOLVED
+  CLOSED
+}
+
+model Incident {
+  id             String           @id
+  organizationId String
+  branchId       String
+  category       IncidentCategory
+  severity       IncidentSeverity
+  description    String
+  reportedById   String
+  status         IncidentStatus   @default(OPEN)
+  actionsTaken   String?
+  resolution     String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  closedById     String?
+  closedAt       DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  reportedBy   User         @relation("IncidentReporter", fields: [reportedById], references: [id], onDelete: Restrict)
+  resolvedBy   User?        @relation("IncidentResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  closedBy     User?        @relation("IncidentCloser", fields: [closedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, branchId, status, severity, createdAt])
+  @@index([organizationId, category, createdAt])
+  @@map("incidents")
 }

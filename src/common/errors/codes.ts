@@ -77,6 +77,11 @@ export const ErrorCodes = {
   // duplicate detection
   POSSIBLE_DUPLICATE: 'POSSIBLE_DUPLICATE',
 
+  // communication & documents (brief Phase 9)
+  TELEMEDICINE_CONSENT_REQUIRED: 'TELEMEDICINE_CONSENT_REQUIRED',
+  CONVERSATION_ACCESS_DENIED: 'CONVERSATION_ACCESS_DENIED',
+  NOTIFICATION_TEMPLATE_FORBIDDEN: 'NOTIFICATION_TEMPLATE_FORBIDDEN',
+
   // idempotency
   IDEMPOTENCY_KEY_REUSED: 'IDEMPOTENCY_KEY_REUSED',
   IDEMPOTENCY_IN_PROGRESS: 'IDEMPOTENCY_IN_PROGRESS',
@@ -156,6 +161,10 @@ export const ERROR_CODE_HTTP: Record<ErrorCode, ErrorCodeMeta> = {
   [ErrorCodes.REFUND_EXCEEDS_PAYMENT]: { httpStatus: 422 },
 
   [ErrorCodes.POSSIBLE_DUPLICATE]: { httpStatus: 409 },
+
+  [ErrorCodes.TELEMEDICINE_CONSENT_REQUIRED]: { httpStatus: 409 },
+  [ErrorCodes.CONVERSATION_ACCESS_DENIED]: { httpStatus: 403 },
+  [ErrorCodes.NOTIFICATION_TEMPLATE_FORBIDDEN]: { httpStatus: 400 },
 
   [ErrorCodes.IDEMPOTENCY_KEY_REUSED]: { httpStatus: 409 },
   [ErrorCodes.IDEMPOTENCY_IN_PROGRESS]: { httpStatus: 409 },

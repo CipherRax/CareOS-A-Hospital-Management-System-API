@@ -50,6 +50,13 @@ import { LaboratoryModule } from '../modules/laboratory/laboratory.module';
 import { RadiologyModule } from '../modules/radiology/radiology.module';
 import { InpatientModule } from '../modules/inpatient/inpatient.module';
 import { EmergencyModule } from '../modules/emergency/emergency.module';
+import { NotificationsModule } from '../modules/notifications/notifications.module';
+import { MessagingModule } from '../modules/messaging/messaging.module';
+import { TelemedicineModule } from '../modules/telemedicine/telemedicine.module';
+import { QualityModule } from '../modules/quality/quality.module';
+import { PortalModule } from '../modules/portal/portal.module';
+import { DocumentJobsModule } from '../modules/document-jobs/document-jobs.module';
+import { OutboxModule } from '../modules/outbox/outbox.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -115,6 +122,13 @@ import { newId } from '../common/lib/uuidv7';
     RadiologyModule,
     InpatientModule,
     EmergencyModule,
+    NotificationsModule,
+    MessagingModule,
+    TelemedicineModule,
+    QualityModule,
+    PortalModule,
+    DocumentJobsModule,
+    OutboxModule,
   ],
   providers: [
     // Guard order: throttler (outer) -> JWT identity -> session/tenant

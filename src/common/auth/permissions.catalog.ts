@@ -206,6 +206,37 @@ export const PERMISSION_GROUPS = {
     triage: 'emergency.triage',
     manage: 'emergency.manage',
   },
+  // Communication & documents (brief Phase 9). Patient self-service uses
+  // portal.read (granted only to the PATIENT role).
+  notifications: {
+    read: 'notifications.read',
+    manage: 'notifications.manage',
+  },
+  messaging: {
+    read: 'messaging.read',
+    send: 'messaging.send',
+    manage: 'messaging.manage',
+  },
+  telemedicine: {
+    read: 'telemedicine.read',
+    manage: 'telemedicine.manage',
+  },
+  feedback: {
+    submit: 'feedback.submit',
+    read: 'feedback.read',
+    respond: 'feedback.respond',
+  },
+  complaints: {
+    read: 'complaints.read',
+    manage: 'complaints.manage',
+  },
+  incidents: {
+    read: 'incidents.read',
+    manage: 'incidents.manage',
+  },
+  portal: {
+    read: 'portal.read',
+  },
 } as const;
 
 export type Permission = string;
