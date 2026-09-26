@@ -5,6 +5,7 @@ export const BILLING_COUNTER_KEYS = {
   invoice: 'invoice_number',
   receipt: 'receipt_number',
   claim: 'claim_number',
+  journal: 'journal_number',
 } as const;
 
 export type BillingNumberKey = keyof typeof BILLING_COUNTER_KEYS;
@@ -13,6 +14,7 @@ const PREFIX: Record<BillingNumberKey, string> = {
   invoice: 'INV',
   receipt: 'RCT',
   claim: 'CLM',
+  journal: 'JRN',
 };
 
 /**

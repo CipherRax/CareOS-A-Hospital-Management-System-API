@@ -8,6 +8,8 @@ import { TimelineProjectionConsumer } from '../../events/consumers/timeline.cons
 import { PharmacyTaskConsumer } from '../../events/consumers/pharmacy-tasks.consumer';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { NotificationConsumer } from '../notifications/notifications.consumer';
+import { LedgerModule } from '../ledger/ledger.module';
+import { LedgerPostingConsumer } from '../ledger/ledger-postings.consumer';
 
 /**
  * Composition root for the transactional outbox.
@@ -21,7 +23,7 @@ import { NotificationConsumer } from '../notifications/notifications.consumer';
  */
 @Global()
 @Module({
-  imports: [DatabaseModule, NotificationsModule],
+  imports: [DatabaseModule, NotificationsModule, LedgerModule],
   providers: [
     {
       provide: OUTBOX_CONSUMERS,
@@ -29,11 +31,13 @@ import { NotificationConsumer } from '../notifications/notifications.consumer';
         timeline: TimelineProjectionConsumer,
         pharmacyTasks: PharmacyTaskConsumer,
         notifications: NotificationConsumer,
-      ): OutboxConsumer[] => [timeline, pharmacyTasks, notifications],
+        ledger: LedgerPostingConsumer,
+      ): OutboxConsumer[] => [timeline, pharmacyTasks, notifications, ledger],
       inject: [
         TimelineProjectionConsumer,
         PharmacyTaskConsumer,
         NotificationConsumer,
+        LedgerPostingConsumer,
       ],
     },
     ConsumerOutboxDispatcher,

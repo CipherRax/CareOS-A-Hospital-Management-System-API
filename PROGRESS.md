@@ -746,6 +746,70 @@ AUDITOR read-only.
   appointment/lab-result/feedback invisible, `portal.read` floor); document
   job render + audit events; cross-tenant isolation.
 
+## Phase 11 — Financial ledger & M-PESA (COMPLETE; the brief's Phase 7)
+
+- **Double-entry ledger (`/ledger`).** Chart of accounts is per-tenant,
+  auto-seeded to the six default codes (1000 Cash, 1200 AR, 2100 Accounts
+  payable, 3000 Equity, 4000 Revenue, 5000 Expenses) on first posting, exposed
+  under `ledger.read`. Financial periods are `OPEN → CLOSED → LOCKED`
+  (`POST /ledger/periods`, `/:id/close`, `/:id/lock`) with unique `code` and
+  no-overlap enforcement. Manual journals (`POST /ledger/journal`) take
+  single-side lines (debit XOR credit, DTO-enforced), assert balanced
+  debits=credits (422 `UNBALANCED_JOURNAL`), resolve the covering OPEN period
+  (409 `PERIOD_LOCKED` when the date lands in a closed/locked or overlapping
+  set, ADR-035), and persist via the database BALANCE_GUARD trigger +
+  single-side CHECK. `JRN-` numbering shares the billing sequence. Reversal is
+  one-shot (`REVERSED`) and refused for auto-posted journals. Trial balance
+  (`GET /ledger/trial-balance`) is sign-normalized per `normalBalance`, includes
+  POSTED + REVERSED rows so cancellations net to zero, and reports debit/credit
+  column totals that must be equal.
+- **Auto-posting (outbox).** `LedgerPostingConsumer` turns `InvoiceIssued`,
+  `InvoiceCancelled`, `PaymentCompleted`, `PaymentRefunded` into journals
+  per the charted map (DR AR 1200 / CR Revenue 4000; DR Cash 1000 / CR AR 1200;
+  …) with the idempotency guarantee of the unique
+  `(organizationId, referenceType, referenceId)` index and reversed-event
+  tolerance for same-ms outbox ordering. When the source date falls in a
+  CLOSED/LOCKED period it writes an auditable `LedgerPostingException` and
+  returns normally — it never poisons the outbox row for the sibling timeline/
+  notification consumers (ADR-035).
+- **M-PESA (`/mpesa`).** `POST /mpesa/stk-push` initiates a Daraja STK push via
+  the `MpesaIntegrationModule` seam (mock in tests/dev, Daraja adapter is a
+  structural placeholder — see `docs/limitations.md`): invoice must be
+  ISSUED/PARTIALLY_PAID and the amount must not exceed `balanceDue`
+  (409 `MPESA_PROVIDER_UNAVAILABLE` on provider failure). Requests are PENDING
+  until the public webhook `POST /mpesa/callback` arrives, gated by the
+  `x-careos-mpesa-callback-secret` header (401 otherwise). The callback is
+  processed exactly-once (PENDING→SUCCEEDED guard): success at the requested
+  amount books a CASH-method `MPESA` payment (invoice balance-decrement gte
+  guard, receipt `RCT-`, emits `PaymentCompleted` + `Mpesa.PaymentConfirmed`);
+  `ResultCode 0` with a different amount → `MISMATCHED` with **no** payment;
+  any failure → `FAILED`. `POST /mpesa/requests/:id/status-query` polls the
+  provider.
+- **Reconciliation (`/mpesa/reconcile`).** `classifyPayment` matches the
+  provider statement (`listProviderTransactions`, default 24h window) against
+  booked MPESA payments (external-reference keyed), producing per-reference
+  verdicts `MATCHED` / `UNMATCHED` / `DUPLICATE` / `AMOUNT_MISMATCH` /
+  `REFERENCE_MISMATCH` (FAILED pushes are ignored — no money moved). Each run +
+  matches persist, and `POST /mpesa/matches/:id/resolve` stamps an audited
+  resolution (VERIFIED/CORRECTED/PAID_OUT_OF_BAND/DUPLICATE_REFUNDED/
+  WRITTEN_OFF/ESCALATED) — a second resolution is 409
+  `RECONCILIATION_ALREADY_RESOLVED`. Emissions drive the timeline.
+- **Schema/RLS.** Seven new models (`ChartAccount`, `FinancialPeriod`,
+  `FinanceTransaction`, `FinanceTransactionLine`, `LedgerPostingException`,
+  `MpesaRequest`, `MpesaReconciliation*, MpesaProviderTransaction`,
+  `PaymentMethod.MPESA`) all under the tenant `RLS` policy; migration
+  `20260928120000_phase11_financial` verified with `migrate deploy` on a fresh
+  DB and exercised against the single-side CHECK and the balance trigger.
+- **Acceptance.** `test/e2e/phase11-financial.e2e-spec.ts` — 10 tests: org A
+  auto-posting (issued + payment journals, idempotent re-drain) then the
+  PERIOD_LOCKED exception path; org B manual journals (period open
+  close/lock/overlap, balanced/both-sides validation, reversal, sign-normalized
+  trial balance with equal column totals); STK initiate + secret-gated callbacks
+  + exactly-once replay + invoice settlement; amount-mismatch callbacks that
+  book nothing and show up UNMATCHED; failed-push reconciliation; single- and
+  second-resolve semantics; permission separation. Unit coverage lives in
+  `test/unit/ledger/` and `test/unit/mpesa/`.
+
 ## Notes
 
 - Testcontainers uses `postgres:17-alpine` by default because `postgres:16-alpine`
@@ -757,10 +821,10 @@ AUDITOR read-only.
   work was committed earlier under the label "Phase 2" and is documented here as
   Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
   keep git history unchanged; git history is unchanged.
-- The e2e suite reaches 152 tests across 13 suites (identity, patients,
+- The e2e suite reaches 162 tests across 14 suites (identity, patients,
   documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, the phase-4
   clinical spec, the phase-5 inventory/pharmacy spec, the phase-6 billing
   spec, the phase-7 laboratory/radiology spec, the phase-8
-  inpatient/emergency spec, and the phase-10 communication spec; file names
-  keep the old labels to avoid churn while the sections here track the brief's
-  phases).
+  inpatient/emergency spec, the phase-10 communication spec, and the phase-11
+  financial/ledger/M-PESA spec; file names keep the old labels to avoid churn
+  while the sections here track the brief's phases).

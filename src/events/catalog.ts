@@ -126,6 +126,13 @@ export const EventTypes = {
   FeedbackSubmitted: 'Quality.FeedbackSubmitted',
   ComplaintStatusChanged: 'Quality.ComplaintStatusChanged',
   IncidentStatusChanged: 'Quality.IncidentStatusChanged',
+  /** Financial ledger & M-PESA (repo Phase 11). Payloads carry IDs only. */
+  JournalPosted: 'Ledger.JournalPosted',
+  JournalReversed: 'Ledger.JournalReversed',
+  StkPushInitiated: 'Mpesa.StkPushInitiated',
+  PaymentConfirmed: 'Mpesa.PaymentConfirmed',
+  PaymentFailed: 'Mpesa.PaymentFailed',
+  ReconciliationCompleted: 'Mpesa.ReconciliationCompleted',
   /**
    * Test/demo signal used by the Phase 0 harness (see modules/demo and
    * docs/limitations.md). Removed from the catalog before production use.
@@ -248,5 +255,11 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.FeedbackSubmitted]: 1,
   [EventTypes.ComplaintStatusChanged]: 1,
   [EventTypes.IncidentStatusChanged]: 1,
+  [EventTypes.JournalPosted]: 1,
+  [EventTypes.JournalReversed]: 1,
+  [EventTypes.StkPushInitiated]: 1,
+  [EventTypes.PaymentConfirmed]: 1,
+  [EventTypes.PaymentFailed]: 1,
+  [EventTypes.ReconciliationCompleted]: 1,
   [EventTypes.Probe]: 1,
 };

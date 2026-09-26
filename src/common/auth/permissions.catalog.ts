@@ -234,6 +234,18 @@ export const PERMISSION_GROUPS = {
     read: 'incidents.read',
     manage: 'incidents.manage',
   },
+  // Financial ledger & M-PESA (repo Phase 11). mpesa.initiate/reconcile are the
+  // write capabilities; ledger.read/mpesa.read are read-only views.
+  ledger: {
+    read: 'ledger.read',
+    post: 'ledger.post',
+    manage: 'ledger.manage',
+  },
+  mpesa: {
+    read: 'mpesa.read',
+    initiate: 'mpesa.initiate',
+    reconcile: 'mpesa.reconcile',
+  },
   portal: {
     read: 'portal.read',
   },

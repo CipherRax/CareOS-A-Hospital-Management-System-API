@@ -163,6 +163,16 @@ model Organization {
   feedback                 Feedback[]
   complaints               Complaint[]
   incidents                Incident[]
+
+  // Financial ledger + M-PESA (repo Phase 11).
+  chartAccounts               ChartAccount[]
+  financialPeriods            FinancialPeriod[]
+  financeTransactions         FinanceTransaction[]
+  financeTransactionLines     FinanceTransactionLine[]
+  ledgerPostingExceptions     LedgerPostingException[]
+  mpesaRequests               MpesaRequest[]
+  mpesaReconciliationRuns     MpesaReconciliationRun[]
+  mpesaReconciliationMatches  MpesaReconciliationMatch[]
 }
 
 // ---------------------------------------------------------------------------
@@ -356,6 +366,7 @@ model Branch {
   labOrders       LabOrder[]
   labSamples      LabSample[]
   radiologyOrders RadiologyOrder[]
+  mpesaRequests   MpesaRequest[]
 
   wards           Ward[]
   admissions      Admission[]
@@ -465,6 +476,15 @@ model User {
   incidentsReported           Incident[]                @relation("IncidentReporter")
   incidentsResolved           Incident[]                @relation("IncidentResolver")
   incidentsClosed             Incident[]                @relation("IncidentCloser")
+
+  periodsOpened             FinancialPeriod[]           @relation("OpenedPeriod")
+  periodsClosed             FinancialPeriod[]           @relation("ClosedPeriod")
+  periodsLocked             FinancialPeriod[]           @relation("LockedPeriod")
+  journalsPosted            FinanceTransaction[]        @relation("PostedJournal")
+  journalsReversed          FinanceTransaction[]        @relation("ReversedJournal")
+  mpesaRequestsInitiated    MpesaRequest[]
+  mpesaReconciliationRuns   MpesaReconciliationRun[]
+  mpesaMatchesResolved      MpesaReconciliationMatch[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -855,6 +875,7 @@ model Patient {
   payments          Payment[]
   insurancePolicies PatientInsurancePolicy[]
   insuranceClaims   InsuranceClaim[]
+  mpesaRequests     MpesaRequest[]
 
   labOrders       LabOrder[]
   labSamples      LabSample[]
@@ -2318,6 +2339,7 @@ enum PaymentMethod {
   BANK_TRANSFER
   CHEQUE
   INSURANCE
+  MPESA // Safaricom M-PESA STK push (repo Phase 11).
   OTHER
 }
 
@@ -2414,6 +2436,7 @@ model Invoice {
   items    InvoiceItem[]
   payments Payment[]
   claims   InsuranceClaim[]
+  mpesaRequests MpesaRequest[]
 
   @@unique([organizationId, invoiceNumber])
   @@index([organizationId, patientId, createdAt])
@@ -2480,6 +2503,8 @@ model Payment {
   @@index([organizationId, invoiceId])
   @@index([organizationId, patientId, createdAt])
   @@map("payments")
+
+  mpesaMatches MpesaReconciliationMatch[]
 }
 
 // Insurer (NHIF-style, private HMO, ...) a facility works with.
@@ -2572,6 +2597,301 @@ model InsuranceClaim {
   @@index([organizationId, patientId, createdAt])
   @@index([organizationId, status])
   @@map("insurance_claims")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Financial ledger + M-PESA (brief Phase 7 completion — repo Phase 11)
+//
+// Double-entry ledger. FinanceTransaction is a journal header; its lines must
+// balance by construction (domain assertion), by row (single-side CHECK) and
+// by journal (DB trigger on POSTED). Journals append only: reversal creates a
+// NEW journal linked via reversalOfId and REVERSES the original status, so
+// history is never mutated. Auto-postings are idempotent via the unique
+// (organizationId, referenceType, referenceId) key plus the ProcessedEvent
+// dedup. FinancialPeriod reasons about time: postings inside a CLOSED or
+// LOCKED period are rejected (PERIOD_LOCKED); a posting whose window is
+// blocked is recorded as a LedgerPostingException instead of poisoning the
+// outbox.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum AccountCategoryType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum AccountNormalBalance {
+  DEBIT
+  CREDIT
+}
+
+enum FinancialPeriodStatus {
+  OPEN
+  CLOSED
+  LOCKED
+}
+
+enum FinanceTransactionStatus {
+  POSTED
+  REVERSED
+}
+
+// A position on the org chart of accounts. Codes are org-scoped and unique.
+// Defaults are ensured lazily (see src/modules/ledger/domain/ledger-accounts).
+model ChartAccount {
+  id             String               @id
+  organizationId String
+  code           String
+  name           String
+  category       AccountCategoryType
+  normalBalance  AccountNormalBalance
+  description    String?
+  isActive       Boolean              @default(true)
+  version        Int                  @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  lines       FinanceTransactionLine[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, category, isActive])
+  @@map("chart_accounts")
+}
+
+// A calendar window the org closes and then locks for the auditors.
+model FinancialPeriod {
+  id             String                @id
+  organizationId String
+  code           String
+  label          String
+  startDate      DateTime
+  endDate        DateTime
+  status         FinancialPeriodStatus @default(OPEN)
+
+  openedById String?
+  openedAt   DateTime @default(now())
+  closedById String?
+  closedAt   DateTime?
+  lockedById String?
+  lockedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  openBy      User?          @relation("OpenedPeriod", fields: [openedById], references: [id], onDelete: SetNull)
+  closedBy    User?          @relation("ClosedPeriod", fields: [closedById], references: [id], onDelete: SetNull)
+  lockedBy    User?          @relation("LockedPeriod", fields: [lockedById], references: [id], onDelete: SetNull)
+  transactions FinanceTransaction[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, status, startDate])
+  @@map("financial_periods")
+}
+
+// A posted (or reversed) journal. referenceType/referenceId pin an auto-posting
+// to its source event (e.g. referenceType 'Billing.PaymentCompleted'); the
+// unique key makes replays no-ops even outside the outbox. Manual journals set
+// both null (whitespace-NULL rows are allowed to repeat).
+model FinanceTransaction {
+  id                String                   @id
+  organizationId    String
+  periodId          String?
+  transactionNumber String
+  date              DateTime
+  description       String?
+  referenceType     String?
+  referenceId       String?
+  status            FinanceTransactionStatus @default(POSTED)
+
+  postedById String?
+  postedAt   DateTime @default(now())
+  reversedById String?
+  reversedAt   DateTime?
+  reversalOfId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  period      FinancialPeriod?         @relation(fields: [periodId], references: [id], onDelete: SetNull)
+  postedBy    User?                    @relation("PostedJournal", fields: [postedById], references: [id], onDelete: SetNull)
+  reversedBy  User?                    @relation("ReversedJournal", fields: [reversedById], references: [id], onDelete: SetNull)
+  reversalOf  FinanceTransaction?      @relation("ReversalChain", fields: [reversalOfId], references: [id], onDelete: SetNull)
+  reversals   FinanceTransaction[]     @relation("ReversalChain")
+  lines       FinanceTransactionLine[]
+
+  @@unique([organizationId, transactionNumber])
+  @@unique([organizationId, referenceType, referenceId])
+  @@index([organizationId, date, status])
+  @@index([organizationId, periodId])
+  @@map("finance_transactions")
+}
+
+// A leg of a journal. Each leg moves a single side (>0 debit XOR >0 credit);
+// the DB CHECK below is the row-level backstop for the domain assertion.
+model FinanceTransactionLine {
+  id             String   @id
+  organizationId String
+  transactionId  String
+  accountId      String
+  debit          Decimal  @default(0) @db.Decimal(12, 2)
+  credit         Decimal  @default(0) @db.Decimal(12, 2)
+  memo           String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  transaction FinanceTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  account     ChartAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, transactionId])
+  @@index([organizationId, accountId])
+  @@map("finance_transaction_lines")
+}
+
+// Auditable record of a posting the outbox skipped because its window fell in
+// a closed/locked period (see ADR-035). Written by LedgerPostingConsumer.
+model LedgerPostingException {
+  id             String   @id
+  organizationId String
+  eventId        String
+  eventType      String
+  referenceType  String?
+  referenceId    String?
+  reason         String
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt])
+  @@unique([organizationId, eventId])
+  @@map("ledger_posting_exceptions")
+}
+
+enum MpesaRequestStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  MISMATCHED
+  EXPIRED
+  CANCELLED
+}
+
+// One STK push. Created PENDING at initiation; the callback confirms it
+// (SUCCEEDED), fails it, or flags an amount mismatch for reconciliation.
+model MpesaRequest {
+  id                String            @id
+  organizationId    String
+  branchId          String?
+  invoiceId         String
+  patientId         String
+  phone             String
+  amount            Decimal           @db.Decimal(12, 2)
+  checkoutRequestId String
+  merchantRequestId String
+  status            MpesaRequestStatus @default(PENDING)
+
+  resultCode         String?
+  resultDesc         String?
+  rawCallback        Json?
+  initiatedById      String?
+  initiatedAt        DateTime @default(now())
+  callbackReceivedAt DateTime?
+  confirmedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch      Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  invoice     Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  patient     Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  initiatedBy User?        @relation(fields: [initiatedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, checkoutRequestId])
+  @@unique([merchantRequestId])
+  @@index([organizationId, status, initiatedAt])
+  @@index([organizationId, invoiceId])
+  @@map("mpesa_requests")
+
+  reconciliationMatches MpesaReconciliationMatch[]
+}
+
+enum MpesaReconciliationMatchStatus {
+  MATCHED
+  UNMATCHED
+  DUPLICATE
+  AMOUNT_MISMATCH
+  REFERENCE_MISMATCH
+}
+
+// A reconciliation run over a window of provider STK requests vs internal
+// MPESA payments. Summary counters live on the run; per-item verdicts on the
+// matches; accountant resolutions are audited stamps, never row mutations of
+// the underlying payment/request.
+model MpesaReconciliationRun {
+  id             String   @id
+  organizationId String
+  windowFrom     DateTime
+  windowTo       DateTime
+
+  providerCount          Int @default(0)
+  paymentCount           Int @default(0)
+  matchedCount           Int @default(0)
+  unmatchedCount         Int @default(0)
+  duplicateCount         Int @default(0)
+  amountMismatchCount    Int @default(0)
+  referenceMismatchCount Int @default(0)
+
+  runById   String?
+  startedAt DateTime @default(now())
+  completedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  runBy       User?        @relation(fields: [runById], references: [id], onDelete: SetNull)
+  matches     MpesaReconciliationMatch[]
+
+  @@index([organizationId, createdAt])
+  @@map("mpesa_reconciliation_runs")
+}
+
+// A single verdict + (optional) audited resolution.
+model MpesaReconciliationMatch {
+  id             String                          @id
+  organizationId String
+  runId          String
+  mpesaRequestId String?
+  paymentId      String?
+  reference      String
+  status         MpesaReconciliationMatchStatus
+  expectedAmount Decimal?  @db.Decimal(12, 2)
+  providerAmount Decimal?  @db.Decimal(12, 2)
+  notes          String?
+
+  resolution        String?
+  resolutionReason  String?
+  resolvedById      String?
+  resolvedAt        DateTime?
+
+  createdAt DateTime @default(now())
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  run         MpesaReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  mpesaRequest MpesaRequest?        @relation(fields: [mpesaRequestId], references: [id], onDelete: SetNull)
+  payment     Payment?             @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  resolvedBy  User?                 @relation(fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, runId])
+  @@index([organizationId, status])
+  @@map("mpesa_reconciliation_matches")
 }
 
 // ============================================================================

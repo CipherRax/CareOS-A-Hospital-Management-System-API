@@ -124,6 +124,15 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'Feedback',
   'Complaint',
   'Incident',
+  // Financial ledger & M-PESA (repo Phase 11).
+  'ChartAccount',
+  'FinancialPeriod',
+  'FinanceTransaction',
+  'FinanceTransactionLine',
+  'LedgerPostingException',
+  'MpesaRequest',
+  'MpesaReconciliationRun',
+  'MpesaReconciliationMatch',
 ]);
 
 type Op = string;

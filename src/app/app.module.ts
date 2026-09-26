@@ -57,6 +57,8 @@ import { QualityModule } from '../modules/quality/quality.module';
 import { PortalModule } from '../modules/portal/portal.module';
 import { DocumentJobsModule } from '../modules/document-jobs/document-jobs.module';
 import { OutboxModule } from '../modules/outbox/outbox.module';
+import { LedgerModule } from '../modules/ledger/ledger.module';
+import { MpesaModule } from '../modules/mpesa/mpesa.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -128,6 +130,8 @@ import { newId } from '../common/lib/uuidv7';
     QualityModule,
     PortalModule,
     DocumentJobsModule,
+    LedgerModule,
+    MpesaModule,
     OutboxModule,
   ],
   providers: [

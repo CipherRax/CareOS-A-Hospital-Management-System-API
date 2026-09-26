@@ -57,6 +57,17 @@ working code with a caveat.
   and integration tokens back tenant-scoped scheduling data used by Phase 4 and
   Phase 10 e2e, but there is no provider-facing onboarding/directory surface
   yet — that lands in a later phase.
+- **The M-PESA Daraja adapter is a structural stub.** `[stub]` The
+  `MpesaStkProvider` seam (`src/integrations/mpesa`) has a fully functional in-
+  process mock (STK push, callback webhook recording, statement listing) that
+  exercises the real API surface in tests/dev, and a `DarajaMpesaProvider` with
+  the exact signing/endpoint payloads (BEARER token, `/mpesa/stkpush/v1/…`,
+  `/mpesa/stkpushquery/v1/…`, callback `CallbackMetadata` parsing) — but the
+  Daraja implementation records intent and is not a live Safaricom call. Real
+  production wiring needs live credentials (consumer key/secret), the
+  `MPESA_*` env vars, and removal of `MOCK`. Reconciliation correctness comes
+  from the provider statement: with the live adapter unimplemented,
+  reconciliation classifies against recorded mock entries only.
 
 ## Known caveats in shipped code
 

@@ -29,6 +29,18 @@ export const envSchema = z.object({
   S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('true'),
   S3_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().default(900),
 
+  // M-PESA (repo Phase 11). MPESA_PROVIDER selects the adapter ('mock' in
+  // dev/test by default; the 'daraja' adapter talks to Safaricom and is an
+  // honest non-live stub — see docs/limitations.md).
+  MPESA_PROVIDER: z.enum(['mock', 'daraja']).default('mock'),
+  MPESA_CALLBACK_SECRET: z.string().trim().default('careos-dev-mpesa-callback-secret'),
+  MPESA_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
+  MPESA_CONSUMER_KEY: z.string().trim().optional(),
+  MPESA_CONSUMER_SECRET: z.string().trim().optional(),
+  MPESA_PASSKEY: z.string().trim().optional(),
+  MPESA_SHORTCODE: z.string().trim().optional(),
+  MPESA_BASE_URL: urlSchema.optional(),
+
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   LOG_REDACT_PATHS: z
     .string()

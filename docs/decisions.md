@@ -3,6 +3,33 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-035 — Auto-posting stays honest: period locks write exceptions, not poison
+
+**Status:** accepted (Phase 11)
+
+**Context:** billing events (`InvoiceIssued`, `PaymentCompleted`, …) drive
+double-entry journals through an outbox consumer. When a journal's date falls
+in a CLOSED/LOCKED financial period, the consumer cannot book it. If it throws,
+the outbox row retries with exponential backoff and poisons the same row for
+every sibling consumer (timeline, notifications) — the exact failure ADR-034
+eliminated for the notifier.
+
+**Decision:** the ledger consumer never throws on a locked period. It records
+an auditable `LedgerPostingException` row (`eventId`, `eventType`,
+`referenceType`/`referenceId` preferring the payment aggregate, `reason`) and
+returns normally so the row is acked once. Booked journals own the DB level
+too: `finance_transaction_lines` enforces single-side lines and a trigger
+guards debits vs credits, and auto-posted journals carry a unique
+`(organizationId, referenceType, referenceId)` so replays are no-ops even if a
+`ProcessedEvent` row is lost. Manual journals use null references and can never
+collide.
+
+**Consequences:** reconciliation is a companion to the books, not a mutation:
+M-PESA matches are resolved by audited resolution stamps (VERIFIED, CORRECTED,
+PAID_OUT_OF_BAND, DUPLICATE_REFUNDED, WRITTEN_OFF, ESCALATED) that never alter
+ledger rows, so the books and the exception trail are the single source of
+truth and the period lock is a hard, observable boundary.
+
 ## ADR-034 — Neutral-body guard masks entity ids before PHI matching
 
 **Status:** accepted (Phase 10)

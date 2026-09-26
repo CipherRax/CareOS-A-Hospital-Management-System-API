@@ -174,6 +174,12 @@ const ALL = [
   G.complaints.manage,
   G.incidents.read,
   G.incidents.manage,
+  G.ledger.read,
+  G.ledger.post,
+  G.ledger.manage,
+  G.mpesa.read,
+  G.mpesa.initiate,
+  G.mpesa.reconcile,
 ];
 
 /**
@@ -288,6 +294,8 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.complaints.manage,
       G.incidents.read,
       G.incidents.manage,
+      G.ledger.read,
+      G.mpesa.read,
     ],
   },
   DOCTOR: {
@@ -557,6 +565,8 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.feedback.read,
       G.feedback.submit,
       G.complaints.read,
+      G.mpesa.read,
+      G.mpesa.initiate,
     ],
   },
   ACCOUNTANT: {
@@ -582,6 +592,12 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.notifications.read,
       G.feedback.read,
       G.complaints.read,
+      G.ledger.read,
+      G.ledger.post,
+      G.ledger.manage,
+      G.mpesa.read,
+      G.mpesa.initiate,
+      G.mpesa.reconcile,
     ],
   },
   RECORDS_OFFICER: {
@@ -655,6 +671,8 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.complaints.manage,
       G.incidents.read,
       G.incidents.manage,
+      G.ledger.read,
+      G.mpesa.read,
     ],
   },
   AUDITOR: {
@@ -695,6 +713,7 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.feedback.read,
       G.complaints.read,
       G.incidents.read,
+      G.ledger.read,
     ],
   },
   PATIENT: {
