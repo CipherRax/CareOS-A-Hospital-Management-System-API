@@ -179,6 +179,12 @@ model Organization {
   assets              Asset[]
   maintenanceRecords  MaintenanceRecord[]
   maintenanceReminders MaintenanceReminder[]
+
+  // Analytics & reports (brief Phase 11, repo Phase 13).
+  dailyRollups               DailyRollup[]
+  reconciliationRuns         ReconciliationRun[]
+  reconciliationExceptions   ReconciliationException[]
+  reportExports              ReportExport[]
 }
 
 // ---------------------------------------------------------------------------
@@ -4065,4 +4071,230 @@ model MaintenanceReminder {
   @@unique([organizationId, maintenanceId])
   @@index([organizationId, status, dueAt])
   @@map("maintenance_reminders")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Analytics & reports (brief Phase 11 — repo Phase 13)
+//
+// DailyRollup is the analytics projection dashboards read instead of scanning
+// raw tables. Cells are keyed by (organization, date, branch, department);
+// branch/department are non-null with '' as the "unscoped" sentinel so the
+// unique key is addressable (Postgres treats NULLs as distinct). The rollup
+// touch consumer recomputes a day's cells from source events (exactly-once
+// per outbox row); rebuild() backfills or repairs a window. Money stays
+// Decimal(12,2) (ADR-029) and serializes as strings. Counters are integers;
+// the sum columns pair with a matching *_Samples/*Count column so averages
+// (waiting time, consultation duration, lab TAT) are exact recomputes.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model DailyRollup {
+  id             String   @id
+  organizationId String
+  branchId       String   @default("") // '' = org-wide cell
+  departmentId   String   @default("") // '' = branch/org-wide cell
+  date           DateTime // business date (UTC midnight)
+
+  // Patient flow
+  visitsRegistered Int @default(0)
+  visitsCompleted  Int @default(0)
+  queueTickets     Int @default(0)
+  queueServed      Int @default(0)
+  queueNoShow      Int @default(0)
+  // Sum of waiting minutes (serviceStartedAt - enteredAt) for completed
+  // served tickets; average = waitMinutes / waitSamples.
+  waitMinutes      Decimal @default(0) @db.Decimal(12, 2)
+  waitSamples      Int     @default(0)
+
+  // Appointments
+  appointmentsBooked      Int @default(0)
+  appointmentsCompleted   Int @default(0)
+  appointmentsCancelled   Int @default(0)
+  appointmentsNoShow      Int @default(0)
+  appointmentsRescheduled Int @default(0)
+
+  // Clinical
+  encountersOpened    Int @default(0)
+  encountersCompleted Int @default(0)
+  consultationMinutes Decimal @default(0) @db.Decimal(12, 2)
+  consultationSamples Int @default(0)
+  diagnosesRecorded   Int @default(0)
+  tasksCompleted      Int @default(0)
+
+  // Pharmacy / inventory
+  prescriptionsIssued    Int @default(0)
+  prescriptionsDispensed Int @default(0)
+  unitsDispensed         Int @default(0)
+  stockReceivedLots      Int @default(0)
+
+  // Laboratory + radiology
+  labOrdersCreated       Int @default(0)
+  labOrdersReleased      Int @default(0)
+  labSamplesRejected     Int @default(0)
+  labTatMinutes          Decimal @default(0) @db.Decimal(12, 2)
+  labTatSamples          Int     @default(0)
+  radiologyOrdersCreated   Int @default(0)
+  radiologyReportsReleased Int @default(0)
+
+  // Inpatient & emergency
+  admissionsCreated            Int @default(0)
+  admissionsDischarged         Int @default(0)
+  emergencyArrivals            Int @default(0)
+  emergencyTriaged             Int @default(0)
+  emergencyTimeToTriageMinutes Decimal @default(0) @db.Decimal(12, 2)
+  emergencySamples             Int     @default(0)
+
+  // Billing & insurance
+  invoicesIssued    Int     @default(0)
+  invoicesTotal     Decimal @default(0) @db.Decimal(12, 2)
+  paymentsCompleted Int     @default(0)
+  paymentsTotal     Decimal @default(0) @db.Decimal(12, 2)
+  refundsCount      Int     @default(0)
+  refundsTotal      Decimal @default(0) @db.Decimal(12, 2)
+  claimsSubmitted   Int     @default(0)
+  claimsPaid        Int     @default(0)
+  claimsPaidTotal   Decimal @default(0) @db.Decimal(12, 2)
+
+  // Quality
+  feedbackSubmitted Int @default(0)
+  feedbackRatingSum Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, date, branchId, departmentId])
+  @@index([organizationId, date])
+  @@index([organizationId, branchId, date])
+  @@map("daily_rollups")
+}
+
+// A reconciliation pass over the billing window. Findings are written to
+// ReconciliationException rows; the run keeps the audit trail of when the
+// check ran and how many exceptions were found.
+model ReconciliationRun {
+  id              String   @id
+  organizationId  String
+  from            DateTime
+  to              DateTime
+  method          String   @default("MANUAL") // MANUAL | SCHEDULED
+  exceptionsFound Int      @default(0)
+  completedAt     DateTime
+
+  createdAt DateTime @default(now())
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  exceptions   ReconciliationException[]
+
+  @@index([organizationId, createdAt])
+  @@map("reconciliation_runs")
+}
+
+enum ReconciliationExceptionType {
+  ENCOUNTER_WITHOUT_INVOICE
+  INVOICE_TOTAL_MISMATCH
+  PAYMENT_APPLICATION_MISMATCH
+  OVERPAID_INVOICE
+  REFUND_WITHOUT_PAYMENT
+  CLAIM_PAYMENT_MISMATCH
+}
+
+enum ReconciliationExceptionSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum ReconciliationExceptionStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+// A neutral finding from the billing reconciliation pass. Descriptions are
+// deliberately descriptive ("completed encounter has no linked invoice in the
+// window") rather than accusatory; the data decides, not the feature.
+model ReconciliationException {
+  id             String @id
+  organizationId String
+  runId          String
+  type           ReconciliationExceptionType
+  severity       ReconciliationExceptionSeverity
+  status         ReconciliationExceptionStatus @default(OPEN)
+  description    String
+
+  visitId     String?
+  encounterId String?
+  invoiceId   String?
+  claimId     String?
+  patientId   String?
+  referenceId String?
+  amount      Decimal? @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  run          ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, runId])
+  @@index([organizationId, status])
+  @@map("reconciliation_exceptions")
+}
+
+enum ReportType {
+  PATIENT
+  APPOINTMENT
+  CLINICAL_OPERATIONS
+  LABORATORY
+  PHARMACY
+  FINANCIAL
+  INSURANCE
+  OPERATIONS
+}
+
+enum ReportFormat {
+  JSON
+  CSV
+  PDF
+}
+
+enum ReportExportStatus {
+  PENDING
+  READY
+  FAILED
+  EXPIRED
+}
+
+// A generated report artifact with an expiry. Artifacts are stored as text
+// (JSON text, CSV text, or base64 of the rendered PDF text); generation runs
+// on request (no background worker — see limitations). Implemented report
+// labels every forecast/estimate before it leaves the API.
+model ReportExport {
+  id             String @id
+  organizationId String
+  reportType     ReportType
+  format         ReportFormat
+  status         ReportExportStatus @default(PENDING)
+
+  from         DateTime?
+  to           DateTime?
+  branchId     String?
+  departmentId String?
+
+  artifact     String?
+  sizeBytes    Int?
+  contentType  String?
+  error        String?
+  expiresAt    DateTime?
+  // Non-FK pointer (soft link) to the requesting user.
+  requestedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt])
+  @@map("report_exports")
 }

@@ -60,6 +60,7 @@ import { OutboxModule } from '../modules/outbox/outbox.module';
 import { LedgerModule } from '../modules/ledger/ledger.module';
 import { MpesaModule } from '../modules/mpesa/mpesa.module';
 import { OperationsModule } from '../modules/operations/operations.module';
+import { InsightsModule } from '../modules/insights/insights.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -134,6 +135,7 @@ import { newId } from '../common/lib/uuidv7';
     LedgerModule,
     MpesaModule,
     OperationsModule,
+    InsightsModule,
     OutboxModule,
   ],
   providers: [

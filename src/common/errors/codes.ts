@@ -31,6 +31,7 @@ export const ErrorCodes = {
 
   // resource
   RESOURCE_NOT_FOUND: 'RESOURCE_NOT_FOUND',
+  RESOURCE_EXPIRED: 'RESOURCE_EXPIRED',
   PATIENT_NOT_FOUND: 'PATIENT_NOT_FOUND',
   PATIENT_ACCESS_DENIED: 'PATIENT_ACCESS_DENIED',
   PERMISSION_DENIED: 'PERMISSION_DENIED',
@@ -138,6 +139,7 @@ export const ERROR_CODE_HTTP: Record<ErrorCode, ErrorCodeMeta> = {
   [ErrorCodes.MFA_INVALID]: { httpStatus: 401 },
 
   [ErrorCodes.RESOURCE_NOT_FOUND]: { httpStatus: 404 },
+  [ErrorCodes.RESOURCE_EXPIRED]: { httpStatus: 410 },
   [ErrorCodes.PATIENT_NOT_FOUND]: { httpStatus: 404 },
   [ErrorCodes.PATIENT_ACCESS_DENIED]: { httpStatus: 403 },
   [ErrorCodes.PERMISSION_DENIED]: { httpStatus: 403 },

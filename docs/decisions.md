@@ -3,6 +3,45 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-037 — Daily rollups are recompute-on-event, with per-day scopes rolled into the org-wide cell
+
+**Status:** accepted (Phase 11)
+
+**Context:** the analytics brief (§7.1) needs days-aggregated counters per org
+for metrics, bottleneck/capacity, forecasts, patient experience and dashboards.
+Two anti-patterns had to be avoided: (a) recomputing every counter by scanning
+the whole window on each read (the pre-rollup modules already do that for TAT
+and ED summaries and it does not scale), and (b) incrementing counters from
+events, which drifts when events are **replayed** (any outbox consumer can
+re-deliver a row, and `processed_event` dedupe is per-consumer, so a crash
+between dispatch and ack naturally repeats work).
+
+**Decision:** `DailyRollup` rows are **full recomputes per org-day**, not
+delta increments. The `rollup-touch` outbox consumer subscribes to 40+ domain
+events and, for each decoded day touched by the payload, calls
+`recomputeDay(org, day)`, which re-reads every source table for that
+org+day under RLS and upserts the day's counters by the unique
+`(organizationId, date, branchId, departmentId)` key. Replays are therefore
+idempotent by construction. Cells are keyed by `(branchId, departmentId)` —
+branch+department scopes get their own row and org-wide-only events
+(payments, refunds, claims, diagnoses, tasks) live in the `('', '')` cell.
+After the scoped upserts, recomputeDay rolls **every** cell's counters into the
+org-wide `('', '')` cell ("rollup-of-rollups"), so un-scoped reads
+(`branchId: ''`) see the whole org while per-branch reads stay scoped and the
+org-wide-only events are counted exactly once. Manual catch-up exists via
+`POST /analytics/rollups/rebuild` (business-day window, max 30 days).
+
+**Consequences:** reads (`/analytics/metrics`, dashboards, patient-experience)
+are trivial aggregations over ≤ 31 `DailyRollup` rows, not window scans; a
+replayed or out-of-order event cannot corrupt a day because the recompute is a
+full read of committed state. The cost is per-event recomputes (an org-day that
+sees many events recomputes many times) and a bounded window for historical
+repairs — both acceptable at Phase 11 scale and documented in
+`docs/limitations.md`. The initial e2e caught a real design gap: the org-wide
+cell was receiving only org-wide-only events, so un-scoped reads came back
+empty; the rollup-of-rollups loop (and the e2e seeding real branch activity)
+fixed it.
+
 ## ADR-036 — Operations post to the ledger as two events: accrual then payment
 
 **Status:** accepted (Phase 12)

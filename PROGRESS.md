@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 196/196 unit (29 suites) |
+| `npm test`   | 371/371 unit (52 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 119/119 (10 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 185/185 (16 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -873,6 +873,110 @@ AUDITOR read-only.
   `test/unit/operations/operations-flow.spec.ts` plus the expanded
   `test/unit/ledger/ledger-flow.spec.ts` for the two expense legs.
 
+## Phase 13 — Analytics & reports (COMPLETE; the brief's Phase 11)
+
+Implemented `src/modules/insights/` — daily rollups, metrics, bottleneck &
+capacity, labelled forecasts, patient-experience composite, staff analytics,
+role dashboards, report exports, and revenue-leakage reconciliation. Unit
+suites `test/unit/insights/` (forecaster, rollup-cells, classification,
+report-builder, patient-experience + window — 5 suites / 31 tests) and the e2e
+`phase13-analytics` spec (13 tests) land green; the whole gate passes (52 unit
+suites / 371 tests, 16 e2e suites / 185 tests).
+
+- **Daily rollups (recompute-on-event, ADR-037).** `DailyRollup` rows are full
+  per-org-day recomputes keyed `(organizationId, date, branchId, departmentId)`.
+  The `rollup-touch` outbox consumer (`rollups.consumer.ts`) subscribes to 40+
+  domain events and recomputes each decoded business-day for the payload —
+  replays are idempotent because `recomputeDay` re-reads committed state and
+  upserts by the unique key. Cells carry ~35 counters (visits, queue
+  tickets/wait/served/no-show, appointments incl. reschedules, encounters,
+  consultation minutes, diagnoses, tasks, prescriptions + units dispensed,
+  stock lots, lab orders/releases/rejections + TAT, radiology orders/reports,
+  admissions/discharges, emergency arrivals/triage + minutes, invoices,
+  payments, refunds, claims paid/submitted, feedback ratings). Branch+dept
+  cells keep their own rows; org-wide-only events (payments/claims/diagnoses/
+  tasks) live in the `('','')` cell; recompute then **rolls every cell up into
+  the org-wide cell** so un-scoped reads see the whole org. `POST
+  /analytics/rollups/rebuild` repairs a 1–30 business-day window on demand.
+- **Metrics (`/analytics/metrics`).** `summary` (patient/appointment volume,
+  revenue etc.) + a 31-row `series` from the rollup projection (zero-filled
+  missing days) + `snapshots` reading raw tables on demand: outstanding
+  invoices (`balanceDue`), medication wastage value, stock turnover
+  (`turnover` null when no on-hand), provider utilization, bed occupancy
+  (active admissions in beds), claim aging by `submittedAt` buckets, and
+  emergency intake (arrivals, avg minutes to triage, untriaged now, per-branch,
+  per-hour).
+- **Bottleneck & capacity.** `/analytics/bottleneck` walks raw visits +
+  encounters + lab orders to rank stages (REGISTRATION_TO_TRIAGE,
+  CONSULTATION, BILLING, DISCHARGE, LAB) by avg/min/max minutes with sample
+  counts, `null` when a stage has no samples. `/analytics/capacity` reports
+  provider slots booked/pending vs scheduled per provider per day, and
+  department demand windows → recommended appointments/walk-in/day (mean +
+  p95, bump when a plus-tolerance threshold passes).
+- **Labelled forecasts (`/analytics/forecasts/:series`).** Pure-domain
+  forecasters (`forecaster.ts`): moving-average and seasonal-naive, each
+  returning `{ kind, horizon, points, ... }` where the mode is labelled
+  (`'above-average' | 'within-average' | 'below-average'` via `classification.ts`)
+  so the API never guesses meaning; unknown series names return a normal
+  ForecastResult whose notes explain why. Supplies the admin dashboard's
+  appointment-demand forecast (7-day horizon).
+- **Patient experience (`/analytics/patient-experience`).** Weighted composite
+  over configurable weights (`organizationSetting` `patientExperience.weights`,
+  defaulted) from rollup counters: waitingTime (avg wait inverted, p95 via
+  `resolveWindow`), reliability (non-cancelled/no-show bookings ratio),
+  completion (visits completed / registered), and feedback score
+  (rating 1–5 → 100-scale). Unknown weights trigger 400 `VALIDATION_ERROR` and
+  zero total weight yields a null composite.
+- **Staff analytics (`/analytics/staff`).** Per-provider slots, bookings,
+  visits, completions, avg consultation, no-shows, and a utilization estimate,
+  assembled from schedules/appointments + encounters + visits/queue rows.
+- **Role dashboards (`/dashboards/:role`).** `ADMIN`/`MANAGER`/`CLINICAL`/
+  `FINANCE`/`OPERATIONS` each produce a single payload of targeted widget values
+  (patient/appointment volume, revenue, occupancy, utilization, outstanding
+  balance, lab TAT, pharmacy expiring/empty-stock batches, pending lab orders,
+  staff load, forecast; a `FINANCE`-only expenses total restricted to
+  `status = APPROVED`). Unknown roles are a DTO 400. Widgets read raw tables
+  for point-in-time truth + the rollup for the 7-day forecast.
+- **Reports (`/reports`).** Five report types (PATIENT, APPOINTMENT,
+  CLINICAL_OPERATIONS, LABORATORY, PHARMACY) export as JSON (summary + rows) /
+  CSV / PDF (a real minimal PDF produced by `renderTextPdf`, not a stub —
+  see `docs/limitations.md` for the no-streaming caveat). Each export stores an
+  org-scoped `ReportExport` row (artifact bytes, `contentType`, `sizeBytes`,
+  filename) with a **24h `expiresAt`**; a request for an expired export returns
+  410 `RESOURCE_EXPIRED` (the row is lazily flipped to `EXPIRED`), while
+  `/exports/:id` and `/exports/:id/download` return the record and artifact,
+  both read-side TTL enforced.
+- **Revenue-leakage reconciliation (`/reconciliation`).** `POST /reconciliation/run`
+  runs a classification pass over the window — `ENCOUNTER_WITHOUT_INVOICE`
+  (MEDIUM, suggests invoicing the encounter), `OVERPAID_INVOICE` (HIGH, overpay
+  suggestion), `CLAIM_PAYMENT_MISMATCH` (HIGH, claim/ledger amount mismatch) —
+  returning `findings` + per-type counts and persisting each finding as a
+  `ReconciliationException` (once per run; runs carry `reconciliationRunId`
+  links). `GET /reconciliation/exceptions` lists by type/severity/status with
+  pagination; `PATCH /reconciliation/exceptions/:id` acknowledges or resolves
+  (a second transition off RESOLVED is 409 `RECONCILIATION_ALREADY_RESOLVED`).
+- **Schema/RLS.** Migration `20260929120000_phase13_analytics` adds
+  `daily_rollup` (with the org-day-scope unique key), `reconciliation_run`,
+  `reconciliation_exception`, `report_export` — each tenant-isolated via the
+  shared RLS policy, verified with `migrate deploy` on a fresh DB in e2e.
+  Permissions: `analytics.read`, `reports.read`, `reports.export`,
+  `reconciliation.run/read/manage` added to the catalog + role matrix
+  (HOSPITAL_ADMIN + MANAGER get the full set, AUDITOR + RECORDS_OFFICER
+  read-only, DOCTOR/NURSE `analytics.read`).
+- **Acceptance.** `test/e2e/phase13-analytics.e2e-spec.ts` — 13 tests: rebuild
+  then metrics (summary + series + snapshots), analytics 403 without
+  `analytics.read`, bottleneck stage averages, capacity
+  recommended-appointments instability, labelled forecasts incl. an unknown
+  series, the weighted patient-experience composite, staff utilization, all
+  five dashboard roles, `reports/export` (JSON/CSV/PDF) + expiry + download +
+  list (`meta.totalPages`, `data` unwrapped items) + get + 403, the
+  reconciliation run findings + exception list/ack/resolve workflow. The e2e
+  caught three real bugs on the way to green: (1) the org-wide rollup cell was
+  empty because branch activity never rolled up into it (fixed in ADR-037);
+  (2) `OrganizationSetting.data` must hold the nested weights object, not a
+  JSON string; (3) page results unwrap to `{ data: items, meta }` so list
+  assertions read `data`, matching the Phase 4/5/6 suites.
+
 ## Notes
 
 - Testcontainers uses `postgres:17-alpine` by default because `postgres:16-alpine`
@@ -884,11 +988,11 @@ AUDITOR read-only.
   work was committed earlier under the label "Phase 2" and is documented here as
   Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
   keep git history unchanged; git history is unchanged.
-- The e2e suite reaches 172 tests across 15 suites (identity, patients,
+- The e2e suite reaches 185 tests across 16 suites (identity, patients,
   documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, the phase-4
   clinical spec, the phase-5 inventory/pharmacy spec, the phase-6 billing
   spec, the phase-7 laboratory/radiology spec, the phase-8
   inpatient/emergency spec, the phase-10 communication spec, the phase-11
-  financial/ledger/M-PESA spec, and the phase-12 operations spec; file names
-  keep the old labels to avoid churn while the sections here track the brief's
-  phases).
+  financial/ledger/M-PESA spec, the phase-12 operations spec, and the phase-13
+  analytics/reports spec; file names keep the old labels to avoid churn while
+  the sections here track the brief's phases).

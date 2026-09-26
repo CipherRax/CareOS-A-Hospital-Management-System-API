@@ -74,6 +74,53 @@ working code with a caveat.
   on a timer and no push/email is actually delivered — `markReminderSent` just
   flips a stub status. A time-based dispatcher + delivery adapters land with the
   scheduler work.
+- **There is no scheduler anywhere in the platform.** `[stub]` Outbox delivery
+  is triggered by an explicit dispatch (the e2e calls `publishReadyEvents`
+  synchronously), reminders are demand-queued, idempotency/export records are
+  never swept, and report exports rely on read-side TTL checks rather than a
+  cron flipping rows to EXPIRED at `expiresAt`. A time-based worker is a later
+  phase; the analytics recompute path does not depend on one (ADR-037).
+- **Report exports are synchronous and stored, not streamed.** `[stub]` An
+  export is built inside the request (in-memory serialize) and persisted as a
+  `ReportExport` row — there is no outbox/kick task object, no async
+  callback, and no chunked streaming of very large reports. The PDF produced by
+  `renderTextPdf` is a dependency-free minimal PDF (text + line layout, no
+  charts/images/Unicode fonts). PDF artifacts are real bytes with
+  `application/pdf` (unlike the Phase 10 `PdfRenderer` stub) but are purpose-
+  built for text tables.
+- **`DailyRollup` recomputes are full per-day reads, so multi-day churn is
+  expensive.** Each touched event recomputes the whole org-day across every
+  scope (source-table scans per recompute). A single day receiving thousands of
+  events recomputes thousands of times in-flight. This is bounded and accepted
+  at Phase 11 scale, but any later seller is a coarser event → recompute bucked
+  per (org, day) dedupe in the consumer or a background materializer.
+- **Emergency intake metrics are partial (per brief §11).** `metrics.snapshots.emergencyIntake`
+  aggregates arrivals/triage minutes/untriaged-now/per-branch/per-hour from
+  `EmergencyVisit` timestamps. The brief's intake-request metrics
+  (acknowledgement, escalation, dispatch latency) land with the public
+  emergency-intake flow (a later phase) — the snapshot notes this on the payload.
+- **`patient-experience` composite needs populated cohorts to be meaningful, and
+  an all-unknown weights set yields `null`.** Components with zero samples are
+  dropped from the weighted average (never computed as 0), so early histories
+  report a composite over whichever components exist; a total effective weight
+  of zero returns `composite: null` rather than a fabricated number.
+- **Forecasts are lightweight statistical models, not ML.** `moving-average`
+  and `seasonal-naive` are deterministic, labelled as `above/within/below-
+  average` by `classification.ts`, and `error` on feeds too short for their
+  window is surfaced with a message instead of a number — there is no
+  train/eval cycle, covariance, or holiday adjustment. Unknown forecast series
+  names return a normal ForecastResult with an explanatory note.
+- **Reconciliation is a deterministic rule pass, not a fuzzy matcher.** The
+  three finding types (encounter-without-invoice, overpaid-invoice,
+  claim-payment-mismatch) are exact predicates over the window; there is no
+  similarity scoring, de-dup confidence, or ML-assisted triage. Suggestion
+  strings are static templates. Runs persist findings once per `reconciliationRunId`.
+- **Page-result responses unwrap to `{ data: items, meta }`.** The global
+  transform interceptor turns any `PageResult` into `data` = items array + a
+  `meta` object; list clients must read `body.data` (an array) and
+  `body.meta.totalPages` — there is no `body.total` and no nested
+  `body.data.items`. The metrics/bottleneck/dashboard payloads are plain
+  objects and read via `body.data` as a single object.
 
 ## Known caveats in shipped code
 
