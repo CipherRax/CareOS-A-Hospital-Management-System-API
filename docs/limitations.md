@@ -68,6 +68,12 @@ working code with a caveat.
   `MPESA_*` env vars, and removal of `MOCK`. Reconciliation correctness comes
   from the provider statement: with the live adapter unimplemented,
   reconciliation classifies against recorded mock entries only.
+- **Maintenance reminders are queued by demand, not by a scheduler.** `[stub]`
+  `POST /maintenance/reminders/queue` scans PLANNED records inside a 72h
+  forward / 24h past window and is idempotent per record, but nothing calls it
+  on a timer and no push/email is actually delivered — `markReminderSent` just
+  flips a stub status. A time-based dispatcher + delivery adapters land with the
+  scheduler work.
 
 ## Known caveats in shipped code
 
@@ -111,6 +117,13 @@ working code with a caveat.
 - **`@HttpCode(options.statusCode ?? 200)` (ADR-013):** routes that did not
   declare a status now return 200 instead of Fastify's POST default 201;
   statuses are declarative and asserted by e2e.
+- **REJECTED expenses are terminal by design.** The e2e asserts that approve/
+  pay/cancel/submit all 409 after a rejection; re-submitting a corrected DRAFT
+  copy is the intended flow (a new expense reuses the same reference). No
+  REJECTED → DRAFT reactivation exists.
+- **Wastage valuation uses the batch cost recorded at receipt.** Write-offs
+  carry the batch `purchaseCost` into the `WASTAGE` ledger row; batches
+  received without a unit cost evaluate to 0 in the wastage report.
 - **Jest e2e open-handle note:** suites exit cleanly; a `--forceExit` was only
   used while debugging an unrelated hang and is not part of the scripts.
 - **Boundary check** (`npm run boundaries`) treats `src/common` and

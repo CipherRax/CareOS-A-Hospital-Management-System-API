@@ -30,6 +30,21 @@ export const DispenseSchema = z.object({
 });
 export class DispenseDto extends createZodDto(DispenseSchema) {}
 
+export const WriteOffSchema = z.object({
+  branchId: z.string().uuid(),
+  reason: z.string().trim().min(1).max(500),
+  lines: z
+    .array(
+      z.object({
+        medicationId: z.string().uuid(),
+        quantity: z.coerce.number().int().positive(),
+      }),
+    )
+    .min(1)
+    .max(100),
+});
+export class WriteOffDto extends createZodDto(WriteOffSchema) {}
+
 export const CreateStockTransferSchema = z.object({
   fromBranchId: z.string().uuid(),
   toBranchId: z.string().uuid(),

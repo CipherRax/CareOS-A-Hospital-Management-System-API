@@ -19,6 +19,7 @@ import type {
   ReceiveStockDto,
   DispenseDto,
   CreateStockTransferDto,
+  WriteOffDto,
 } from './dto/inventory.dto';
 import type { StockTransferStatus } from '@prisma/client';
 
@@ -227,6 +228,67 @@ export class InventoryService {
         payload: { prescriptionId: input.prescriptionId, patientId: prescription.patientId, status: next },
       });
       return { prescriptionStatus: next, dispensedLines: input.lines.map((l) => l.medicationId) };
+    });
+
+    return result;
+  }
+
+  /** Write off damaged/expired stock (brief Phase 10 §7.11 wastage). FEFO
+   *  allocation decrements on-hand and appends WASTAGE ledger entries in the
+   *  same transaction; batch rows are locked to avoid overselling. The wastage
+   *  report (analytics) reads these ledger rows. */
+  async writeOff(input: WriteOffDto) {
+    const organizationId = this.tenantContext.requireOrg();
+    const actorId = this.tenantContext.requireUserId();
+    const writeOffId = newId();
+
+    const result = await this.txRunner.run(async (ctx: TxContext) => {
+      await this.requireBranch(ctx, organizationId, input.branchId);
+      for (const line of input.lines) {
+        await this.requireMedication(ctx, organizationId, line.medicationId);
+      }
+      await this.lockBatchRows(
+        ctx,
+        organizationId,
+        input.branchId,
+        input.lines.map((l) => l.medicationId),
+      );
+
+      let totalQuantity = 0;
+      for (const line of input.lines) {
+        const batches = await ctx.db.stockBatch.findMany({
+          where: { organizationId, branchId: input.branchId, medicationId: line.medicationId },
+        });
+        const costById = new Map(batches.map((b) => [b.id, b.purchaseCost]));
+        const allocations = allocateFefo(toFefoBatches(batches), line.quantity);
+        for (const alloc of allocations) {
+          await ctx.db.stockBatch.update({
+            where: { id: alloc.batchId },
+            data: { onHand: { decrement: alloc.quantity } },
+          });
+          await this.writeLedger(ctx, {
+            organizationId,
+            branchId: input.branchId,
+            medicationId: line.medicationId,
+            batchId: alloc.batchId,
+            operation: 'WASTAGE',
+            quantity: -alloc.quantity,
+            unitCost: costById.get(alloc.batchId) ?? null,
+            recordedById: actorId,
+            referenceType: 'stock_write_off',
+            referenceId: writeOffId,
+          });
+          totalQuantity += alloc.quantity;
+        }
+      }
+
+      ctx.emit({
+        type: EventTypes.StockWriteOff,
+        aggregateType: 'stock_write_off',
+        aggregateId: writeOffId,
+        payload: { writeOffId, branchId: input.branchId, quantity: totalQuantity },
+      });
+      return { writeOffId, branchId: input.branchId, quantity: totalQuantity };
     });
 
     return result;
@@ -653,10 +715,10 @@ export class InventoryService {
       branchId: string;
       medicationId: string;
       batchId: string | null;
-      operation: 'RECEIVED' | 'DISPENSED' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'ADJUSTMENT';
+      operation: 'RECEIVED' | 'DISPENSED' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'ADJUSTMENT' | 'WASTAGE';
       quantity: number;
       recordedById: string;
-      unitCost?: number | null;
+      unitCost?: Prisma.Decimal | number | null;
       referenceType?: string;
       referenceId?: string;
     },

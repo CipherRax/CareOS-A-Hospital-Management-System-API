@@ -173,6 +173,12 @@ model Organization {
   mpesaRequests               MpesaRequest[]
   mpesaReconciliationRuns     MpesaReconciliationRun[]
   mpesaReconciliationMatches  MpesaReconciliationMatch[]
+
+  // Operations (brief Phase 10, repo Phase 12).
+  expenses            Expense[]
+  assets              Asset[]
+  maintenanceRecords  MaintenanceRecord[]
+  maintenanceReminders MaintenanceReminder[]
 }
 
 // ---------------------------------------------------------------------------
@@ -373,6 +379,9 @@ model Branch {
   emergencyVisits EmergencyVisit[]
   virtualSessions VirtualSession[]
 
+  expenses Expense[]
+  assets   Asset[]
+
   @@unique([organizationId, code])
   @@index([organizationId])
   @@map("branches")
@@ -399,6 +408,9 @@ model Department {
   visits            Visit[]
   queueEntries      QueueEntry[]
   encounters        Encounter[]
+
+  expenses Expense[]
+  assets   Asset[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -2037,6 +2049,7 @@ model Supplier {
 
   batches        StockBatch[]
   purchaseOrders PurchaseOrder[]
+  expenses       Expense[]
 
   @@unique([organizationId, name])
   @@index([organizationId, isActive])
@@ -3853,4 +3866,203 @@ model Incident {
   @@index([organizationId, branchId, status, severity, createdAt])
   @@index([organizationId, category, createdAt])
   @@map("incidents")
+}
+
+// ─── Operations (brief Phase 10, repo Phase 12) ──────────────────────────────
+
+enum ExpenseCategory {
+  SUPPLIES
+  EQUIPMENT
+  MAINTENANCE
+  UTILITIES
+  RENT
+  SALARIES_AND_BENEFITS
+  TRANSPORT
+  FOOD_AND_NUTRITION
+  TELECOMMUNICATIONS
+  MARKETING
+  OTHER
+}
+
+enum ExpenseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ExpensePaymentStatus {
+  UNPAID
+  PAID
+}
+
+// An organization operating expense. Money is Decimal(12,2) (ADR-029). The
+// approval workflow is code-owned (approver may not be the creator); once
+// APPROVED the expense posts to the ledger (DR 5000 expense / CR 2100 AP) via
+// the outbox consumer, and paying it clears AP against cash (DR 2100 / CR 1000).
+model Expense {
+  id             String                @id
+  organizationId String
+  branchId       String
+  departmentId   String?
+  supplierId     String?
+  expenseNumber  String
+  category       ExpenseCategory
+  description    String?
+  reference      String? // supplier invoice / purchase reference
+  amount         Decimal               @db.Decimal(12, 2)
+  status         ExpenseStatus         @default(DRAFT)
+  paymentStatus  ExpensePaymentStatus  @default(UNPAID)
+  version        Int                   @default(0)
+
+  createdById   String
+  submittedById String?
+  approvedById  String?
+  rejectedById  String?
+  rejectReason  String?
+  paidById      String?
+  submittedAt   DateTime?
+  approvedAt    DateTime?
+  rejectedAt    DateTime?
+  paidAt        DateTime?
+  cancelledById String?
+  cancelledAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  supplier     Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, expenseNumber])
+  @@index([organizationId, status, paymentStatus])
+  @@index([organizationId, supplierId, status])
+  @@index([organizationId, category, createdAt])
+  @@map("expenses")
+}
+
+enum AssetCategory {
+  EQUIPMENT
+  COMPUTER
+  VEHICLE
+  BED
+  MACHINE
+  INSTRUMENT
+  FURNITURE
+  OTHER
+}
+
+enum AssetStatus {
+  ACTIVE
+  MAINTENANCE
+  RETIRED
+  DISPOSED
+}
+
+// Physical assets (equipment, computers, vehicles, beds, machines). An asset
+// tag is org-unique; maintenance history lives on MaintenanceRecord.
+model Asset {
+  id             String       @id
+  organizationId String
+  branchId       String?
+  departmentId   String?
+  assetTag       String
+  category       AssetCategory
+  name           String
+  serialNumber   String?
+  location       String?
+  status         AssetStatus  @default(ACTIVE)
+  purchaseDate   DateTime?
+  purchaseCost   Decimal?     @db.Decimal(12, 2)
+  notes          String?
+  version        Int          @default(0)
+
+  retiredById String?
+  retiredAt   DateTime?
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  maintenanceRecords MaintenanceRecord[]
+
+  @@unique([organizationId, assetTag])
+  @@index([organizationId, status, category])
+  @@index([organizationId, branchId, status])
+  @@map("assets")
+}
+
+enum MaintenanceStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// A scheduled maintenance job for an asset. scheduledFor is the next service
+// date; reminders are queued (MaintenanceReminder) for PLANNED/IN_PROGRESS
+// records whose scheduledFor falls inside the reminder horizon.
+model MaintenanceRecord {
+  id              String            @id
+  organizationId  String
+  assetId         String
+  status          MaintenanceStatus @default(PLANNED)
+  scheduledFor    DateTime
+  completedAt     DateTime?
+  downtimeHours   Int?
+  cost            Decimal?          @db.Decimal(12, 2)
+  serviceProvider String?
+  notes           String?
+  version         Int               @default(0)
+
+  createdById   String?
+  completedById String?
+  cancelledById String?
+  cancelledAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset        Asset        @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  reminders MaintenanceReminder[]
+
+  @@index([organizationId, assetId])
+  @@index([organizationId, status, scheduledFor])
+  @@map("maintenance_records")
+}
+
+enum MaintenanceReminderStatus {
+  QUEUED
+  SENT
+}
+
+// An ordered reminder for a maintenance record. Exactly one reminder can exist
+// per maintenance record (unique key) so the queue scan is idempotent: a
+// repeated run never creates duplicates.
+model MaintenanceReminder {
+  id             String                     @id
+  organizationId String
+  maintenanceId  String
+  dueAt          DateTime
+  status         MaintenanceReminderStatus  @default(QUEUED)
+
+  queuedById String?
+  queuedAt   DateTime @default(now())
+  sentAt     DateTime?
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  maintenance  MaintenanceRecord @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, maintenanceId])
+  @@index([organizationId, status, dueAt])
+  @@map("maintenance_reminders")
 }

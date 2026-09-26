@@ -3,6 +3,31 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-036 — Operations post to the ledger as two events: accrual then payment
+
+**Status:** accepted (Phase 12)
+
+**Context:** an expense approval creates a liability the same way invoicing
+does; the subsequent payment settles it. Both are exactly-once auto-posted by
+the ADR-035 consumer, so each state transition must carry a distinct
+`referenceType`/`referenceId` pair against the shared unique index.
+
+**Decision:** `Operations.ExpenseApproved` posts `DR 5000 Expenses / CR 2100
+Accounts payable` dated `approvedAt`; `Operations.ExpensePaid` posts
+`DR 2100 / CR 1000 Cash` dated `paidAt`. Approval and payment are therefore two
+independent idempotent journals rather than one two-phase document, and a
+CLOSED period fails each leg independently into a `LedgerPostingException`.
+Analytics that measure supplier spend/belances aggregate over `status =
+APPROVED` (the state that created the obligation) and use the separate
+`paymentStatus` column to split outstanding vs paid — a status probe must never
+include the payment-only value `PAID`.
+
+**Consequences:** the books mirror the obligation/payment split exactly and
+replay safety is identical to billing. The concise spelling of the expense
+status enum (`DRAFT|SUBMITTED|APPROVED|REJECTED|CANCELLED`, payment tracked on
+`paymentStatus`) means a naive `in: ['APPROVED','PAID']` filter throws at the
+Prisma layer; the e2e run caught this at the supplier-spend endpoint.
+
 ## ADR-035 — Auto-posting stays honest: period locks write exceptions, not poison
 
 **Status:** accepted (Phase 11)

@@ -150,6 +150,7 @@ export const PERMISSION_GROUPS = {
   inventory: {
     read: 'inventory.read',
     manage: 'inventory.manage',
+    wastage: 'inventory.wastage',
   },
   lab: {
     read: 'lab.read',
@@ -248,6 +249,29 @@ export const PERMISSION_GROUPS = {
   },
   portal: {
     read: 'portal.read',
+  },
+  // Operations (brief Phase 10, repo Phase 12): expenses, assets, maintenance
+  // and the operations/procurement analytics views.
+  expenses: {
+    read: 'expenses.read',
+    create: 'expenses.create',
+    approve: 'expenses.approve',
+    pay: 'expenses.pay',
+    manage: 'expenses.manage',
+  },
+  assets: {
+    read: 'assets.read',
+    create: 'assets.create',
+    update: 'assets.update',
+    manage: 'assets.manage',
+  },
+  maintenance: {
+    read: 'maintenance.read',
+    create: 'maintenance.create',
+    manage: 'maintenance.manage',
+  },
+  analytics: {
+    read: 'analytics.read',
   },
 } as const;
 

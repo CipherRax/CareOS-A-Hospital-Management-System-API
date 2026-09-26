@@ -151,7 +151,9 @@ export type LedgerSourceType =
   | typeof EventTypes.InvoiceIssued
   | typeof EventTypes.InvoiceCancelled
   | typeof EventTypes.PaymentCompleted
-  | typeof EventTypes.PaymentRefunded;
+  | typeof EventTypes.PaymentRefunded
+  | typeof EventTypes.ExpenseApproved
+  | typeof EventTypes.ExpensePaid;
 
 export interface AutoPostSource {
   /** Event type string; becomes FinanceTransaction.referenceType. */
@@ -191,6 +193,19 @@ export function planAutoPosting(source: AutoPostSource): JournalLineInput[] {
       return [
         { accountCode: '1200', debit: v, memo: 'Payment refunded' },
         { accountCode: '1000', credit: v, memo: 'Payment refunded' },
+      ];
+    // Operations expenses (brief Phase 10, repo Phase 12): an approved expense
+    // recognises an obligation (DR expense / CR AP); paying it clears the
+    // payable against cash.
+    case EventTypes.ExpenseApproved:
+      return [
+        { accountCode: '5000', debit: v, memo: 'Expense approved' },
+        { accountCode: '2100', credit: v, memo: 'Expense approved' },
+      ];
+    case EventTypes.ExpensePaid:
+      return [
+        { accountCode: '2100', debit: v, memo: 'Expense paid' },
+        { accountCode: '1000', credit: v, memo: 'Expense paid' },
       ];
     default:
       throw new AppError({

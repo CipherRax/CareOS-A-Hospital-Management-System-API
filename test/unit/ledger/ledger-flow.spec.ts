@@ -198,6 +198,22 @@ describe('ledger-flow: planAutoPosting', () => {
     expect(legs[1]!.accountCode).toBe('1000');
   });
 
+  it('maps ExpenseApproved to DR Expense(5000) / CR AP(2100)', () => {
+    const legs = planAutoPosting({ ...base, referenceType: EventTypes.ExpenseApproved, referenceId: 'e1', amount: dec('1500.50') });
+    expect(legs[0]!.accountCode).toBe('5000');
+    expect(legs[0]!.debit!.toString()).toBe('1500.5');
+    expect(legs[1]!.accountCode).toBe('2100');
+    expect(legs[1]!.credit!.toString()).toBe('1500.5');
+  });
+
+  it('maps ExpensePaid to DR AP(2100) / CR Cash(1000)', () => {
+    const legs = planAutoPosting({ ...base, referenceType: EventTypes.ExpensePaid, referenceId: 'e1', amount: dec('1500.50') });
+    expect(legs[0]!.accountCode).toBe('2100');
+    expect(legs[0]!.debit!.toString()).toBe('1500.5');
+    expect(legs[1]!.accountCode).toBe('1000');
+    expect(legs[1]!.credit!.toString()).toBe('1500.5');
+  });
+
   it('rounds the posted amount to cents', () => {
     const legs = planAutoPosting({ ...base, referenceType: EventTypes.PaymentCompleted, referenceId: 'p1', amount: dec('200.005') });
     expect(legs[0]!.debit!.toString()).toBe('200.01');

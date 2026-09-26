@@ -59,6 +59,7 @@ import { DocumentJobsModule } from '../modules/document-jobs/document-jobs.modul
 import { OutboxModule } from '../modules/outbox/outbox.module';
 import { LedgerModule } from '../modules/ledger/ledger.module';
 import { MpesaModule } from '../modules/mpesa/mpesa.module';
+import { OperationsModule } from '../modules/operations/operations.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -132,6 +133,7 @@ import { newId } from '../common/lib/uuidv7';
     DocumentJobsModule,
     LedgerModule,
     MpesaModule,
+    OperationsModule,
     OutboxModule,
   ],
   providers: [

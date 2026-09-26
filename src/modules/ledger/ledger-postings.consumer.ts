@@ -26,6 +26,8 @@ import { DEFAULT_CHART_ACCOUNTS } from './domain/ledger-accounts';
  *   InvoiceCancelled   DR Revenue(4000) / CR AR(1200)     (only if it was issued)
  *   PaymentCompleted   DR Cash(1000)  / CR AR(1200)       (any method)
  *   PaymentRefunded    DR AR(1200)    / CR Cash(1000)
+ *   ExpenseApproved    DR Expense(5000)/ CR AP(2100)      (operations)
+ *   ExpensePaid        DR AP(2100)    / CR Cash(1000)     (operations)
  *
  * Idempotency: referenceType/referenceId map exactly to the source event type
  * and aggregate id, and `FinanceTransaction` has a unique index on
@@ -47,6 +49,8 @@ export class LedgerPostingConsumer implements OutboxConsumer {
     EventTypes.InvoiceCancelled,
     EventTypes.PaymentCompleted,
     EventTypes.PaymentRefunded,
+    EventTypes.ExpenseApproved,
+    EventTypes.ExpensePaid,
   ];
 
   async handle(ctx: OutboxConsumerContext): Promise<void> {
@@ -180,6 +184,36 @@ export class LedgerPostingConsumer implements OutboxConsumer {
         referenceId: payment.id,
         date: payment.refundedAt ?? ctx.row.occurredAt,
         amount: toMoney(payment.amount),
+      };
+    }
+
+    if (ctx.row.type === EventTypes.ExpenseApproved) {
+      const expenseId = firstString(payload.expenseId) ?? ctx.row.aggregateId;
+      const expense = await ctx.db.expense.findFirst({
+        where: { id: expenseId, organizationId, status: 'APPROVED' },
+        select: { id: true, amount: true, approvedAt: true },
+      });
+      if (!expense) return empty();
+      return {
+        referenceType: EventTypes.ExpenseApproved,
+        referenceId: expense.id,
+        date: expense.approvedAt ?? ctx.row.occurredAt,
+        amount: toMoney(expense.amount),
+      };
+    }
+
+    if (ctx.row.type === EventTypes.ExpensePaid) {
+      const expenseId = firstString(payload.expenseId) ?? ctx.row.aggregateId;
+      const expense = await ctx.db.expense.findFirst({
+        where: { id: expenseId, organizationId, paymentStatus: 'PAID' },
+        select: { id: true, amount: true, paidAt: true },
+      });
+      if (!expense) return empty();
+      return {
+        referenceType: EventTypes.ExpensePaid,
+        referenceId: expense.id,
+        date: expense.paidAt ?? ctx.row.occurredAt,
+        amount: toMoney(expense.amount),
       };
     }
 

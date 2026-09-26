@@ -14,6 +14,7 @@ import {
   StockAlertsQueryDto,
   TransferActionDto,
   TransferResponseDto,
+  WriteOffDto,
 } from './dto/inventory.dto';
 
 @Controller('pharmacy')
@@ -50,6 +51,21 @@ export class InventoryController {
   })
   dispense(@Body() body: DispenseDto) {
     return this.inventory.dispense(body);
+  }
+
+  @Post('stock/write-off')
+  @ApiEndpoint({
+    summary: 'Write off damaged/expired stock (WASTAGE ledger entries)',
+    operationId: 'pharmacyStockWriteOff',
+    permissions: [PERMISSION_GROUPS.inventory.wastage],
+    statusCode: 201,
+    errors: [
+      { status: 404, description: 'Branch or medication not found' },
+      { status: 409, description: 'Insufficient stock or expired stock' },
+    ],
+  })
+  writeOff(@Body() body: WriteOffDto) {
+    return this.inventory.writeOff(body);
   }
 
   @Post('transfers')

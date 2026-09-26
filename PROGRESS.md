@@ -810,6 +810,69 @@ AUDITOR read-only.
   second-resolve semantics; permission separation. Unit coverage lives in
   `test/unit/ledger/` and `test/unit/mpesa/`.
 
+## Phase 12 — Operations (COMPLETE; the brief's Phase 10)
+
+- **Expenses (`/expenses`).** `POST` creates a DRAFT expense (branch +
+  department/supplier optional, category/amount required) numbered
+  `EXP-YYYY-NNNNNN` from the org-scoped `counters` row (same concurrency model
+  as billing). Lifecycle is `DRAFT → SUBMITTED → APPROVED/REJECTED`, with
+  payment tracked separately (`UNPAID → PAID`). Content edits are DRAFT-only
+  with optimistic `version` (409 `VERSION_CONFLICT` on staleness); `submit` is
+  creator-only; `approve`/`reject` must come from a different user (403
+  `SEGREGATION_VIOLATION`); rejection requires a non-blank reason and is
+  terminal (no approve/pay/cancel/submit); `pay` only on APPROVED + UNPAID
+  (`EXPENSE_ALREADY_PAID` otherwise); `cancel` only on DRAFT/SUBMITTED
+  (creator-only once SUBMITTED). Filters: status/paymentStatus/category/
+  branch/supplier.
+- **Operations ledger posting (ADR-036).** The outbox `LedgerPostingConsumer`
+  maps `Operations.ExpenseApproved` → DR 5000 Expenses / CR 2100 Accounts
+  payable (date = approvedAt) and `Operations.ExpensePaid` → DR 2100 / CR 1000
+  Cash (date = paidAt), idempotent via the shared
+  `(organizationId, referenceType, referenceId)` unique index. An approval into
+  a CLOSED/LOCKED period writes a `LedgerPostingException` and still acks the
+  outbox row — the consumer never throws (ADR-035). `_sum`-based supplier
+  analytics filter on `status = APPROVED` only (payment state is a separate
+  column) — the original `['APPROVED','PAID']` status probe would have thrown a
+  Prisma enum error (caught by the e2e run).
+- **Assets (`/assets`).** `assetTag` is normalized (trim + uppercase + hyphen
+  collapsing) and org-unique (409 on duplicates). CRUD keeps lifecycle out of
+  `PATCH` (retirement via `PATCH {status}` is 409 `ASSET_STATE_CONFLICT`);
+  `POST /:id/retire` is a one-way ACTIVE/MAINTENANCE → RETIRED transition that
+  cannot repeat. Maintenance flags flip via the plain update. Filters:
+  status/category/branch/search.
+- **Maintenance (`/maintenance`).** Records progress through
+  `PLANNED → IN_PROGRESS → COMPLETED` (or cancelled), mirroring the asset
+  status (`ACTIVE → MAINTENANCE → ACTIVE`) inside the same transaction. Only
+  PLANNED jobs reschedule; completion records `downtimeHours` + `cost`;
+  a completed job cannot restart (all 409 `MAINTENANCE_STATE_CONFLICT`).
+- **Reminders (structural stub).** `POST /maintenance/reminders/queue` scans
+  PLANNED records due within a 72h forward / 24h past window and inserts one
+  `MaintenanceReminder` per record (unique org + record, so runs are
+  idempotent: `{queued, skipped}`). `POST /reminders/:id/sent` marks delivery.
+  See `docs/limitations.md` — there is no scheduler, the scan is push-triggered.
+- **Waste management.** `POST /pharmacy/stock/write-off` drains batches via
+  the same row-locked FEFO used by dispensing, records `WASTAGE` ledger rows
+  (negative quantity, batch `purchaseCost` carried through for valuation,
+  reference `stock_write_off`), and emits `StockWriteOff`. The procurement
+  wastage report (`/analytics/procurement/wastage`) aggregates `|quantity|` per
+  medication with estimated value; `inventory.wastage` is granted to
+  HOSPITAL_ADMIN and PHARMACIST.
+- **Schema/RLS.** New tenant models `Expense`, `Asset`, `MaintenanceRecord`,
+  `MaintenanceReminder` (plus the `Expense*`/`Asset*`/`Maintenance*`/
+  `StockWriteOff` event catalog and permission groups) all under the existing
+  RLS policy; numbering reuses the `counters` table. Migration is additive
+  (`migrate deploy` idempotent).
+- **Acceptance.** `test/e2e/phase12-operations.e2e-spec.ts` — 10 tests: expense
+  lifecycle + EXP numbers + DRAFT-only edits; approval workflow + segregation +
+  pay-once; REJECTED-terminality; ledger auto-posting (5000/2100 + 2100/1000
+  legs asserted by account code) with idempotent re-drain and CLOSED-period
+  `LedgerPostingException`s; asset tag uniqueness/search/retire-once; a full
+  maintenance run with asset flips + downtime/cost; idempotent reminder
+  queueing; write-off → wastage report (`12` units, `120.00` value) +
+  INSUFFICIENT_STOCK; permission separation. Unit coverage: new
+  `test/unit/operations/operations-flow.spec.ts` plus the expanded
+  `test/unit/ledger/ledger-flow.spec.ts` for the two expense legs.
+
 ## Notes
 
 - Testcontainers uses `postgres:17-alpine` by default because `postgres:16-alpine`
@@ -821,10 +884,11 @@ AUDITOR read-only.
   work was committed earlier under the label "Phase 2" and is documented here as
   Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
   keep git history unchanged; git history is unchanged.
-- The e2e suite reaches 162 tests across 14 suites (identity, patients,
+- The e2e suite reaches 172 tests across 15 suites (identity, patients,
   documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, the phase-4
   clinical spec, the phase-5 inventory/pharmacy spec, the phase-6 billing
   spec, the phase-7 laboratory/radiology spec, the phase-8
-  inpatient/emergency spec, the phase-10 communication spec, and the phase-11
-  financial/ledger/M-PESA spec; file names keep the old labels to avoid churn
-  while the sections here track the brief's phases).
+  inpatient/emergency spec, the phase-10 communication spec, the phase-11
+  financial/ledger/M-PESA spec, and the phase-12 operations spec; file names
+  keep the old labels to avoid churn while the sections here track the brief's
+  phases).
