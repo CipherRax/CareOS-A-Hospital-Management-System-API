@@ -229,6 +229,52 @@ export class DisplayService {
     return { deviceId: result.updated.id, accessToken: result.token };
   }
 
+  /**
+   * Re-pair surface: sends an existing device back into PENDING_PAIRING with a
+   * fresh one-time code. The current token is killed immediately (the old
+   * board stops working until the new code is exchanged). Pairs with
+   * `POST /admin/display-devices/:id/rescan` (brief §5.16).
+   */
+  async rescan(id: string) {
+    const organizationId = this.tenantContext.requireOrg();
+
+    const result = await this.txRunner.run(async (ctx: TxContext) => {
+      const current = await ctx.db.displayDevice.findFirst({ where: { id, organizationId } });
+      if (!current) {
+        throw new AppError({ code: ErrorCodes.RESOURCE_NOT_FOUND, message: 'Display device not found.', silent: true });
+      }
+
+      const pairingCode = generatePairingCode();
+      const updated = await ctx.db.displayDevice.update({
+        where: { id },
+        data: {
+          status: 'PENDING_PAIRING',
+          tokenHash: null,
+          tokenRotatedAt: null,
+          pairingCodeHash: hashSecret(pairingCode),
+          pairingExpiresAt: new Date(Date.now() + PAIRING_CODE_TTL_MS),
+        },
+      });
+      await this.audit(ctx, organizationId, 'display.device_repair_initiated', id, {
+        from: current.status,
+      });
+      ctx.emit({
+        type: EventTypes.DisplayDeviceRepairInitiated,
+        aggregateType: 'display_device',
+        aggregateId: id,
+        payload: { deviceId: id },
+      });
+      return { updated, pairingCode };
+    });
+
+    this.publish(organizationId, {
+      event: EventTypes.DisplayDeviceRepairInitiated,
+      aggregateId: id,
+      payload: { deviceId: id },
+    });
+    return { device: serializeDevice(result.updated), pairingCode: result.pairingCode };
+  }
+
   // ---------------------------------------------------------------------------
   // pairing (public, IP rate-limited)
   // ---------------------------------------------------------------------------

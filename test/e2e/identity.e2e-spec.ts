@@ -72,6 +72,7 @@ describe('identity & access (Phase 1)', () => {
         'appointments.read',
         'clinical_notes.read',
         'reports.read',
+        'display.devices.manage',
       ],
       isSystem: true,
     };
@@ -543,5 +544,231 @@ describe('identity & access (Phase 1)', () => {
       headers: bearer(accessToken),
     });
     expect(denied.statusCode).toBe(401);
+  });
+});
+
+describe('session bootstrap & display devices (Phase P1)', () => {
+  let app: NestFastifyApplication;
+  let prisma: PrismaService;
+  let env: Env;
+  let orgA: string;
+  let adminRoleId: string;
+  let branchAId: string;
+  let mainDeptId: string;
+
+  const url = (path: string): string => `${env.API_PREFIX}${path}`;
+
+  beforeAll(async () => {
+    app = await createTestApp();
+    prisma = app.get(PrismaService);
+    env = app.get(ENV);
+    const sc = prisma.unscoped();
+
+    orgA = newId();
+    await sc.organization.create({
+      data: {
+        id: orgA,
+        name: 'Bootstrap Org',
+        featureFlags: { onlineBooking: true },
+      },
+    });
+
+    const passwordHash = await hashPassword('DemoPass123!');
+
+    const adminRole = {
+      id: newId(),
+      organizationId: orgA,
+      key: 'SUPER_ADMIN',
+      name: 'Super Admin',
+      permissions: ['users.read', 'display.devices.manage'],
+      isSystem: true,
+    };
+    adminRoleId = adminRole.id;
+    await sc.role.create({ data: adminRole });
+
+    const admin = await sc.user.create({
+      data: {
+        id: newId(),
+        organizationId: orgA,
+        email: 'bootstrap-admin@identity.test',
+        firstName: 'Boot',
+        lastName: 'Strap',
+        status: 'ACTIVE',
+        passwordHash,
+      },
+    });
+    await sc.userRole.create({
+      data: { id: newId(), organizationId: orgA, userId: admin.id, roleId: adminRoleId },
+    });
+
+    const branch = await sc.branch.create({
+      data: { id: newId(), organizationId: orgA, name: 'Main Branch', code: 'MAIN' },
+    });
+    branchAId = branch.id;
+    const dept = await sc.department.create({
+      data: { id: newId(), organizationId: orgA, name: 'Triage', code: 'TRG' },
+    });
+    mainDeptId = dept.id;
+    await sc.userBranch.create({
+      data: { id: newId(), organizationId: orgA, userId: admin.id, branchId: branchAId },
+    });
+  }, 30_000);
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  async function login(): Promise<string> {
+    const res = await app.inject({
+      method: 'POST',
+      url: url('/auth/login'),
+      payload: { organizationId: orgA, email: 'bootstrap-admin@identity.test', password: 'DemoPass123!' },
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json().data.tokens.accessToken as string;
+  }
+
+  it('GET /auth/me returns the full bootstrap payload', async () => {
+    const token = await login();
+    const res = await app.inject({ method: 'GET', url: url('/auth/me'), headers: bearer(token) });
+    expect(res.statusCode).toBe(200);
+
+    const data = res.json().data;
+    expect(data.user.email).toBe('bootstrap-admin@identity.test');
+    expect(data.user.securityStaging).toEqual([]);
+    expect(data.organization.id).toBe(orgA);
+    expect(data.organization.name).toBe('Bootstrap Org');
+    expect(data.organization.features).toEqual({ onlineBooking: true });
+    expect(data.roles).toEqual(['SUPER_ADMIN']);
+    expect(data.user.roleSummary).toEqual([{ key: 'SUPER_ADMIN', name: 'Super Admin' }]);
+
+    // Parity: the permission set must equal the union of the assigned roles'
+    // permissions (the same function TenantGuard uses).
+    const role = await prisma.unscoped().role.findUniqueOrThrow({
+      where: { id: adminRoleId },
+      select: { permissions: true },
+    });
+    const stored = [...role.permissions].sort();
+    const unionFromMe = [...data.permissions].sort();
+    expect(unionFromMe).toEqual(stored);
+
+    // Reserved surface + advisory session state.
+    expect(data.patient).toBeNull();
+    expect(data.breakGlass).toBeNull();
+    expect(data.session.securityStaging).toEqual(['weaker']);
+    expect(data.session.mfaMethod).toBeNull();
+    expect(data.session.mfaVerifiedAt).toBeNull();
+    expect(data.session.idleTimeoutSeconds).toBeGreaterThan(0);
+    expect(data.session.lockAfterMinutes).toBeGreaterThan(0);
+
+    // Branches: assigned branch listed; no header → default branch applies.
+    expect(data.branch.allowed).toEqual([{ id: branchAId, name: 'Main Branch', code: 'MAIN' }]);
+    expect(data.branch.current).toBeNull();
+    expect(data.preferences).toBeNull();
+  });
+
+  it('sets preferences and reflects the default branch in /auth/me', async () => {
+    const token = await login();
+
+    const bad = await app.inject({
+      method: 'PATCH',
+      url: url('/auth/me/preferences'),
+      headers: bearer(token),
+      payload: { defaultBranchId: newId() },
+    });
+    expect(bad.statusCode).toBe(403);
+    expect(bad.json().error.code).toBe('TENANT_ACCESS_DENIED');
+
+    const ok = await app.inject({
+      method: 'PATCH',
+      url: url('/auth/me/preferences'),
+      headers: bearer(token),
+      payload: { locale: 'en', density: 'comfortable', defaultBranchId: branchAId },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().data.defaultBranchId).toBe(branchAId);
+    expect(ok.json().data.locale).toBe('en');
+
+    const me = await app.inject({ method: 'GET', url: url('/auth/me'), headers: bearer(token) });
+    const data = me.json().data;
+    expect(data.preferences).toEqual({
+      locale: 'en',
+      density: 'comfortable',
+      defaultBranchId: branchAId,
+    });
+    // Without an X-Branch-Id header the preference supplies the default branch.
+    expect(data.branch.current).toBe(branchAId);
+  });
+
+  it('honours X-Branch-Id only within the caller’s assigned branches', async () => {
+    const token = await login();
+
+    const scoped = await app.inject({
+      method: 'GET',
+      url: url('/auth/me'),
+      headers: { ...bearer(token), 'x-branch-id': branchAId },
+    });
+    expect(scoped.statusCode).toBe(200);
+    expect(scoped.json().data.branch.current).toBe(branchAId);
+
+    const denied = await app.inject({
+      method: 'GET',
+      url: url('/auth/me'),
+      headers: { ...bearer(token), 'x-branch-id': newId() },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe('TENANT_ACCESS_DENIED');
+  });
+
+  it('registers a display device, rescans it, and serves the queue to the device', async () => {
+    const token = await login();
+
+    // Admin create / register via the brief §5.16 contract path.
+    const created = await app.inject({
+      method: 'POST',
+      url: url('/admin/display-devices'),
+      headers: bearer(token),
+      payload: { name: 'Lobby TV', branchId: branchAId, departmentIds: [mainDeptId] },
+    });
+    expect(created.statusCode).toBe(201);
+    const { device, pairingCode } = created.json().data as { device: { id: string }; pairingCode: string };
+    const deviceId = device.id;
+    expect(pairingCode).toBeTruthy();
+    expect(deviceId).toBeTruthy();
+
+    // Pair as the physical device (public, IP-rate-limited).
+    const paired = await app.inject({
+      method: 'POST',
+      url: url('/display/devices/pair'),
+      payload: { code: pairingCode, name: 'Lobby TV' },
+    });
+    expect(paired.statusCode).toBe(201);
+    const deviceToken = paired.json().data.accessToken as string;
+
+    // A scoped device token serves the PHI-free queue for its own branch.
+    const queue = await app.inject({
+      method: 'GET',
+      url: url('/display/queue'),
+      headers: bearer(deviceToken),
+    });
+    expect(queue.statusCode).toBe(200);
+    expect(typeof queue.json().data.queueDate).toBe('string');
+    expect(Array.isArray(queue.json().data.departments)).toBe(true);
+
+    // Re-scan / re-pair surface: new code, old token now dead.
+    const rescan = await app.inject({
+      method: 'POST',
+      url: url(`/admin/display-devices/${deviceId}/rescan`),
+      headers: bearer(token),
+    });
+    expect(rescan.statusCode).toBe(201);
+    expect(rescan.json().data.pairingCode).toBeTruthy();
+
+    const deadToken = await app.inject({
+      method: 'GET',
+      url: url('/display/queue'),
+      headers: bearer(deviceToken),
+    });
+    expect(deadToken.statusCode).toBe(401);
   });
 });

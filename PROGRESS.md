@@ -1026,6 +1026,53 @@ recorded the decisions that shape P1–P4:
 **Acceptance:** existing suite unchanged and green — the P0 gate is
 `npm run lint && npm run typecheck && npm test && npm run build`.
 
+### P1 — Session bootstrap & display devices (COMPLETE)
+
+Implements brief §5.15 (session bootstrap) and §5.16 (display devices), on top
+of the P0 decisions.
+
+- **`GET /auth/me`** now returns the full bootstrap payload: profile +
+  security-staging flags (`passwordChangeRequired`, `mfaEnrolmentRequired`),
+  organization card + `featureFlags` (advisory, never a grant), `roleSummary`,
+  `permissions` (re-resolved per request by `permissionUnion` — parity with the
+  permission guard is asserted in the identity e2e), reserved `patient` link,
+  active `breakGlass` grant, `session` (id, `mfaMethod`, `mfaVerifiedAt`,
+  `securityStaging` weaker/stronger signal, config-derived
+  `idleTimeoutSeconds`/`lockAfterMinutes`), `branch` (`current` / `allowed`),
+  and `preferences`.
+- **`PATCH /auth/me/preferences`** + new `UserPreference` model
+  (`locale`, `density`, `defaultBranchId`). Preferences are settings, not
+  grants (ADR-042): a default branch is only stored while the user holds it and
+  only honoured while that holds. A non-assigned branch → 403
+  `TENANT_ACCESS_DENIED`.
+- **`X-Branch-Id`** validated in `TenantGuard` against the caller's
+  `UserBranch` rows and stored in `TenantScope.branchId`; never a widening
+  grant. Unassigned/unknown id → 403. `me()` picks the default branch from the
+  preference when no header is present.
+- **Display devices** (brief §5.16 contract paths): new `POST
+  /admin/display-devices`, `POST /admin/display-devices/:id/rescan` (fresh
+  pairing code, the current token dies at once — `Display.DeviceRepairInitiated`
+  event), plus list/update/revoke/rotate aliases, and device-facing `GET
+  /display/queue` (PHI-free board, device token). Registrations/revokes stay
+  on the existing `POST /display/devices*` paths; both are thin aliases over the
+  same `DisplayService`.
+- **Tests:** identity e2e suite now asserts the /auth/me bootstrap shape and
+  permission parity with the granted roles, preference persistence + branch
+  validation, X-Branch-Id allow/deny, and the full display register → pair →
+  queue → rescan → token-death lifecycle. E2E total: 16 suites / 189 tests
+  (+4). Unit 52 suites / 371.
+- **Schema:** new `user_preferences` table;
+  `organization.featureFlags`, `user.passwordChangeRequired`,
+  `user.mfaEnrolmentRequired` columns (migration
+  `20260930090000_phase_p1_bootstrap`); `UserPreference` added to
+  `TENANT_MODELS`.
+
+**Open notes (see `docs/limitations.md`):** `/auth/me` `patient` is always null
+(staff↔patient links are not modelled yet); `idleTimeoutSeconds`/
+`lockAfterMinutes` are fixed, config-derived values for this release and are
+honest about the access-token/refresh-TTL model that actually enforces
+lifetime.
+
 ## Notes
 
 - Testcontainers uses `postgres:17-alpine` by default because `postgres:16-alpine`

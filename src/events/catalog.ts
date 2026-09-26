@@ -49,6 +49,7 @@ export const EventTypes = {
   DisplayDevicePaired: 'Display.DevicePaired',
   DisplayDeviceRevoked: 'Display.DeviceRevoked',
   DisplayDeviceRotated: 'Display.DeviceRotated',
+  DisplayDeviceRepairInitiated: 'Display.DeviceRepairInitiated',
   /** Clinical core (brief Phase 4). Payloads carry IDs only. */
   EncounterCreated: 'Clinical.EncounterCreated',
   EncounterStarted: 'Clinical.EncounterStarted',
@@ -199,6 +200,7 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.DisplayDevicePaired]: 1,
   [EventTypes.DisplayDeviceRevoked]: 1,
   [EventTypes.DisplayDeviceRotated]: 1,
+  [EventTypes.DisplayDeviceRepairInitiated]: 1,
   [EventTypes.EncounterCreated]: 1,
   [EventTypes.EncounterStarted]: 1,
   [EventTypes.EncounterCompleted]: 1,

@@ -51,6 +51,7 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'PatientTimelineEntry',
   // Scheduling & patient flow (brief Phase 3).
   'OrganizationSetting',
+  'UserPreference',
   'ProviderSchedule',
   'ScheduleOverride',
   'Appointment',

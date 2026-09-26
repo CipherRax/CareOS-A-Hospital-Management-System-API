@@ -124,6 +124,23 @@ working code with a caveat.
 
 ## Known caveats in shipped code
 
+- **`/auth/me` `patient` is always null (P1).** Staff↔patient links are not
+  modelled yet (no `Patient.userId`); the field is a reserved surface that will
+  resolve once the patient-portal JWT link lands. The parity guarantee (me↔guard
+  permissions) is unaffected.
+- **`/auth/me` `session.idleTimeoutSeconds` / `lockAfterMinutes` are fixed,
+  config-derived values (P1).** There is no per-session idle timer or
+  lock-after-window column; session lifetime is enforced by the access-token TTL
+  + refresh rotation. The advertised numbers are `JWT_ACCESS_TTL` and
+  `SESSION_ABS_TTL_SECONDS/60` and are meant to be honest UI hints, not new
+  enforcement points.
+- **`X-Branch-Id` is advisory context, never a grant (ADR-042).** It selects a
+  branch the caller already holds; un-assigned ids → 403. It does not widen
+  access and does not (yet) filter every downstream query — features consume
+  `TenantScope.branchId` explicitly.
+- **Display `GET /display/queue` and `POST /admin/display-devices*` alias the
+  existing `POST /display/devices*` surface (P1).** Both route families call
+  the same `DisplayService`; there is one implementation, not two.
 - **RLS is a backstop, not the primary control.** `app.current_org` is set via
   `SELECT set_config(...)` inside interactive transactions. Because Prisma may
   open multiple logical connections per transaction, the setting is not

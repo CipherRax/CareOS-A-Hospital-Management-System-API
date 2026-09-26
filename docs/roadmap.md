@@ -9,7 +9,7 @@ after the brief's phases 0–13 shipped.
 
 Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–042.
 
-- [ ] **P1 — Session & devices.** Expand `GET /auth/me` (org + feature flags,
+- [x] **P1 — Session & devices.** Expand `GET /auth/me` (org + feature flags,
   branches, session, break-glass, security staging, patient link, prefs),
   `PATCH /auth/me/preferences`, `X-Branch-Id` validation in `TenantScope`,
   re-pair/rescan surface for `DisplayDevice`, `/auth/me`↔guard parity test,

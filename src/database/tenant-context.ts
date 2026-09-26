@@ -17,6 +17,13 @@ export interface TenantScope {
   /** True inside audited platform jobs (worker, migrations) that may touch multiple orgs. */
   isPlatformJob: boolean;
   /**
+   * Branch context selected by the caller via `X-Branch-Id` (ADR-042).
+   * Populated by TenantGuard ONLY when the branch is already assigned to the
+   * user (never a widening grant); preferences may set the default. Null for
+   * un-scoped/unassigned requests and for display-device principals.
+   */
+  branchId?: string | null;
+  /**
    * Break-glass / emergency access marker when set; only populated by the
    * emergency-access flow (Phase 1+). Never set implicitly.
    */
@@ -55,6 +62,7 @@ export const EMPTY_SCOPE: TenantScope = Object.freeze({
   isPlatformJob: false,
   patientId: null,
   device: null,
+  branchId: null,
 });
 
 /**

@@ -757,6 +757,7 @@ export class AuthService {
     const organizationId = this.requireOrg();
     const userId = this.requireUserId();
     const db = this.prisma.tenantFor(organizationId);
+    const sessionId = this.requireSessionIdOrUndefined();
 
     const user = await db.user.findFirst({
       where: { id: userId },
@@ -765,7 +766,11 @@ export class AuthService {
         email: true,
         firstName: true,
         lastName: true,
+        otherNames: true,
+        phone: true,
         status: true,
+        passwordChangeRequired: true,
+        mfaEnrolmentRequired: true,
       },
     });
     if (!user) {
@@ -776,11 +781,226 @@ export class AuthService {
       });
     }
 
+    const [
+      organization,
+      roleRows,
+      branchRows,
+      mfaCredential,
+      session,
+      preference,
+      activeBreakGlass,
+    ] = await Promise.all([
+      db.organization.findUnique({
+        where: { id: organizationId },
+        select: {
+          id: true,
+          name: true,
+          legalName: true,
+          tradingName: true,
+          country: true,
+          timezone: true,
+          currency: true,
+          logoUrl: true,
+          status: true,
+          featureFlags: true,
+        },
+      }),
+      db.userRole.findMany({
+        where: { userId },
+        select: { role: { select: { key: true, name: true } } },
+      }),
+      db.userBranch.findMany({
+        where: { userId },
+        select: { branch: { select: { id: true, name: true, code: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      db.mfaCredential.findUnique({
+        where: { userId },
+        select: { enabledAt: true, lastVerifiedAt: true },
+      }),
+      sessionId
+        ? db.session.findUnique({
+            where: { id: sessionId },
+            select: { id: true, mfaVerifiedAt: true },
+          })
+        : Promise.resolve(null),
+      db.userPreference.findUnique({ where: { userId } }),
+      db.breakGlassGrant.findFirst({
+        where: { requesterUserId: userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+        orderBy: { grantedAt: 'desc' },
+        select: { id: true, resourceType: true, resourceId: true, reason: true, grantedAt: true, expiresAt: true },
+      }),
+    ]);
+
+    const roleSummary = roleRows.map((r) => r.role);
+
+    // Security staging (ADR-042): a weak/strong signal the client can act on.
+    // It is advisory — permissions still come from roles, both below.
+    const mfaEnabled = mfaCredential !== null;
+    const mfaVerifiedThisSession = session?.mfaVerifiedAt != null;
+    const sessionStaging: string[] = [];
+    if (!mfaEnabled) {
+      sessionStaging.push(user.mfaEnrolmentRequired ? 'mfa_enrolment_required' : 'weaker');
+    } else if (!mfaVerifiedThisSession) {
+      sessionStaging.push('stronger');
+    }
+
+    const userStaging: string[] = [];
+    if (user.passwordChangeRequired) userStaging.push('password_change_required');
+
+    const allowed = branchRows.map((r) => r.branch);
+    let currentBranchId = this.tenantContext.scope.branchId ?? null;
+    if (
+      currentBranchId === null &&
+      preference?.defaultBranchId &&
+      allowed.some((b) => b.id === preference.defaultBranchId)
+    ) {
+      currentBranchId = preference.defaultBranchId;
+    }
+
     return {
-      user: { ...user, organizationId },
-      roles: this.tenantContext.scope.roles,
+      user: {
+        ...user,
+        organizationId,
+        roleSummary,
+        securityStaging: userStaging,
+      },
+      organization: organization
+        ? {
+            id: organization.id,
+            name: organization.name,
+            legalName: organization.legalName,
+            tradingName: organization.tradingName,
+            country: organization.country,
+            timezone: organization.timezone,
+            currency: organization.currency,
+            logoUrl: organization.logoUrl,
+            status: organization.status,
+            features: organization.featureFlags ?? {},
+          }
+        : null,
+      roles: roleSummary.map((r) => r.key),
       // Resolved at request time from role assignments (never from the JWT).
+      // The parity guarantee with the permission guard is that both read this
+      // same scope; the identity e2e asserts the deep-equal against role union.
       permissions: this.tenantContext.scope.permissions,
+      patient: null,
+      breakGlass: activeBreakGlass
+        ? {
+            id: activeBreakGlass.id,
+            resourceType: activeBreakGlass.resourceType,
+            resourceId: activeBreakGlass.resourceId,
+            reason: activeBreakGlass.reason,
+            grantedAt: activeBreakGlass.grantedAt.toISOString(),
+            expiresAt: activeBreakGlass.expiresAt.toISOString(),
+          }
+        : null,
+      session: {
+        id: session?.id ?? null,
+        mfaVerifiedAt: session?.mfaVerifiedAt?.toISOString() ?? null,
+        mfaMethod: mfaEnabled ? 'TOTP' : null,
+        securityStaging: sessionStaging,
+        // These are fixed by configuration in this release (see limitations).
+        idleTimeoutSeconds: this.env.JWT_ACCESS_TTL,
+        lockAfterMinutes: Math.floor(this.env.SESSION_ABS_TTL_SECONDS / 60),
+      },
+      branch: {
+        current: currentBranchId,
+        allowed: allowed.map((b) => ({ id: b.id, name: b.name, code: b.code })),
+      },
+      preferences: preference
+        ? {
+            locale: preference.locale,
+            density: preference.density,
+            defaultBranchId: preference.defaultBranchId,
+          }
+        : null,
+    };
+  }
+
+  /**
+   * PATCH /auth/me/preferences. Preferences are settings, never grants: a
+   * defaultBranchId is stored only when the user still holds the branch
+   * (ADR-042) and is only honoured while that holds.
+   */
+  async getPreferences(): Promise<{
+    locale: string | null;
+    density: string | null;
+    defaultBranchId: string | null;
+  } | null> {
+    const organizationId = this.requireOrg();
+    const userId = this.requireUserId();
+    const db = this.prisma.tenantFor(organizationId);
+    const preference = await db.userPreference.findUnique({ where: { userId } });
+    if (!preference) return null;
+    return {
+      locale: preference.locale,
+      density: preference.density,
+      defaultBranchId: preference.defaultBranchId,
+    };
+  }
+
+  async setPreferences(input: {
+    locale?: string;
+    density?: string;
+    defaultBranchId?: string;
+  }) {
+    const organizationId = this.requireOrg();
+    const userId = this.requireUserId();
+    const db = this.prisma.tenantFor(organizationId);
+
+    if (input.defaultBranchId) {
+      const assigned = await db.userBranch.findUnique({
+        where: {
+          organizationId_userId_branchId: {
+            organizationId,
+            userId,
+            branchId: input.defaultBranchId,
+          },
+        },
+        select: { id: true },
+      });
+      if (!assigned) {
+        throw new AppError({
+          code: ErrorCodes.TENANT_ACCESS_DENIED,
+          message: 'This branch is not assigned to the current account.',
+          silent: true,
+        });
+      }
+    }
+
+    const existing = await db.userPreference.findUnique({ where: { userId } });
+
+    const saved = await db.userPreference.upsert({
+      where: { userId },
+      create: {
+        id: newId(),
+        organizationId,
+        userId,
+        locale: input.locale ?? null,
+        density: input.density ?? null,
+        defaultBranchId: input.defaultBranchId ?? null,
+      },
+      update: {
+        locale: input.locale ?? existing?.locale ?? null,
+        density: input.density ?? existing?.density ?? null,
+        defaultBranchId: input.defaultBranchId ?? existing?.defaultBranchId ?? null,
+      },
+    });
+
+    await this.audit.record({
+      action: 'auth.preferences_updated',
+      resource: 'user',
+      resourceId: userId,
+      userId,
+      organizationId,
+      metadata: { fields: Object.keys(input) },
+    });
+
+    return {
+      locale: saved.locale,
+      density: saved.density,
+      defaultBranchId: saved.defaultBranchId,
     };
   }
 

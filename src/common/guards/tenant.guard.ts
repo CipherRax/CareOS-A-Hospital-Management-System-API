@@ -113,6 +113,54 @@ export class TenantGuard implements CanActivate {
       permissions: effectivePermissions,
     });
 
+    await this.applyBranchContext(context);
+
     return true;
+  }
+
+  /**
+   * X-Branch-Id is advisory context, never a widening grant (ADR-042): the
+   * caller may only select a branch already assigned via UserBranch, and the
+   * selection is stored in TenantScope.branchId. An absent header leaves the
+   * scope un-branched (the /auth/me default-branch preference is applied when
+   * reading, not here).
+   */
+  private async applyBranchContext(context: ExecutionContext): Promise<void> {
+    const scope = this.tenantContext.scope;
+    const request = context.switchToHttp().getRequest<{ headers: Record<string, unknown> }>();
+    const raw = request.headers['x-branch-id'];
+    const branchId = Array.isArray(raw) ? raw[0] : raw;
+    if (typeof branchId !== 'string' || branchId.trim().length === 0) return;
+
+    const selected = branchId.trim();
+
+    // Test-principal path (no real session row): trust the explicit test scope
+    // exactly like permissions — the tenant extension still blocks cross-org
+    // writes. Any branch the test asserts is accepted verbatim.
+    if (!scope.sessionId) {
+      this.tenantContext.setScope({ branchId: selected });
+      return;
+    }
+
+    const assigned = await this.prisma.tenant.userBranch.findUnique({
+      where: {
+        organizationId_userId_branchId: {
+          organizationId: scope.organizationId!,
+          userId: scope.userId!,
+          branchId: selected,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!assigned) {
+      throw new AppError({
+        code: ErrorCodes.TENANT_ACCESS_DENIED,
+        message: 'This branch is not assigned to the current account.',
+        silent: true,
+      });
+    }
+
+    this.tenantContext.setScope({ branchId: selected });
   }
 }

@@ -120,3 +120,27 @@ export const RequestResetResponseSchema = z.object({
   resetToken: z.string().optional(),
 });
 export class RequestResetResponseDto extends createZodDto(RequestResetResponseSchema) {}
+
+export const UpdatePreferencesSchema = z
+  .object({
+    locale: z
+      .string()
+      .min(1)
+      .max(16)
+      .regex(/^[a-z]{2}(-[A-Z]{2})?$/, 'Locale should look like `en`, `sv` or `en-US`.')
+      .optional(),
+    density: z.enum(['compact', 'comfortable', 'cozy']).optional(),
+    defaultBranchId: z.string().uuid().optional(),
+  })
+  .refine((v) => v.locale !== undefined || v.density !== undefined || v.defaultBranchId !== undefined, {
+    message: 'Provide at least one preference to update.',
+    path: ['locale'],
+  });
+export class UpdatePreferencesDto extends createZodDto(UpdatePreferencesSchema) {}
+
+export const PreferencesSchema = z.object({
+  locale: z.string().nullable(),
+  density: z.string().nullable(),
+  defaultBranchId: z.string().uuid().nullable(),
+});
+export class PreferencesDto extends createZodDto(PreferencesSchema) {}

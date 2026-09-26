@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Req } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { Throttle } from '@nestjs/throttler';
 import { ApiEndpoint } from '../../common/decorators/api-endpoint.decorator';
@@ -12,10 +12,12 @@ import {
   MfaConfirmDto,
   MfaDisableDto,
   MfaVerifyDto,
+  PreferencesDto,
   RefreshDto,
   RequestPasswordResetDto,
   RequestResetResponseDto,
   ResetPasswordDto,
+  UpdatePreferencesDto,
 } from './dto/auth.dto';
 import type { RequestMeta } from './auth.types';
 
@@ -199,14 +201,34 @@ export class AuthController {
 
   @Get('me')
   @ApiEndpoint({
-    summary: 'Effective identity: profile, roles and resolved permissions',
+    summary: 'Effective identity: profile, org, roles and resolved permissions',
     description:
+      'Session bootstrap: profile + organization (feature flags), branch context (X-Branch-Id), ' +
+      'session MFA staging, break-glass grant, patient link and preferences. ' +
       'Permissions are re-resolved from role assignments on every request, not from the JWT.',
     operationId: 'authMe',
     authenticatedOnly: true,
   })
   me() {
     return this.auth.me();
+  }
+
+  @Patch('me/preferences')
+  @ApiEndpoint({
+    summary: 'Update UI preferences (locale, density, default branch)',
+    description:
+      'Preferences are settings, not grants (ADR-042): a default branch is stored only while ' +
+      'the user holds it, and /auth/me honours it only while that holds.',
+    operationId: 'authUpdatePreferences',
+    authenticatedOnly: true,
+    responseType: PreferencesDto,
+  })
+  updatePreferences(@Body() body: UpdatePreferencesDto) {
+    return this.auth.setPreferences({
+      locale: body.locale,
+      density: body.density,
+      defaultBranchId: body.defaultBranchId,
+    });
   }
 
   @Get('sessions')

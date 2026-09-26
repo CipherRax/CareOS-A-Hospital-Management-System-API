@@ -55,12 +55,15 @@ model Organization {
   county             String?
   town               String?
 
-  status    OrgStatus @default(ACTIVE)
-  currency  String    @default("KES")
-  timezone  String    @default("Africa/Nairobi")
-  country   String    @default("KE")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  status       OrgStatus @default(ACTIVE)
+  currency     String    @default("KES")
+  timezone     String    @default("Africa/Nairobi")
+  country      String    @default("KE")
+  // Product UI feature toggles exposed via /auth/me. NEVER an authorization
+  // grant — permissions always come from roles (ADR-042).
+  featureFlags Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   outboxEvents         OutboxEvent[]
   auditLogs            AuditLog[]
@@ -91,6 +94,7 @@ model Organization {
   patientTimelines     PatientTimelineEntry[]
 
   organizationSettings OrganizationSetting[]
+  userPreferences      UserPreference[]
   providerSchedules    ProviderSchedule[]
   scheduleOverrides    ScheduleOverride[]
   appointments         Appointment[]
@@ -165,26 +169,26 @@ model Organization {
   incidents                Incident[]
 
   // Financial ledger + M-PESA (repo Phase 11).
-  chartAccounts               ChartAccount[]
-  financialPeriods            FinancialPeriod[]
-  financeTransactions         FinanceTransaction[]
-  financeTransactionLines     FinanceTransactionLine[]
-  ledgerPostingExceptions     LedgerPostingException[]
-  mpesaRequests               MpesaRequest[]
-  mpesaReconciliationRuns     MpesaReconciliationRun[]
-  mpesaReconciliationMatches  MpesaReconciliationMatch[]
+  chartAccounts              ChartAccount[]
+  financialPeriods           FinancialPeriod[]
+  financeTransactions        FinanceTransaction[]
+  financeTransactionLines    FinanceTransactionLine[]
+  ledgerPostingExceptions    LedgerPostingException[]
+  mpesaRequests              MpesaRequest[]
+  mpesaReconciliationRuns    MpesaReconciliationRun[]
+  mpesaReconciliationMatches MpesaReconciliationMatch[]
 
   // Operations (brief Phase 10, repo Phase 12).
-  expenses            Expense[]
-  assets              Asset[]
-  maintenanceRecords  MaintenanceRecord[]
+  expenses             Expense[]
+  assets               Asset[]
+  maintenanceRecords   MaintenanceRecord[]
   maintenanceReminders MaintenanceReminder[]
 
   // Analytics & reports (brief Phase 11, repo Phase 13).
-  dailyRollups               DailyRollup[]
-  reconciliationRuns         ReconciliationRun[]
-  reconciliationExceptions   ReconciliationException[]
-  reportExports              ReportExport[]
+  dailyRollups             DailyRollup[]
+  reconciliationRuns       ReconciliationRun[]
+  reconciliationExceptions ReconciliationException[]
+  reportExports            ReportExport[]
 }
 
 // ---------------------------------------------------------------------------
@@ -353,8 +357,9 @@ model Branch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  userLinks    UserBranch[]
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  userLinks       UserBranch[]
+  userPreferences UserPreference[]
 
   providerSchedules ProviderSchedule[]
   scheduleOverrides ScheduleOverride[]
@@ -437,6 +442,12 @@ model User {
   loginFailureCount Int        @default(0)
   lockedUntil       DateTime?
 
+  // Security-staging flags surfaced by /auth/me (ADR-042). They are advisory
+  // UI directives (show a "change password" / "enrol MFA" banner) and are
+  // NEVER consulted by the authorization layer.
+  passwordChangeRequired Boolean @default(false)
+  mfaEnrolmentRequired   Boolean @default(false)
+
   inviteTokenHash             String?
   inviteTokenExpiresAt        DateTime?
   passwordResetTokenHash      String?
@@ -450,6 +461,7 @@ model User {
   userBranches     UserBranch[]
   userDepartments  UserDepartment[]
   userRoles        UserRole[]
+  userPreference   UserPreference?
   sessions         Session[]
   mfaCredential    MfaCredential?
   mfaRecoveryCodes MfaRecoveryCode[]
@@ -495,14 +507,14 @@ model User {
   incidentsResolved           Incident[]                @relation("IncidentResolver")
   incidentsClosed             Incident[]                @relation("IncidentCloser")
 
-  periodsOpened             FinancialPeriod[]           @relation("OpenedPeriod")
-  periodsClosed             FinancialPeriod[]           @relation("ClosedPeriod")
-  periodsLocked             FinancialPeriod[]           @relation("LockedPeriod")
-  journalsPosted            FinanceTransaction[]        @relation("PostedJournal")
-  journalsReversed          FinanceTransaction[]        @relation("ReversedJournal")
-  mpesaRequestsInitiated    MpesaRequest[]
-  mpesaReconciliationRuns   MpesaReconciliationRun[]
-  mpesaMatchesResolved      MpesaReconciliationMatch[]
+  periodsOpened           FinancialPeriod[]          @relation("OpenedPeriod")
+  periodsClosed           FinancialPeriod[]          @relation("ClosedPeriod")
+  periodsLocked           FinancialPeriod[]          @relation("LockedPeriod")
+  journalsPosted          FinanceTransaction[]       @relation("PostedJournal")
+  journalsReversed        FinanceTransaction[]       @relation("ReversedJournal")
+  mpesaRequestsInitiated  MpesaRequest[]
+  mpesaReconciliationRuns MpesaReconciliationRun[]
+  mpesaMatchesResolved    MpesaReconciliationMatch[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -1099,6 +1111,28 @@ model OrganizationSetting {
 
   @@unique([organizationId])
   @@map("organization_settings")
+}
+
+// Per-user UI preferences (locale, density, default branch). Preferences are
+// settings, never authorization grants: defaultBranchId is only honoured while
+// the user still holds that branch (ADR-042).
+model UserPreference {
+  id              String  @id
+  organizationId  String
+  userId          String  @unique
+  locale          String?
+  density         String?
+  defaultBranchId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch       Branch?      @relation(fields: [defaultBranchId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@map("user_preferences")
 }
 
 // Recurring weekly availability template for a provider in a branch/department.
@@ -2452,9 +2486,9 @@ model Invoice {
   branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
   patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
 
-  items    InvoiceItem[]
-  payments Payment[]
-  claims   InsuranceClaim[]
+  items         InvoiceItem[]
+  payments      Payment[]
+  claims        InsuranceClaim[]
   mpesaRequests MpesaRequest[]
 
   @@unique([organizationId, invoiceNumber])
@@ -2518,12 +2552,12 @@ model Payment {
   invoice      Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
 
+  mpesaMatches MpesaReconciliationMatch[]
+
   @@unique([organizationId, receiptNumber])
   @@index([organizationId, invoiceId])
   @@index([organizationId, patientId, createdAt])
   @@map("payments")
-
-  mpesaMatches MpesaReconciliationMatch[]
 }
 
 // Insurer (NHIF-style, private HMO, ...) a facility works with.
@@ -2674,7 +2708,7 @@ model ChartAccount {
   updatedAt DateTime @updatedAt
 
   organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  lines       FinanceTransactionLine[]
+  lines        FinanceTransactionLine[]
 
   @@unique([organizationId, code])
   @@index([organizationId, category, isActive])
@@ -2692,7 +2726,7 @@ model FinancialPeriod {
   status         FinancialPeriodStatus @default(OPEN)
 
   openedById String?
-  openedAt   DateTime @default(now())
+  openedAt   DateTime  @default(now())
   closedById String?
   closedAt   DateTime?
   lockedById String?
@@ -2701,10 +2735,10 @@ model FinancialPeriod {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  openBy      User?          @relation("OpenedPeriod", fields: [openedById], references: [id], onDelete: SetNull)
-  closedBy    User?          @relation("ClosedPeriod", fields: [closedById], references: [id], onDelete: SetNull)
-  lockedBy    User?          @relation("LockedPeriod", fields: [lockedById], references: [id], onDelete: SetNull)
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  openBy       User?                @relation("OpenedPeriod", fields: [openedById], references: [id], onDelete: SetNull)
+  closedBy     User?                @relation("ClosedPeriod", fields: [closedById], references: [id], onDelete: SetNull)
+  lockedBy     User?                @relation("LockedPeriod", fields: [lockedById], references: [id], onDelete: SetNull)
   transactions FinanceTransaction[]
 
   @@unique([organizationId, code])
@@ -2727,22 +2761,22 @@ model FinanceTransaction {
   referenceId       String?
   status            FinanceTransactionStatus @default(POSTED)
 
-  postedById String?
-  postedAt   DateTime @default(now())
+  postedById   String?
+  postedAt     DateTime  @default(now())
   reversedById String?
   reversedAt   DateTime?
-  reversalOfId  String?
+  reversalOfId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  period      FinancialPeriod?         @relation(fields: [periodId], references: [id], onDelete: SetNull)
-  postedBy    User?                    @relation("PostedJournal", fields: [postedById], references: [id], onDelete: SetNull)
-  reversedBy  User?                    @relation("ReversedJournal", fields: [reversedById], references: [id], onDelete: SetNull)
-  reversalOf  FinanceTransaction?      @relation("ReversalChain", fields: [reversalOfId], references: [id], onDelete: SetNull)
-  reversals   FinanceTransaction[]     @relation("ReversalChain")
-  lines       FinanceTransactionLine[]
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  period       FinancialPeriod?         @relation(fields: [periodId], references: [id], onDelete: SetNull)
+  postedBy     User?                    @relation("PostedJournal", fields: [postedById], references: [id], onDelete: SetNull)
+  reversedBy   User?                    @relation("ReversedJournal", fields: [reversedById], references: [id], onDelete: SetNull)
+  reversalOf   FinanceTransaction?      @relation("ReversalChain", fields: [reversalOfId], references: [id], onDelete: SetNull)
+  reversals    FinanceTransaction[]     @relation("ReversalChain")
+  lines        FinanceTransactionLine[]
 
   @@unique([organizationId, transactionNumber])
   @@unique([organizationId, referenceType, referenceId])
@@ -2754,19 +2788,19 @@ model FinanceTransaction {
 // A leg of a journal. Each leg moves a single side (>0 debit XOR >0 credit);
 // the DB CHECK below is the row-level backstop for the domain assertion.
 model FinanceTransactionLine {
-  id             String   @id
+  id             String  @id
   organizationId String
   transactionId  String
   accountId      String
-  debit          Decimal  @default(0) @db.Decimal(12, 2)
-  credit         Decimal  @default(0) @db.Decimal(12, 2)
+  debit          Decimal @default(0) @db.Decimal(12, 2)
+  credit         Decimal @default(0) @db.Decimal(12, 2)
   memo           String?
 
   createdAt DateTime @default(now())
 
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  transaction FinanceTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  account     ChartAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  transaction  FinanceTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  account      ChartAccount       @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   @@index([organizationId, transactionId])
   @@index([organizationId, accountId])
@@ -2776,7 +2810,7 @@ model FinanceTransactionLine {
 // Auditable record of a posting the outbox skipped because its window fell in
 // a closed/locked period (see ADR-035). Written by LedgerPostingConsumer.
 model LedgerPostingException {
-  id             String   @id
+  id             String  @id
   organizationId String
   eventId        String
   eventType      String
@@ -2788,8 +2822,8 @@ model LedgerPostingException {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  @@index([organizationId, createdAt])
   @@unique([organizationId, eventId])
+  @@index([organizationId, createdAt])
   @@map("ledger_posting_exceptions")
 }
 
@@ -2805,13 +2839,13 @@ enum MpesaRequestStatus {
 // One STK push. Created PENDING at initiation; the callback confirms it
 // (SUCCEEDED), fails it, or flags an amount mismatch for reconciliation.
 model MpesaRequest {
-  id                String            @id
+  id                String             @id
   organizationId    String
   branchId          String?
   invoiceId         String
   patientId         String
   phone             String
-  amount            Decimal           @db.Decimal(12, 2)
+  amount            Decimal            @db.Decimal(12, 2)
   checkoutRequestId String
   merchantRequestId String
   status            MpesaRequestStatus @default(PENDING)
@@ -2820,7 +2854,7 @@ model MpesaRequest {
   resultDesc         String?
   rawCallback        Json?
   initiatedById      String?
-  initiatedAt        DateTime @default(now())
+  initiatedAt        DateTime  @default(now())
   callbackReceivedAt DateTime?
   confirmedAt        DateTime?
 
@@ -2828,18 +2862,18 @@ model MpesaRequest {
   updatedAt DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch      Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  invoice     Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
-  patient     Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
-  initiatedBy User?        @relation(fields: [initiatedById], references: [id], onDelete: SetNull)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  invoice      Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  initiatedBy  User?        @relation(fields: [initiatedById], references: [id], onDelete: SetNull)
+
+  reconciliationMatches MpesaReconciliationMatch[]
 
   @@unique([organizationId, checkoutRequestId])
   @@unique([merchantRequestId])
   @@index([organizationId, status, initiatedAt])
   @@index([organizationId, invoiceId])
   @@map("mpesa_requests")
-
-  reconciliationMatches MpesaReconciliationMatch[]
 }
 
 enum MpesaReconciliationMatchStatus {
@@ -2868,15 +2902,15 @@ model MpesaReconciliationRun {
   amountMismatchCount    Int @default(0)
   referenceMismatchCount Int @default(0)
 
-  runById   String?
-  startedAt DateTime @default(now())
+  runById     String?
+  startedAt   DateTime @default(now())
   completedAt DateTime @default(now())
 
   createdAt DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  runBy       User?        @relation(fields: [runById], references: [id], onDelete: SetNull)
-  matches     MpesaReconciliationMatch[]
+  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  runBy        User?                      @relation(fields: [runById], references: [id], onDelete: SetNull)
+  matches      MpesaReconciliationMatch[]
 
   @@index([organizationId, createdAt])
   @@map("mpesa_reconciliation_runs")
@@ -2884,29 +2918,29 @@ model MpesaReconciliationRun {
 
 // A single verdict + (optional) audited resolution.
 model MpesaReconciliationMatch {
-  id             String                          @id
+  id             String                         @id
   organizationId String
   runId          String
   mpesaRequestId String?
   paymentId      String?
   reference      String
   status         MpesaReconciliationMatchStatus
-  expectedAmount Decimal?  @db.Decimal(12, 2)
-  providerAmount Decimal?  @db.Decimal(12, 2)
+  expectedAmount Decimal?                       @db.Decimal(12, 2)
+  providerAmount Decimal?                       @db.Decimal(12, 2)
   notes          String?
 
-  resolution        String?
-  resolutionReason  String?
-  resolvedById      String?
-  resolvedAt        DateTime?
+  resolution       String?
+  resolutionReason String?
+  resolvedById     String?
+  resolvedAt       DateTime?
 
   createdAt DateTime @default(now())
 
-  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  run         MpesaReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  mpesaRequest MpesaRequest?        @relation(fields: [mpesaRequestId], references: [id], onDelete: SetNull)
-  payment     Payment?             @relation(fields: [paymentId], references: [id], onDelete: SetNull)
-  resolvedBy  User?                 @relation(fields: [resolvedById], references: [id], onDelete: SetNull)
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  run          MpesaReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  mpesaRequest MpesaRequest?          @relation(fields: [mpesaRequestId], references: [id], onDelete: SetNull)
+  payment      Payment?               @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  resolvedBy   User?                  @relation(fields: [resolvedById], references: [id], onDelete: SetNull)
 
   @@index([organizationId, runId])
   @@index([organizationId, status])
@@ -3908,7 +3942,7 @@ enum ExpensePaymentStatus {
 // APPROVED the expense posts to the ledger (DR 5000 expense / CR 2100 AP) via
 // the outbox consumer, and paying it clears AP against cash (DR 2100 / CR 1000).
 model Expense {
-  id             String                @id
+  id             String               @id
   organizationId String
   branchId       String
   departmentId   String?
@@ -3917,10 +3951,10 @@ model Expense {
   category       ExpenseCategory
   description    String?
   reference      String? // supplier invoice / purchase reference
-  amount         Decimal               @db.Decimal(12, 2)
-  status         ExpenseStatus         @default(DRAFT)
-  paymentStatus  ExpensePaymentStatus  @default(UNPAID)
-  version        Int                   @default(0)
+  amount         Decimal              @db.Decimal(12, 2)
+  status         ExpenseStatus        @default(DRAFT)
+  paymentStatus  ExpensePaymentStatus @default(UNPAID)
+  version        Int                  @default(0)
 
   createdById   String
   submittedById String?
@@ -3971,7 +4005,7 @@ enum AssetStatus {
 // Physical assets (equipment, computers, vehicles, beds, machines). An asset
 // tag is org-unique; maintenance history lives on MaintenanceRecord.
 model Asset {
-  id             String       @id
+  id             String        @id
   organizationId String
   branchId       String?
   departmentId   String?
@@ -3980,11 +4014,11 @@ model Asset {
   name           String
   serialNumber   String?
   location       String?
-  status         AssetStatus  @default(ACTIVE)
+  status         AssetStatus   @default(ACTIVE)
   purchaseDate   DateTime?
-  purchaseCost   Decimal?     @db.Decimal(12, 2)
+  purchaseCost   Decimal?      @db.Decimal(12, 2)
   notes          String?
-  version        Int          @default(0)
+  version        Int           @default(0)
 
   retiredById String?
   retiredAt   DateTime?
@@ -4055,17 +4089,17 @@ enum MaintenanceReminderStatus {
 // per maintenance record (unique key) so the queue scan is idempotent: a
 // repeated run never creates duplicates.
 model MaintenanceReminder {
-  id             String                     @id
+  id             String                    @id
   organizationId String
   maintenanceId  String
   dueAt          DateTime
-  status         MaintenanceReminderStatus  @default(QUEUED)
+  status         MaintenanceReminderStatus @default(QUEUED)
 
   queuedById String?
-  queuedAt   DateTime @default(now())
+  queuedAt   DateTime  @default(now())
   sentAt     DateTime?
 
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   maintenance  MaintenanceRecord @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, maintenanceId])
@@ -4095,11 +4129,11 @@ model DailyRollup {
   date           DateTime // business date (UTC midnight)
 
   // Patient flow
-  visitsRegistered Int @default(0)
-  visitsCompleted  Int @default(0)
-  queueTickets     Int @default(0)
-  queueServed      Int @default(0)
-  queueNoShow      Int @default(0)
+  visitsRegistered Int     @default(0)
+  visitsCompleted  Int     @default(0)
+  queueTickets     Int     @default(0)
+  queueServed      Int     @default(0)
+  queueNoShow      Int     @default(0)
   // Sum of waiting minutes (serviceStartedAt - enteredAt) for completed
   // served tickets; average = waitMinutes / waitSamples.
   waitMinutes      Decimal @default(0) @db.Decimal(12, 2)
@@ -4113,12 +4147,12 @@ model DailyRollup {
   appointmentsRescheduled Int @default(0)
 
   // Clinical
-  encountersOpened    Int @default(0)
-  encountersCompleted Int @default(0)
+  encountersOpened    Int     @default(0)
+  encountersCompleted Int     @default(0)
   consultationMinutes Decimal @default(0) @db.Decimal(12, 2)
-  consultationSamples Int @default(0)
-  diagnosesRecorded   Int @default(0)
-  tasksCompleted      Int @default(0)
+  consultationSamples Int     @default(0)
+  diagnosesRecorded   Int     @default(0)
+  tasksCompleted      Int     @default(0)
 
   // Pharmacy / inventory
   prescriptionsIssued    Int @default(0)
@@ -4127,19 +4161,19 @@ model DailyRollup {
   stockReceivedLots      Int @default(0)
 
   // Laboratory + radiology
-  labOrdersCreated       Int @default(0)
-  labOrdersReleased      Int @default(0)
-  labSamplesRejected     Int @default(0)
-  labTatMinutes          Decimal @default(0) @db.Decimal(12, 2)
-  labTatSamples          Int     @default(0)
-  radiologyOrdersCreated   Int @default(0)
-  radiologyReportsReleased Int @default(0)
+  labOrdersCreated         Int     @default(0)
+  labOrdersReleased        Int     @default(0)
+  labSamplesRejected       Int     @default(0)
+  labTatMinutes            Decimal @default(0) @db.Decimal(12, 2)
+  labTatSamples            Int     @default(0)
+  radiologyOrdersCreated   Int     @default(0)
+  radiologyReportsReleased Int     @default(0)
 
   // Inpatient & emergency
-  admissionsCreated            Int @default(0)
-  admissionsDischarged         Int @default(0)
-  emergencyArrivals            Int @default(0)
-  emergencyTriaged             Int @default(0)
+  admissionsCreated            Int     @default(0)
+  admissionsDischarged         Int     @default(0)
+  emergencyArrivals            Int     @default(0)
+  emergencyTriaged             Int     @default(0)
   emergencyTimeToTriageMinutes Decimal @default(0) @db.Decimal(12, 2)
   emergencySamples             Int     @default(0)
 
@@ -4183,7 +4217,7 @@ model ReconciliationRun {
 
   createdAt DateTime @default(now())
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   exceptions   ReconciliationException[]
 
   @@index([organizationId, createdAt])
@@ -4215,12 +4249,12 @@ enum ReconciliationExceptionStatus {
 // deliberately descriptive ("completed encounter has no linked invoice in the
 // window") rather than accusatory; the data decides, not the feature.
 model ReconciliationException {
-  id             String @id
+  id             String                          @id
   organizationId String
   runId          String
   type           ReconciliationExceptionType
   severity       ReconciliationExceptionSeverity
-  status         ReconciliationExceptionStatus @default(OPEN)
+  status         ReconciliationExceptionStatus   @default(OPEN)
   description    String
 
   visitId     String?
@@ -4234,7 +4268,7 @@ model ReconciliationException {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   run          ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, runId])
@@ -4271,7 +4305,7 @@ enum ReportExportStatus {
 // on request (no background worker — see limitations). Implemented report
 // labels every forecast/estimate before it leaves the API.
 model ReportExport {
-  id             String @id
+  id             String             @id
   organizationId String
   reportType     ReportType
   format         ReportFormat
@@ -4282,11 +4316,11 @@ model ReportExport {
   branchId     String?
   departmentId String?
 
-  artifact     String?
-  sizeBytes    Int?
-  contentType  String?
-  error        String?
-  expiresAt    DateTime?
+  artifact      String?
+  sizeBytes     Int?
+  contentType   String?
+  error         String?
+  expiresAt     DateTime?
   // Non-FK pointer (soft link) to the requesting user.
   requestedById String?
 
