@@ -3,9 +3,142 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-042 — `/auth/me` and `X-Branch-Id` share one permission resolver and can never widen access
+
+**Status:** accepted (Patch P1)
+
+**Context:** frontends need one authoritative post-login bootstrap, and the
+patch brief requires that the permission set returned by `GET /auth/me` be
+computed by the *same function* the permission guard uses, otherwise the UI and
+the server can drift (UI shows a button the server rejects, or worse).
+
+**Decision:** `AuthService.me()` resolves roles from `UserRole` rows and computes
+the effective permission set with the existing `permissionUnion(roles)` from
+`src/common/auth/rbac.ts` — the exact function `TenantGuard` already uses to
+re-resolve permissions per request (never from the JWT). A unit test asserts the
+two code paths cannot diverge. `X-Branch-Id` is validated in the tenant/request
+layer against the caller's `UserBranch` rows and only *selects* a branch the
+user already holds; it is stored in `TenantScope.branchId` and the default is
+the user's default branch. An invalid or non-allowed branch id yields
+`TENANT_ACCESS_DENIED`. The header never adds a branch to the user's set, so
+access cannot be widened.
+
+**Consequences:** one source of truth for "what can this principal do"; the
+branch selector is a preference, not an authorization grant. `/auth/me` returns
+permissions for UI gating only — every request is still authorized server-side
+by `PermissionsGuard`.
+
+## ADR-041 — Emergency-request PII is encrypted at rest with AES-256-GCM
+
+**Status:** accepted (Patch P3)
+
+**Context:** emergency requests carry caller phone, description, and a reported
+location. The brief requires field-level encryption at rest and "IDs only" in
+outbox/job payloads.
+
+**Decision:** reuse the existing `FieldEncryption` (`src/common/security/crypto.ts`,
+AES-256-GCM, nonce-collision guard) — already proven for TOTP secrets — to
+encrypt `callerPhone`, `description`, and `location.landmarkText` on
+`EmergencyRequest`. Plaintext never leaves the service boundary: the public
+tracking endpoint returns status labels and facility name/phone only; outbox and
+worker payloads carry the request `id`/`trackingToken` digest alone.
+
+**Consequences:** DB dumps and backups do not expose caller text; search/
+duplicate-phone matching must operate over a *searchable derivative* (a separate
+normalized, non-encrypted phone-index column derived from the plaintext at
+write time is considered acceptable and documented), because GCM AES is not
+searchable. The encryption key comes from env (`FIELD_ENCRYPTION_KEY`), shared
+with the MFA secret material.
+
+## ADR-040 — Emergency escalation is append-only events plus idempotent delayed jobs
+
+**Status:** accepted (Patch P3)
+
+**Context:** an unacknowledged emergency request must escalate one level at a
+time (SLA-bound, then caller SMS), and the same request may race two workers or
+a late acknowledgement. Escalation must fire *exactly once per level* and must
+be cancelled by a staff acknowledgement.
+
+**Decision:** `EmergencyRequestEvent` is the append-only history; status is
+derived from it (ADR-042-style read model stays a convenience). On submit, the
+transaction writes the request + `EmergencyRequestReceived` outbox event only.
+Escalation is driven by BullMQ delayed jobs (the worker exists in the repo;
+ADR-024/028 patterns apply): each level's job carries `requestId + level` and
+is **conditionally idempotent** — it re-reads the request, and if
+`acknowledgedAt` or a higher `escalationLevel` is already present it no-ops,
+otherwise it advances one level and schedules the next. An acknowledgement marks
+`acknowledgedAt` in the same transaction as the `EmergencyRequestAcknowledged`
+event, which the escalation worker honors as the cancel signal. A dedupe index on
+`(requestId, level)` prevents double-firing even if the same job is delivered
+twice.
+
+**Consequences:** escalation is at-least-once with idempotent-on-apply (replays
+cannot double-advance); the caller-facing "not yet acknowledged — call the
+facility/national numbers" message only ever fires from the final-level job, and
+only `RESPONDING` (staff-set) implies help is coming.
+
+## ADR-039 — Geo queries over PostGIS `geography`, with a haversine fallback
+
+**Status:** accepted (Patch P2)
+
+**Context:** "find care near me" needs point-distance ordering, radius
+filtering, and timezone-aware `openNow`. The deployment may not always have
+PostGIS available (existing Compose/e2e images are plain Postgres).
+
+**Decision:** `PublicFacilityListing` stores canonical `locationLat` /
+`locationLng` as `Double` (Prisma-managed, the source of truth). PostGIS is
+supported as an enhancement: the migration runs `CREATE EXTENSION IF NOT EXISTS
+postgis` inside a `DO` block and, when available, adds a generated
+`geography(Point,4326)` column plus a GiST index managed **outside** the Prisma
+schema (all geo access goes through `$queryRaw` in a `GeoRepository`). The
+repository probes PostGIS once (cached) and dispatches to either
+`ST_DWithin`/`ST_Distance` or a plain-SQL bounding-box + haversine fallback that
+needs nothing but the two doubles. Distances are straight-line and approximate;
+never presented as travel time. Runtime provider split also lets the e2e keep
+plain Postgres while unit-testing both paths.
+
+**Consequences:** one canonical lat/lng model; PostGIS images are the
+recommended deployment (Compose + e2e switch to `postgis/postgis:*-*`), and the
+system still functions on vanilla Postgres with slightly larger result sets
+(bbox pre-filter keeps it bounded). The `geography` column is manual SQL, so a
+future `prisma migrate diff` ignores it by design; the ADR records why it is not
+in `schema.prisma`.
+
+## ADR-038 — The public directory is a sanitized projection read through a read-only role
+
+**Status:** accepted (Patch P2)
+
+**Context:** public facility search is cross-tenant by nature. It must never
+leak tenant data, even a field at a time, and its data is opt-in per branch.
+
+**Decision:** the public read path never touches tenant tables. An outbox
+consumer (`PublicListingChanged`, ADR-028 pattern) projects a sanitized,
+org-independent `PublicFacilityListing` row per *published* branch —
+whitelisted public-safe fields only (name, slug, address, county, town,
+location, phones, hours, services, insurance, accessibility, `open24h`,
+`emergency24h`, `ambulanceAvailable`, `emergencyIntakeEnabled`,
+`acceptsOnlineBooking`). A dedicated Postgres role (`careos_public`) is granted
+`SELECT` on the public projection/reference tables and *nothing else*; the
+public module connects with that role. An integration test runs a cross-db query
+proving the role cannot read tenant tables. Listing status is
+`DRAFT → PUBLISHED → SUSPENDED` (opt-in by `public_listing.manage`; platform
+`SUPER_ADMIN` may suspend), and `verificationStatus`
+(`UNVERIFIED | DETAILS_CONFIRMED`, `lastConfirmedAt`) is explicitly "platform
+staff confirmed the contact details and location" — never accreditation or
+certification. This is the exception to the tenant-scoped Prisma extension, and
+it is constructed (separate role + separate client + whitelisted projection)
+rather than carved out of the tenant client.
+
+**Consequences:** even a bug in the tenant path cannot surface a tenant table
+row through the public API because the read role lacks permission; listing rows
+are inert copies (a tenant delete must re-run the projection). Imported
+non-careOS facilities (`ImportedFacility`,
+`partner: false`, sourced/licence/`importedAt` recorded) share the same
+whitelist shape, flagged so clients know requests/booking are unavailable.
+
 ## ADR-037 — Daily rollups are recompute-on-event, with per-day scopes rolled into the org-wide cell
 
-**Status:** accepted (Phase 11)
+**Status:** accepted (Phase 13)
 
 **Context:** the analytics brief (§7.1) needs days-aggregated counters per org
 for metrics, bottleneck/capacity, forecasts, patient experience and dashboards.

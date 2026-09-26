@@ -977,6 +977,55 @@ suites / 371 tests, 16 e2e suites / 185 tests).
   JSON string; (3) page results unwrap to `{ data: items, meta }` so list
   assertions read `data`, matching the Phase 4/5/6 suites.
 
+## Patch — Public directory, emergency requests, session bootstrap, display devices
+
+A backend patch on top of Phases 0–13 adding four capabilities without
+disturbing existing modules: `GET /auth/me` + `X-Branch-Id` branch context,
+waiting-room display-device pairing (extending the Phase 4 display module), a
+cross-tenant public facility directory with location-based search, and public
+emergency help requests with a staff inbox, escalation, and caller tracking.
+
+### P0 — Audit & plan (COMPLETE)
+
+No behaviour change. Re-audited the repo against the patch §1–5 guardrails and
+recorded the decisions that shape P1–P4:
+
+- **Reused, not rebuilt** — verified these already exist and will be leveraged:
+  identity chain `JwtAuthGuard → TenantGuard → PermissionsGuard` with
+  `permissionUnion` re-resolution per request (`tenant.guard.ts`, `rbac.ts`);
+  deny-by-default routing + `@Public()` + `@ApiEndpoint`; tenant-scoped Prisma
+  extension + RLS backstop (`prisma.service.ts`, ADR-005/006) with `TxRunner`
+  transactions; transactional outbox + idempotent consumers (timeline, pharmacy,
+  notifications, ledger, rollups — ADR-007/027/028/037) and the
+  `OutboxModule` composition root; the idempotency interceptor; Redis-backed
+  throttler with named policies (`throttlers: default/short`, storage fails
+  open); the display module (display device register/pair/revoke/rotate,
+  `DeviceAuthGuard` + `queue.display`-only scope, PHI-free board + SSE);
+  `EmergencyVisit` ED module; `OrganizationSetting` + per-module settings
+  helpers; `FieldEncryption` (AES-256-GCM) already used for TOTP; the
+  error-catalog + `ERROR_CODE_HTTP` map; permission catalog + role matrix.
+- **Gaps to close in P1–P4** — `/auth/me` exists but is minimal (no org
+  feature flags, branches, session, break-glass, security staging, patient
+  link, preferences); no `X-Branch-Id` handling (`TenantScope` has no
+  `branchId`); no user prefs model; no public directory, no PostGIS, no
+  emergency-request model, no platform `SUPER_ADMIN` tooling surface; e2e
+  Postgres image is non-PostGIS (plain `postgres:17-alpine`); throttler has no
+  per-handler public policies; display device endpoints live at
+  `POST /display/devices*` (the brief names `POST /admin/display-devices` +
+  `GET /display/queue` — decide in P1 whether to alias); no public-route
+  allowlist test; no `lat`/`lng`/phone log redaction beyond the default paths.
+- **Decision records landed (ADR-038…042)** — see `docs/decisions.md`:
+  public read path is a sanitized `PublicFacilityListing` projection read
+  through a dedicated read-only DB role (ADR-038); PostGIS `geography` +
+  haversine/bbox fallback with canonical lat/lng doubles (ADR-039);
+  emergency escalation as append-only events + idempotent delayed BullMQ jobs
+  (ADR-040); field-level AES-256-GCM for emergency PII (ADR-041); `/auth/me`
+  shares `permissionUnion` with the guards and `X-Branch-Id` is validation
+  within granted branches only, never a widening grant (ADR-042).
+
+**Acceptance:** existing suite unchanged and green — the P0 gate is
+`npm run lint && npm run typecheck && npm test && npm run build`.
+
 ## Notes
 
 - Testcontainers uses `postgres:17-alpine` by default because `postgres:16-alpine`
