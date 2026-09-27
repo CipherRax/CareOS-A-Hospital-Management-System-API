@@ -56,7 +56,11 @@ coverage and a green quality gate.
   normalized (non-encrypting) duplicate-phone index, SLA escalation is exactly-once
   via guarded delayed BullMQ jobs, and a repeatable maintenance sweep re-promotes
   lost escalation jobs and applies PII retention after `EMERGENCY_RETENTION_DAYS`.
-- **Decision records** (ADR-001…043) and an honest **limitations** catalog live
+- **A real timer.** One BullMQ repeatable job per time-based duty — outbox
+  delivery, maintenance reminders, idempotency reclamation, export expiry — with
+  env-driven cadences and a kill-switch. Every duty is an idempotent, batched
+  sweep that can also be driven without Redis (ADR-044).
+- **Decision records** (ADR-001…044) and an honest **limitations** catalog live
   in `docs/`. A **CI workflow** (`.github/workflows/ci.yml`) runs the full gate
   (lint, typecheck, boundaries, unit, build) plus containerized e2e on every push
   to `main`.
@@ -127,17 +131,20 @@ Open <http://localhost:3000/api/v1> (Swagger docs are enabled by default when
 
 ### Background worker
 
-The outbox dispatcher can run standalone:
+The worker runs the BullMQ processors plus the time-based scheduler (outbox
+delivery, maintenance reminders, idempotency reclamation, export expiry):
 
 ```bash
 npm run worker          # production build
 npm run worker:dev      # watch mode
 ```
 
-> Outbox delivery is currently push-triggered (no scheduler yet), but the
-> worker does register the **emergency maintenance sweep** (a BullMQ repeatable
-> `maintenance` job that reconciles lost escalation jobs and applies PII
-> retention) — see `docs/limitations.md`.
+> Ticks are at-least-once and best-effort: with no worker process running,
+> nothing is delivered or swept until one returns. Cadences are env-driven
+> (`OUTBOX_DRAIN_INTERVAL_MS`, `MAINTENANCE_REMINDER_INTERVAL_MS`,
+> `IDEMPOTENCY_SWEEP_INTERVAL_MS`, `REPORT_EXPIRY_INTERVAL_MS`) and
+> `SCHEDULER_ENABLED=false` registers no duty at all. See
+> `docs/limitations.md`.
 
 ## Configuration
 
@@ -151,6 +158,9 @@ invalid or incomplete settings. Key variables (see `.env.example` for all):
 - `EMERGENCY_*` — public emergency intake: `EMERGENCY_RETENTION_DAYS` (PII
   retention window, 0 disables), `EMERGENCY_DEDUPE_SECONDS` (duplicate-submit
   window), `EMERGENCY_SWEEP_INTERVAL_MS` (maintenance sweep cadence)
+- `SCHEDULER_ENABLED`, `OUTBOX_DRAIN_INTERVAL_MS`,
+  `IDEMPOTENCY_SWEEP_INTERVAL_MS`, `REPORT_EXPIRY_INTERVAL_MS`,
+  `MAINTENANCE_REMINDER_INTERVAL_MS` — scheduler cadences (ADR-044)
 - `CORS_ORIGINS`, `LOG_LEVEL`, `API_PREFIX`, `PORT`
 
 ## Quality gate
@@ -169,9 +179,9 @@ npm run test:e2e
 | Lint | `npm run lint` |
 | Typecheck | `npm run typecheck` |
 | Module boundaries | `npm run boundaries` |
-| Unit tests | `npm test` (418 tests · 58 suites) |
+| Unit tests | `npm test` (442 tests · 61 suites) |
 | Build | `npm run build` |
-| E2E (Testcontainers) | `npm run test:e2e` (217 tests · 18 suites) |
+| E2E (Testcontainers) | `npm run test:e2e` (222 tests · 19 suites) |
 
 E2E spins up fresh Postgres + Redis via Testcontainers, applies migrations
 idempotently, and exercises the API end to end — including real RLS isolation,
@@ -182,7 +192,7 @@ concurrency, and role-separation checks. Reuse external infra with
 
 - **`PROGRESS.md`** — phase-by-phase delivery record against the product brief.
 - **`docs/decisions.md`** — accepted architecture/engineering decision records
-  (ADR-001…043, newest first).
+  (ADR-001…044, newest first).
 - **`docs/limitations.md`** — honest catalog of stubs, deferrals, and caveats.
 - **`docs/roadmap.md`** — tracked backlog of deferred production items.
 - **`docs/diagrams/`** — architecture/sequence diagrams (Mermaid).
@@ -191,10 +201,10 @@ concurrency, and role-separation checks. Reuse external infra with
 ## Status
 
 All brief phases (0–13) are delivered, and the backend patch (P1 session &
-display devices, P2 public directory, P3 public emergency intake, P4 hardening)
-is on `main`. Deferred production items (scheduler, live M-PESA adapter,
-delivery adapters, PDF tooling) are tracked in **`docs/roadmap.md`**, with the
-full caveat catalog in `docs/limitations.md`.
+display devices, P2 public directory, P3 public emergency intake, P4 hardening,
+P5 time-based scheduler) is on `main`. Deferred production items (live M-PESA
+adapter, delivery adapters, PDF tooling, async report generation) are tracked in
+**`docs/roadmap.md`**, with the full caveat catalog in `docs/limitations.md`.
 
 ## License
 

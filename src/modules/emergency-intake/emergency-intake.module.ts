@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import type { Env } from '../../config/config.module';
 import { ENV } from '../../config/config.module';
 import { FieldEncryption } from '../../common/security/crypto';
+import { BullQueuesModule } from '../../jobs/bull-queues.module';
 import { PublicEmergencyController } from './public-emergency.controller';
 import { EmergencyRequestController } from './emergency-request.controller';
 import { IntakeSettingsController } from './intake-settings.controller';
@@ -20,16 +21,7 @@ import { EmergencyIntakeWorker } from './emergency-escalation.worker';
  * (ADR-043), registered only outside NODE_ENV=test.
  */
 @Module({
-  imports: [
-    BullModule.forRootAsync({
-      inject: [ENV],
-      useFactory: (env: Env) => ({
-        connection: { host: env.REDIS_HOST, port: env.REDIS_PORT, db: env.REDIS_DB },
-        prefix: env.BULL_PREFIX,
-      }),
-    }),
-    BullModule.registerQueue({ name: ESCALATION_QUEUE }),
-  ],
+  imports: [BullQueuesModule, BullModule.registerQueue({ name: ESCALATION_QUEUE })],
   controllers: [
     PublicEmergencyController,
     EmergencyRequestController,

@@ -191,10 +191,18 @@ export class MaintenanceService {
    * Idempotent reminder queueing. Scans PLANNED/IN_PROGRESS records inside the
    * reminder horizon and materialises exactly one MaintenanceReminder per
    * record (unique organizationId+maintenanceId). Safe to run on a cadence.
+   *
+   * The HTTP route relies on the ambient tenant scope. The scheduler (ADR-044)
+   * passes an explicit organization and a null actor (system-queued, so
+   * `queuedById` is null) instead, which is why the transaction is scoped
+   * explicitly rather than through the CLS scope. The actor is read with an
+   * `in` check rather than `??` on purpose: `null` is a *meaningful* actor here
+   * (nobody queued it), and `??` would fall through to `requireUserId()`.
    */
-  async queueReminders() {
-    const organizationId = this.tenantContext.requireOrg();
-    const actorId = this.tenantContext.requireUserId();
+  async queueReminders(options?: { organizationId?: string; actorId?: string | null }) {
+    const organizationId = options?.organizationId ?? this.tenantContext.requireOrg();
+    const actorId =
+      options && 'actorId' in options ? options.actorId : this.tenantContext.requireUserId();
     const now = Date.now();
     const result = await this.txRunner.run(async (ctx: TxContext) => {
       const candidates = await ctx.db.maintenanceRecord.findMany({
@@ -239,7 +247,7 @@ export class MaintenanceService {
         });
       }
       return { queued, skipped };
-    });
+    }, { organizationId });
     return result;
   }
 

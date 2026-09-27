@@ -114,6 +114,32 @@ export const envSchema = z.object({
   EMERGENCY_RETENTION_DAYS: z.coerce.number().int().nonnegative().default(90),
   EMERGENCY_DEDUPE_SECONDS: z.coerce.number().int().nonnegative().default(120),
   EMERGENCY_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60000),
+
+  // Time-based scheduler (patch P5 — ADR-044). One BullMQ repeatable job per duty
+  // on the `scheduler` queue, registered by every process and deduped by jobId.
+  // SCHEDULER_ENABLED is an operator kill-switch (the API/worker still boot with
+  // no time-based duties at all — the queue is drained only when a worker runs).
+  SCHEDULER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  // Outbox delivery: drains committed PENDING events (the pre-P5 worker polled
+  // this on a bare setInterval every 5s).
+  OUTBOX_DRAIN_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
+  // Maintenance reminders are materialised on a cadence instead of on demand.
+  MAINTENANCE_REMINDER_INTERVAL_MS: z.coerce.number().int().positive().default(900_000),
+  // Reclaims expired IdempotencyRecord rows (COMPLETED past their replay window
+  // and IN_PROGRESS rows orphaned by a crashed request, which would otherwise
+  // answer 409 forever).
+  IDEMPOTENCY_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(3_600_000),
+  // Flips READY report exports to EXPIRED at `expiresAt` (read-side already
+  // enforces expiry; this keeps listings honest).
+  REPORT_EXPIRY_INTERVAL_MS: z.coerce.number().int().positive().default(300_000),
+  // Row cap per sweep pass — a pass only ever handles this many rows, so a huge
+  // backlog drains over several ticks instead of one long transaction.
+  SCHEDULER_SWEEP_BATCH: z.coerce.number().int().positive().default(500),
+  // Organizations visited per maintenance-reminder pass.
+  SCHEDULER_ORG_BATCH: z.coerce.number().int().positive().default(50),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -143,5 +169,7 @@ export function envSummary(env: Env): Record<string, unknown> {
     metrics: env.METRICS_ENABLED,
     otel: env.OTEL_ENABLED,
     emergencyRetentionDays: env.EMERGENCY_RETENTION_DAYS,
+    schedulerEnabled: env.SCHEDULER_ENABLED,
+    outboxDrainIntervalMs: env.OUTBOX_DRAIN_INTERVAL_MS,
   };
 }

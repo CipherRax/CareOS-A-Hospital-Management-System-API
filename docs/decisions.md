@@ -3,6 +3,63 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-044 — Time-based duties are BullMQ repeatable jobs with idempotent, batched sweeps
+
+**Status:** accepted (Patch P5)
+
+**Context:** the platform had no timer. Outbox delivery ran on a bare
+`setInterval` inside `src/worker.ts` (5 s, batch 100) — invisible, untested, and
+only in the worker process; maintenance reminders were materialised only when an
+operator called `POST /maintenance/reminders/queue`; `IdempotencyRecord` rows
+accumulated forever (an `IN_PROGRESS` row orphaned by a crashed request answered
+`409 IDEMPOTENCY_IN_PROGRESS` *permanently*, because nothing expired it); and
+`ReportExport` rows were only expired lazily on read. Three options were
+available: another bare `setInterval` loop, `@nestjs/schedule` + cron strings (a
+new dependency), or the BullMQ repeatable-job primitive already in use for
+emergency escalation (ADR-043) and already a dependency.
+
+**Decision:** repeatable jobs on a dedicated `scheduler` queue, one per duty —
+`outbox-drain` (5 s), `maintenance-reminders` (15 min), `idempotency-sweep`
+(1 h), `report-expiry` (5 min). `SchedulerWorker` registers them in
+`onApplicationBootstrap` with a stable, colon-free `jobId` per duty, so every
+API/worker process requests the same repeatable and BullMQ dedupes it into one
+schedule while distributing ticks. Intervals are env-driven
+(`OUTBOX_DRAIN_INTERVAL_MS`, `MAINTENANCE_REMINDER_INTERVAL_MS`,
+`IDEMPOTENCY_SWEEP_INTERVAL_MS`, `REPORT_EXPIRY_INTERVAL_MS`), and
+`SCHEDULER_ENABLED=false` registers nothing.
+
+Two decisions inside that:
+- **The worker owns *when*; `SchedulerService` owns *what*.** Every duty is a
+  plain idempotent method (`drainOutbox`, `sweepIdempotencyRecords`,
+  `expireReportExports`, `queueMaintenanceReminders`) with no BullMQ knowledge,
+  so an operator script or a test can drive the same code path without Redis
+  (the e2e suite does exactly that). The BullMQ root connection/prefix moved to
+  a single `BullQueuesModule` — previously every queue-owning module called
+  `forRootAsync` itself, and since root options are global the last module to
+  boot silently won the prefix.
+- **Sweeps select-then-write in bounded pages and are safe to re-run.** Nothing
+  does an unbounded delete/update, and every write re-asserts its guard
+  (`status: 'READY'` on the export flip), so a concurrent pass, an operator, or
+  a lost race yields a count of 0 rather than a corruption. The reminder sweep
+  rotates organizations with a per-process UUIDv7 cursor — with a plain
+  `take: N`, an org list longer than `SCHEDULER_ORG_BATCH` would starve every org
+  past the first page forever.
+
+**Consequences:** the four duties now happen on a timer with no HTTP call, and
+the orphaned-in-progress 409 is gone. The cost is honest: ticks are
+at-least-once and best-effort (a worker down means no delivery during that
+window, though the backlog drains when it returns), there is no leader election
+or per-tenant quota, and the reminder rotation is per-process, so a fleet can
+revisit some orgs sooner than others — all acceptable because every duty is
+idempotent. Cross-tenant sweeps deliberately use `prisma.unscoped()` and
+re-enter the tenant layer per org:
+`MaintenanceService.queueReminders({ organizationId, actorId: null })` opens a
+properly tenant-scoped, RLS-tied transaction and records that nobody queued the
+reminder (`queuedById` is null). Nothing is registered under `NODE_ENV=test`, so
+e2e stays deterministic. Cron-pattern schedules (`repeat: { pattern }`) were
+rejected as unnecessary: all four cadences are plain intervals, and env-driven
+periods are easier to tune per deployment.
+
 ## ADR-043 — Anonymous emergency intake is sweeper-backed: lost-job reconciliation, payload dedupe, and PII retention
 
 **Status:** accepted (Patch P4)

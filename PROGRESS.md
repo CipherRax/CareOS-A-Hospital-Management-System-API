@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 418/418 unit (58 suites) |
+| `npm test`   | 442/442 unit (61 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 217/217 (18 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 222/222 (19 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -849,7 +849,9 @@ AUDITOR read-only.
   PLANNED records due within a 72h forward / 24h past window and inserts one
   `MaintenanceReminder` per record (unique org + record, so runs are
   idempotent: `{queued, skipped}`). `POST /reminders/:id/sent` marks delivery.
-  See `docs/limitations.md` — there is no scheduler, the scan is push-triggered.
+  Since P5 the same scan also runs on a cadence from the scheduler
+  (`maintenance-reminders` duty, ADR-044); reminder *delivery* is still a stub
+  — see `docs/limitations.md`.
 - **Waste management.** `POST /pharmacy/stock/write-off` drains batches via
   the same row-locked FEFO used by dispensing, records `WASTAGE` ledger rows
   (negative quantity, batch `purchaseCost` carried through for valuation,
@@ -1295,6 +1297,77 @@ hash-index equality, so constant-time compare would be dead code); the
 repeatable sweep is optimistic (single-writer guarded, but a fleet of app
 instances each schedules the same repeatable job — BullMQ dedupes by jobId).
 
+### P5 — Time-based scheduler (COMPLETE)
+
+Lands the platform's first timer (ADR-044), retiring the roadmap's top backlog
+item: outbox delivery on a repeatable job instead of a bare `setInterval`, plus
+the three sweeps the platform had no timer for.
+
+- **One scheduler queue, four duties.** `SchedulerWorker`
+  (`src/modules/scheduler/scheduler.worker.ts`) registers a repeatable BullMQ
+  job per duty in `onApplicationBootstrap` with a stable colon-free `jobId`, so
+  every API/worker process requests the same repeatable and BullMQ dedupes it
+  into one schedule while distributing ticks: `outbox-drain`
+  (`OUTBOX_DRAIN_INTERVAL_MS`, 5 s), `maintenance-reminders` (15 min),
+  `idempotency-sweep` (1 h), `report-expiry` (5 min). Intervals are env-driven;
+  `SCHEDULER_ENABLED=false` registers nothing (worker-less deploy), and nothing
+  is registered under `NODE_ENV=test` so e2e stays deterministic.
+- **When vs. what.** `SchedulerService` holds the four duties as plain
+  idempotent, batched methods with no BullMQ knowledge, so the e2e suite (or an
+  operator script) drives the same code paths without Redis. Sweeps
+  select-then-write in `SCHEDULER_SWEEP_BATCH`-sized pages and re-assert their
+  guard on the write, so a lost race counts 0 instead of corrupting state.
+- **Outbox delivery off `setInterval`.** `src/worker.ts` no longer polls: the
+  `outbox-drain` duty calls the unchanged
+  `OutboxPublisherService.publishReadyEvents(100)` (claim in a short
+  `FOR UPDATE SKIP LOCKED` tx, dispatch outside it — ADR-027), and the worker
+  bootstrap is now just the application context plus signal handling. A
+  process that is not running the worker now simply does not deliver, instead of
+  whichever process happened to boot doing it invisibly.
+- **Maintenance reminders actually get materialised.** The scheduler drives
+  `MaintenanceService.queueReminders({ organizationId, actorId: null })` per
+  organization, rotating with a per-process UUIDv7 cursor (a plain `take` would
+  starve every org past the first page). The scan itself is unchanged and
+  still idempotent per record (unique `organizationId+maintenanceId`), so the
+  HTTP route and the cron can never double-create. `queueReminders` grew an
+  options argument so a background pass supplies its own organization and a null
+  actor (`queuedById` is nullable) instead of requiring a CLS tenant scope; the
+  transaction is explicitly scoped, so the RLS-tied tenant path is the same one
+  the route uses.
+- **Orphaned idempotency records stop being permanent 409s.** An
+  `IN_PROGRESS` row left by a crashed/flushed request used to answer
+  `409 IDEMPOTENCY_IN_PROGRESS` forever — the interceptor treats a live
+  duplicate as a conflict, and nothing ever expired the row. The
+  `idempotency-sweep` duty reclaims everything past `expiresAt`
+  (`IDEMPOTENCY_WINDOW_SECONDS`, 1 h), bounding replay protection to the
+  documented window and freeing the stored response bodies.
+- **Report exports expire on a timer.** The `report-expiry` duty flips `READY`
+  artifacts to `EXPIRED` at `expiresAt` (read-side already rejected them lazily;
+  this keeps listings honest). Rides a new `(status, expiresAt)` index
+  (migration `20261002120000_phase_p5_scheduler`); `PENDING`/`FAILED` are left
+  for an operator, not an expiry.
+- **One BullMQ root.** `BullModule.forRootAsync` (connection + `BULL_PREFIX`)
+  moved to a single global `BullQueuesModule`; queue registration stays with the
+  owning module. Previously each queue-owning module declared the root itself,
+  and since root options are global the last module to boot silently won the
+  prefix.
+- **Tests:** +24 unit (61 suites / 442): scheduler duty registration (four
+  colon-free repeatables, `NODE_ENV=test` and `SCHEDULER_ENABLED` gates, a
+  failed registration not aborting the rest), job-name dispatch with an
+  unknown-name no-op and retry-on-throw, all four sweeps (bounded pages, no-op
+  paths, lost-race counts, org rotation/wrap, per-org failure isolation), and
+  the `queueReminders` scope resolution (ambient vs. explicit org, plus a
+  regression test for the `null`-actor `??` trap). E2E +5 (19 suites / 222) in
+  a new `test/e2e/scheduler.e2e-spec.ts` driving the sweeps against real rows.
+
+**Open notes (see `docs/limitations.md`):** ticks are at-least-once and
+best-effort — a worker down means no drain/reminders/expiry during that window
+(nothing is lost permanently; the backlog drains when it returns) — and there is
+no leader election, distributed lock, or per-tenant quota; the reminder rotation
+is per-process, so a fleet may revisit some orgs sooner than others (harmless, the
+scan is idempotent); reminder *delivery* is still a stub (no push/email/SMS
+adapter, `markReminderSent` only flips a column).
+
 ## Notes
 
 - Testcontainers uses `postgres:17-alpine` by default because `postgres:16-alpine`
@@ -1306,12 +1379,12 @@ instances each schedules the same repeatable job — BullMQ dedupes by jobId).
   work was committed earlier under the label "Phase 2" and is documented here as
   Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
   keep git history unchanged; git history is unchanged.
-- The e2e suite reaches 217 tests across 18 suites (identity, patients,
+- The e2e suite reaches 222 tests across 19 suites (identity, patients,
   documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, the phase-4
   clinical spec, the phase-5 inventory/pharmacy spec, the phase-6 billing
   spec, the phase-7 laboratory/radiology spec, the phase-8
   inpatient/emergency spec, the phase-10 communication spec, the phase-11
   financial/ledger/M-PESA spec, the phase-12 operations spec, the phase-13
   analytics/reports spec, the public-directory spec, and the emergency-intake
-  spec; file names keep the old labels to avoid churn while the sections here
+  spec, and the scheduler spec; file names keep the old labels to avoid churn while the sections here
   track the brief's phases).

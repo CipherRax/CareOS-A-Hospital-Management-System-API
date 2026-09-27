@@ -1,0 +1,30 @@
+# Time-based scheduler — duties, cadence, and state transitions (ADR-044)
+# careOS — docs/diagrams/scheduler.mmd
+
+flowchart TB
+  subgraph proc["Each process (api + worker) — AppModule"]
+    W["SchedulerWorker<br/>@Processor('scheduler')<br/>onApplicationBootstrap<br/>gated: NODE_ENV!=='test' &amp; SCHEDULER_ENABLED"]
+    SVC["SchedulerService<br/>plain idempotent sweeps<br/>(no BullMQ knowledge)"]
+  end
+
+  Q[("Redis / BullMQ<br/>queue: scheduler<br/>repeatable jobs deduped by jobId")]
+
+  W -->|"add(jobId, repeat:{every})"| Q
+  Q -->|"tick"| W
+  W -->|"route by job name"| SVC
+
+  SVC --> D1["outbox-drain · 5s<br/>publishReadyEvents(100)<br/>claim SKIP LOCKED, dispatch outside tx"]
+  SVC --> D2["maintenance-reminders · 15m<br/>per org, UUIDv7 rotation cursor<br/>queueReminders({org, actorId:null})"]
+  SVC --> D3["idempotency-sweep · 1h<br/>delete expiresAt <= now<br/>(batched; frees stuck IN_PROGRESS)"]
+  SVC --> D4["report-expiry · 5m<br/>READY + expiresAt <= now -> EXPIRED<br/>rides (status, expiresAt) index"]
+
+  D1 --> DB[("PostgreSQL")]
+  D2 --> DB
+  D3 --> DB
+  D4 --> DB
+
+  D1 --> CON["Outbox consumers<br/>timeline / pharmacy / notifications /<br/>ledger / rollups / public listing"]
+  CON --> DB
+
+  classDef duty fill:#eef,stroke:#557;
+  class D1,D2,D3,D4 duty;

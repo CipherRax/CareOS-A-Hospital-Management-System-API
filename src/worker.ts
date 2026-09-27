@@ -2,43 +2,27 @@ import 'dotenv/config';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app/app.module';
-import { OutboxPublisherService } from './database/outbox-publisher.service';
 
 const logger = new Logger('Worker');
 
-const POLL_INTERVAL_MS = 5_000;
-const BATCH_SIZE = 100;
-
 /**
- * careOS worker: runs BullMQ processors, outbox publishing, and scheduled jobs.
- * Phase 0 only runs the outbox publisher loop against real Postgres + Redis.
- * The app refuses to boot on invalid env (shared config validation).
+ * careOS worker: boots the application context so every BullMQ processor and
+ * the time-based scheduler (ADR-044 — outbox drain, maintenance reminders,
+ * idempotency reclamation, export expiry) runs. The app refuses to boot on
+ * invalid env (shared config validation).
+ *
+ * There is no polling loop here any more: P5 moved the outbox drain off a bare
+ * `setInterval` onto a repeatable BullMQ job, so a process that is not running
+ * the worker simply does not deliver events instead of silently doing so in
+ * whichever process happened to boot.
  */
 export async function runWorker(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule);
 
-  const publisher = app.get(OutboxPublisherService);
-
-  logger.log('careOS worker started');
-  logger.debug(`outbox poll interval: ${POLL_INTERVAL_MS}ms, batch: ${BATCH_SIZE}`);
-
-  const timer: NodeJS.Timeout = setInterval(async () => {
-    try {
-      const published = await publisher.publishReadyEvents(BATCH_SIZE);
-      if (published > 0) {
-        logger.log({ published }, 'outbox events published');
-      }
-    } catch (err) {
-      logger.error(
-        err instanceof Error ? err.stack : String(err),
-        'outbox publish pass failed',
-      );
-    }
-  }, POLL_INTERVAL_MS);
+  logger.log('careOS worker started (BullMQ processors + scheduler duties)');
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.warn({ signal }, 'worker shutting down');
-    clearInterval(timer);
     await app.close();
     process.exit(0);
   };

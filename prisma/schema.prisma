@@ -4535,6 +4535,8 @@ model ReportExport {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@index([organizationId, createdAt])
+  // Supports the scheduler's expiry sweep: status = 'READY' AND expiresAt <= now().
+  @@index([status, expiresAt])
   @@map("report_exports")
 }
 

@@ -5,9 +5,9 @@ and `docs/limitations.md`. Anything marked `[stub]` there is named in code and
 explicitly not implemented yet. Ordered by priority — this is what remains
 after the brief's phases 0–13 shipped.
 
-## Backend patch — in flight (Public directory, emergency requests, session bootstrap, display devices)
+## Backend patch — in flight (Public directory, emergency requests, session bootstrap, display devices, scheduler)
 
-Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–042.
+Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–044.
 
 - [x] **P1 — Session & devices.** Expand `GET /auth/me` (org + feature flags,
   branches, session, break-glass, security staging, patient link, prefs),
@@ -30,16 +30,17 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–042.
   anonymous idempotency pass-through, submit dedupe), retention hooks +
   escalation reconciliation sweep (ADR-043), DEMO seed, full tests,
   docs/diagrams, README, CI workflow.
+- [x] **P5 — Time-based scheduler.** One BullMQ repeatable job per duty on a
+  `scheduler` queue (ADR-044): `outbox-drain` (replaces the `setInterval` in
+  `worker.ts`), `maintenance-reminders` (per-org, rotating cursor), and
+  `idempotency-sweep` / `report-expiry` (bounded, idempotent, guarded writes).
+  Env-driven intervals, `SCHEDULER_ENABLED` kill-switch, duties kept free of
+  BullMQ so they can be driven without Redis. What is *not* done: leader
+  election/distributed locking, per-tenant quotas, and cron-pattern schedules
+  (all documented in `docs/limitations.md`).
 
 ## High priority
 
-- [ ] **Scheduler (outbox + reminders + sweeps).** Outbox delivery is
-  push-triggered (the dispatcher advances on demand; e2e calls
-  `publishReadyEvents` synchronously), maintenance reminders are demand-queued,
-  and idempotency/export records are never swept. Land a time-based worker
-  (BullMQ queues + cron) that: drains `outbox_events` on a timer, queues
-  maintenance reminders, sweeps expired idempotency records, and flips
-  `ReportExport` rows to `EXPIRED` at `expiresAt`.
 - [ ] **Live M-PESA Daraja adapter.** Wire the real Safaricom adapter
   (`src/integrations/mpesa`): Daraja BEARER auth, STK push/query, callback
   `CallbackMetadata` parsing, STK status-query. Needs live consumer
@@ -51,7 +52,9 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–042.
 - [ ] **Notification delivery adapters.** Push/email/SMS providers
   (`src/integrations/notifications`) are structural no-ops; in-app rows are the
   only real channel today. Implement at least one off-system adapter +
-  opt-out/preference enforcement on send.
+  opt-out/preference enforcement on send. The P5 scheduler now materialises
+  maintenance reminders on a cadence, so this item is what turns those rows
+  into messages a human actually receives.
 - [ ] **PDF production rendering.** Replace the minimal `renderTextPdf` / no-op
   `PdfRenderer` with a renderer that supports charts, images, and Unicode for
   both `/document-jobs/pdf` and report exports.

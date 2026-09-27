@@ -21,5 +21,7 @@ import { MaintenanceService } from './maintenance.service';
     MaintenanceService,
     AnalyticsService,
   ],
+  // MaintenanceService is also driven by the time-based scheduler (ADR-044).
+  exports: [MaintenanceService],
 })
 export class OperationsModule {}

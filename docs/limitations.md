@@ -6,14 +6,16 @@ working code with a caveat.
 
 ## Explicit stubs (named in code)
 
-- **Outbox delivery has no scheduler yet.** `[stub]` Outbox rows are written
-  reliably in the same transaction as domain writes (ADR-007), and the
-  dispatcher pointer now drives REAL consumers (the timeline projection,
-  ADR-028). Delivery must be triggered — the worker bootstrap exists
-  (`worker.ts`, `npm run worker`) but there is no BullMQ queue or cron yet, so
-  in e2e `publishReadyEvents` is called synchronously to prove the pipeline.
-  Failed deliveries retry with exponential backoff and go DEAD after
-  `MAX_OUTBOX_ATTEMPTS` (8).
+- **Outbox delivery is scheduled (ADR-044), not transactional.** Outbox rows are
+  written reliably in the same transaction as domain writes (ADR-007) and the
+  dispatcher pointer drives REAL consumers (the timeline projection, ADR-028),
+  but *delivery* is a separate act: a repeatable BullMQ `outbox-drain` job claims
+  ready rows every `OUTBOX_DRAIN_INTERVAL_MS` (5 s default) and dispatches them
+  outside any transaction. Consequences: a committed event is not visible to
+  consumers for up to one interval (or longer if no worker process runs), and
+  backoff/DEAD handling still applies (`MAX_OUTBOX_ATTEMPTS` 8, exponential).
+  Under `NODE_ENV=test` the job is not registered, so e2e calls
+  `publishReadyEvents` synchronously to keep specs deterministic.
 - **`Storage.DocumentUploaded` and `Reference.CodingSystemImported` events have
   no consumer yet.** `[stub]` The timeline consumer subscribes to
   `Clinical.*` types only; documents/coding-reference rows wait for their
@@ -68,18 +70,30 @@ working code with a caveat.
   `MPESA_*` env vars, and removal of `MOCK`. Reconciliation correctness comes
   from the provider statement: with the live adapter unimplemented,
   reconciliation classifies against recorded mock entries only.
-- **Maintenance reminders are queued by demand, not by a scheduler.** `[stub]`
-  `POST /maintenance/reminders/queue` scans PLANNED records inside a 72h
-  forward / 24h past window and is idempotent per record, but nothing calls it
-  on a timer and no push/email is actually delivered — `markReminderSent` just
-  flips a stub status. A time-based dispatcher + delivery adapters land with the
-  scheduler work.
-- **There is no scheduler anywhere in the platform.** `[stub]` Outbox delivery
-  is triggered by an explicit dispatch (the e2e calls `publishReadyEvents`
-  synchronously), reminders are demand-queued, idempotency/export records are
-  never swept, and report exports rely on read-side TTL checks rather than a
-  cron flipping rows to EXPIRED at `expiresAt`. A time-based worker is a later
-  phase; the analytics recompute path does not depend on one (ADR-037).
+- **Maintenance reminders are queued on a cadence, but not delivered.**
+  `POST /maintenance/reminders/queue` and the scheduler's
+  `maintenance-reminders` duty (`MAINTENANCE_REMINDER_INTERVAL_MS`, 15 min
+  default) share one idempotent scan of PLANNED/IN_PROGRESS records inside a 72h
+  forward / 24h past window (unique `organizationId+maintenanceId`), so a
+  scheduled pass and a manual one can never double-create. What is still stubbed
+  is the *last mile*: no push/email/SMS adapter is wired (the adapters in
+  `src/integrations/notifications` are structural no-ops) and
+  `markReminderSent` only flips a status column.
+- **The scheduler is a BullMQ timer, not a distributed cron (ADR-044).** One
+  repeatable job per duty, registered by every process and deduped by a stable
+  `jobId`, so a fleet schedules each duty once and the queue hands ticks to one
+  consumer. Caveats that follow from that choice: a tick is *at-least-once* and
+  best-effort — a worker down for a while means no drain/reminders/expiry during
+  that window (nothing is missed permanently: the next tick picks up the
+  backlog), there is no distributed lock or leader election, and a repeatable
+  job's interval is not a per-tenant quota. Each duty is idempotent and batched
+  (`SCHEDULER_SWEEP_BATCH`), so a big backlog drains over several ticks rather
+  than one long pass; the reminder sweep rotates organizations with a per-process
+  UUIDv7 cursor, so a multi-process fleet may revisit some orgs sooner than
+  others (harmless, the scan is idempotent). `SCHEDULER_ENABLED=false`
+  registers no duty at all — the operator kill-switch for a worker-less deploy.
+  Report exports are expired by the `report-expiry` duty now, but generation is
+  still synchronous and relies on the same read-side `expiresAt` check.
 - **Report exports are synchronous and stored, not streamed.** `[stub]` An
   export is built inside the request (in-memory serialize) and persisted as a
   `ReportExport` row — there is no outbox/kick task object, no async
@@ -306,7 +320,11 @@ working code with a caveat.
   `complete()` (the earlier hard-coded `200` was replaced in P4), so a replayed
   request answers with the same status as the first run (e.g. 201) rather than a
   pinned 200 (ADR-009/ADR-043). The dispatch e2e asserts this (a 201 first call
-  replays as 201) and `/_demo/outbox` replays echo their own status.
+  replays as 201) and `/_demo/outbox` replays echo their own status. Replay
+  protection is bounded by `IDEMPOTENCY_WINDOW_SECONDS` (1 h): the P5
+  `idempotency-sweep` duty reclaims records past `expiresAt`, after which the
+  same key executes the request again (and an `IN_PROGRESS` row orphaned by a
+  crashed request stops answering 409 forever).
 - **`lockBatchRows` uses raw SQL that is NOT tenant-transformed.** The FOR
   UPDATE batch-row lock uses explicit quoted `"organizationId"`/`"branchId"`
   columns in the WHERE clause (raw statements bypass the Prisma extension);
