@@ -3647,6 +3647,7 @@ enum EmergencyRequestEventType {
   ESCALATED
   CLOSED
   CANCELLED
+  RETENTION
 }
 
 enum PublicNoticeSeverity {
@@ -3740,6 +3741,10 @@ model EmergencyRequest {
   closedAt           DateTime?
   cancelledById      String?
   cancelledAt        DateTime?
+  // P4 hardening: when the retention sweep anonymizes this terminal request,
+  // `retainedAt` is stamped so the job is idempotent and the incident history
+  // (events) outlives the caller's PII (ADR-043).
+  retainedAt         DateTime?
 
   version   Int      @default(0)
   createdAt DateTime @default(now())
@@ -3753,6 +3758,7 @@ model EmergencyRequest {
   @@unique([organizationId, referenceNumber])
   @@index([organizationId, status, createdAt])
   @@index([organizationId, branchId, createdAt])
+  @@index([status, retainedAt])
   @@map("emergency_requests")
 }
 

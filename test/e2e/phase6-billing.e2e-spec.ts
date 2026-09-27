@@ -389,7 +389,8 @@ describe('phase6 billing & invoicing', () => {
       body,
       { 'idempotency-key': key },
     );
-    expect(replay.statusCode).toBe(200);
+    // P4 idempotency replays reproduce the original status (201).
+    expect(replay.statusCode).toBe(201);
 
     const counts = await prisma.unscoped().payment.count({
       where: { invoiceId: invoice.id, organizationId: orgA },

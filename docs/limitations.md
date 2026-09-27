@@ -97,23 +97,33 @@ working code with a caveat.
 - **Emergency intake metrics are partial (per brief §11).** `metrics.snapshots.emergencyIntake`
   aggregates arrivals/triage minutes/untriaged-now/per-branch/per-hour from
   `EmergencyVisit` timestamps. The brief's intake-request metrics
-  (acknowledgement, escalation, dispatch latency) arrive with the P3 public
-  emergency-intake flow but are **not wired to the snapshot**: dispatch-latency
-  metrics remain partial until the ED-arrival link (roadmap P4). The snapshot
-  notes this on the payload.
-- **P3 emergency escalation is best-effort and has no notification/watchdog
-  gap (brief §6.15).** Each level is a delayed BullMQ job deduped by
-  `jobId = <requestId>-<level>`. Recovery relies on `retryAttempts`; if Redis
-  loses a job between scheduling and fire time there is no outbox- or
-  DB-reconciliation sweep to re-promote the request (P4 hardening). The final
-  escalation level is a "call the numbers" state (`CALL_NOW`) — there is no
-  SMS/voice bridge out to the contact chain, and duplicate-phone matching only
-  falls back to the plaintext `callerPhoneIndex` derivative (ADR-041), nothing
-  fuzzy. Staff notes are a single latest encrypted value without an author or
-  timestamp column on the request (the event history carries the `note` event).
-  Anonymous submit requires a resolvable facility location or an explicit
-  caller location; a publish re-enable (SUSPENDED→PUBLISHED) does not resubmit
-  background jobs already scheduled under the previous policy.
+  (acknowledgement, escalation, dispatch latency) shipped with P3 but are
+  **not wired to the analytics snapshot** — the report exports read
+  `EmergencyVisit` only, and the fields note this on the payload. Snapshotting
+  intake-request latencies remains a roadmap item.
+- **P3/P4 emergency escalation is best-effort with a reconcile safety net and no
+  SMS/voice bridge (brief §6.15).** Each level is a delayed BullMQ job deduped by
+  `jobId = <requestId>-<level>`; a guarded `updateMany` makes each level exactly
+  once. If Redis loses a job between scheduling and fire time, the P4
+  `maintenance` sweep's `reconcileEscalations` re-promotes an overdue open
+  request on the next tick (default 60 s), so the SLA is recovered but not
+  instantaneous. The final escalation level is a "call the numbers" state
+  (`CALL_NOW`) — there is no SMS/voice bridge out to the contact chain, and
+  duplicate-phone matching only falls back to the plaintext `callerPhoneIndex`
+  derivative (ADR-041), nothing fuzzy. Staff notes are a single latest encrypted
+  value without an author or timestamp column on the request (the event history
+  carries the `note` event). Anonymous submit requires a resolvable facility
+  location or an explicit caller location; a publish re-enable
+  (SUSPENDED→PUBLISHED) does not resubmit background jobs already scheduled
+  under the previous policy.
+- **P4 retention anonymization is snowballing but not distributed (ADR-043).**
+  `applyRetention` (P4) stamps `retainedAt`, retires the tracking token and
+  nulls caller PII for CLOSED/CANCELLED requests past `EMERGENCY_RETENTION_DAYS`
+  on a guarded, per-tenant tx; the reference number, append-only event history,
+  and outbox/audit rows are NOT rewritten (by design — the request stays
+  traceable for audit without caller PII). The sweep is an in-process tick, not a
+  TTL/partitioned storage strategy, and emergency numbers / notices are never
+  purged.
 - **`patient-experience` composite needs populated cohorts to be meaningful, and
   an all-unknown weights set yields `null`.** Components with zero samples are
   dropped from the weighted average (never computed as 0), so early histories
@@ -291,9 +301,12 @@ working code with a caveat.
   `inventory_ledger_entries` rows reject UPDATE/DELETE (same `IF NOT EXISTS`
   trigger pattern as Phase 0's append-only audit log), so correction is by
   offsetting entry, not mutation.
-- **Idempotency replays return 200.** The interceptor stores `responseStatus:
-  200` in `complete()`, so a replayed request answers 200 even when the first
-  run returned 201 (ADR-009). `/_demo/outbox` and the dispense e2e assert this.
+- **Idempotency replays reproduce the recorded status (P4).** The interceptor
+  stores `responseStatus` from the route's real `reply.statusCode` in
+  `complete()` (the earlier hard-coded `200` was replaced in P4), so a replayed
+  request answers with the same status as the first run (e.g. 201) rather than a
+  pinned 200 (ADR-009/ADR-043). The dispatch e2e asserts this (a 201 first call
+  replays as 201) and `/_demo/outbox` replays echo their own status.
 - **`lockBatchRows` uses raw SQL that is NOT tenant-transformed.** The FOR
   UPDATE batch-row lock uses explicit quoted `"organizationId"`/`"branchId"`
   columns in the WHERE clause (raw statements bypass the Prisma extension);

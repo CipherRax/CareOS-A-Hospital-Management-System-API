@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { newId } from '../src/common/lib/uuidv7';
 import { DEFAULT_ROLE_LIST } from '../src/common/auth/role-matrix';
 import {
@@ -146,6 +147,192 @@ const WESTLANDS_USERS: DemoUser[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// P4: public emergency intake demo row set (demo-org-nairobi / NB-HQ only) so
+// the anonymous flow is exercisable end-to-end after `npm run db:seed` without
+// first hitting the tenant APIs. Deterministic cleanPartial-free full writes keep
+// it idempotent.
+// ---------------------------------------------------------------------------
+
+const NB_EMERGENCY_CONTACTS = [
+  { order: 1, name: 'Dama Triage Nurse', phone: '+254 700 555 101', role: 'triage-nurse' },
+  { order: 2, name: 'Dr. Okoth On-Call', phone: '+254 700 555 102', role: 'on-call-doctor' },
+  { order: 3, name: 'Facility Director', phone: '+254 700 555 103', role: 'director' },
+];
+
+const NB_EMERGENCY_NUMBERS = [
+  { id: 'demo-num-999', country: 'KE', purpose: 'national', label: 'National Emergency Line', phone: '999' },
+  { id: 'demo-num-112', country: 'KE', purpose: 'police', label: 'Police Emergency', phone: '112' },
+  { id: 'demo-num-997', country: 'KE', purpose: 'ambulance', label: 'Ambulance Service', phone: '997' },
+  { id: 'demo-num-115', country: 'KE', purpose: 'fire', label: 'Fire & Rescue', phone: '115' },
+];
+
+async function seedNairobiEmergency(
+  prisma: PrismaClient,
+  orgId: string,
+  nbHqBranchId: string,
+): Promise<void> {
+  // Cross-tenant reference numbers (never present in TENANT_MODELS).
+  for (const n of NB_EMERGENCY_NUMBERS) {
+    await prisma.emergencyNumber.upsert({
+      where: { id: n.id },
+      update: { ...n },
+      create: { ...n, hours: '24/7', public: true },
+    });
+  }
+
+  // Active service notice for the anonymous surface.
+  await prisma.publicNotice.upsert({
+    where: { id: 'demo-note-001' },
+    update: { title: 'Ambulance availability', message: 'Demo notice: for a medical emergency in Nairobi call 997.', severity: 'INFO', active: true, endsAt: null },
+    create: {
+      id: 'demo-note-001',
+      title: 'Ambulance availability',
+      message: 'Demo notice: for a medical emergency in Nairobi call 997.',
+      severity: 'INFO',
+      active: true,
+    },
+  });
+
+  // Intake policy: enabled, 3-level SLA (5m / 15m / 30m).
+  await prisma.emergencyIntakePolicy.upsert({
+    where: { organizationId_branchId: { organizationId: orgId, branchId: nbHqBranchId } },
+    update: {
+      enabled: true,
+      autoEscalate: true,
+      requireDescription: true,
+      allowAnonymousCaller: true,
+      levelSeconds: [300, 900, 1800],
+      emergencyPhone: '+254 20 555 0100',
+    },
+    create: {
+      id: newId(),
+      organizationId: orgId,
+      branchId: nbHqBranchId,
+      enabled: true,
+      autoEscalate: true,
+      requireDescription: true,
+      allowAnonymousCaller: true,
+      levelSeconds: [300, 900, 1800],
+      emergencyPhone: '+254 20 555 0100',
+    },
+  });
+
+  // Staff escalation chain.
+  for (const c of NB_EMERGENCY_CONTACTS) {
+    await prisma.emergencyContact.upsert({
+      where: { organizationId_branchId_order: { organizationId: orgId, branchId: nbHqBranchId, order: c.order } },
+      update: { name: c.name, phone: c.phone, role: c.role, active: true },
+      create: { id: newId(), organizationId: orgId, branchId: nbHqBranchId, ...c },
+    });
+  }
+
+  // Mirror the published projection (same shape as directory.service publish).
+  const nbListingSettings = {
+    summary: 'Nairobi Demo Medical Centre — 24-hour casualty, emergency intake enabled.',
+    description:
+      'Demo listing for the public emergency intake flow. Caller PII submitted here is encrypted at rest and retained for 90 days.',
+    address: 'Demo Road, Upper Hill, Nairobi',
+    county: 'Nairobi',
+    town: 'Nairobi',
+    phone: '+254 20 555 0100',
+    email: 'admin@nairobi-demo.careos.test',
+    website: 'https://nairobi-demo.careos.test',
+    hours: { mon: ['00:00-23:59'], tue: ['00:00-23:59'], wed: ['00:00-23:59'], thu: ['00:00-23:59'], fri: ['00:00-23:59'], sat: ['00:00-23:59'], sun: ['00:00-23:59'] },
+    departments: [{ name: 'Casualty & Emergency', services: ['triage', 'resuscitation', 'ambulance'] }],
+    insurance: ['NHIF', 'Cash'],
+    accessibility: ['wheelchair-accessible'],
+    services: ['emergency', 'ambulance', 'outpatient'],
+    open24h: true,
+    emergency24h: true,
+    ambulanceAvailable: true,
+    emergencyIntakeEnabled: true,
+    acceptsOnlineBooking: false,
+    feeNote: 'Casualty consultation KES 4,500. NHIF accepted.',
+    locationLat: -1.2921,
+    locationLng: 36.8219,
+  };
+
+  const settingsRow = await prisma.organizationSetting.findUnique({ where: { organizationId: orgId } });
+  const settingsData = (settingsRow?.data as Record<string, unknown> | undefined) ?? {};
+  const listings = (settingsData.listings as Record<string, unknown> | undefined) ?? {};
+  listings[nbHqBranchId] = nbListingSettings;
+  const settingsPayload = { ...settingsData, listings } as Prisma.InputJsonValue;
+  await prisma.organizationSetting.upsert({
+    where: { organizationId: orgId },
+    update: { data: settingsPayload },
+    create: { id: newId(), organizationId: orgId, data: { listings } as Prisma.InputJsonValue },
+  });
+
+  await prisma.publicFacilityListing.upsert({
+    where: { slug: 'nairobi-demo-medical-centre' },
+    update: {
+      name: 'Nairobi Head Office',
+      summary: nbListingSettings.summary,
+      description: nbListingSettings.description,
+      address: nbListingSettings.address,
+      county: nbListingSettings.county,
+      town: nbListingSettings.town,
+      phone: nbListingSettings.phone,
+      email: nbListingSettings.email,
+      website: nbListingSettings.website,
+      hours: nbListingSettings.hours,
+      departments: nbListingSettings.departments,
+      insurance: nbListingSettings.insurance,
+      accessibility: nbListingSettings.accessibility,
+      services: { list: nbListingSettings.services },
+      open24h: true,
+      emergency24h: true,
+      ambulanceAvailable: true,
+      emergencyIntakeEnabled: true,
+      acceptsOnlineBooking: false,
+      emergencyIntakeIndex: null,
+      locationLat: nbListingSettings.locationLat,
+      locationLng: nbListingSettings.locationLng,
+      status: 'PUBLISHED',
+      verificationStatus: 'DETAILS_CONFIRMED',
+      sourceOrganizationId: orgId,
+      sourceBranchId: nbHqBranchId,
+    },
+    create: {
+      id: newId(),
+      slug: 'nairobi-demo-medical-centre',
+      name: 'Nairobi Head Office',
+      summary: nbListingSettings.summary,
+      description: nbListingSettings.description,
+      address: nbListingSettings.address,
+      county: nbListingSettings.county,
+      town: nbListingSettings.town,
+      phone: nbListingSettings.phone,
+      email: nbListingSettings.email,
+      website: nbListingSettings.website,
+      hours: nbListingSettings.hours,
+      departments: nbListingSettings.departments,
+      insurance: nbListingSettings.insurance,
+      accessibility: nbListingSettings.accessibility,
+      services: { list: nbListingSettings.services },
+      open24h: true,
+      emergency24h: true,
+      ambulanceAvailable: true,
+      emergencyIntakeEnabled: true,
+      acceptsOnlineBooking: false,
+      emergencyIntakeIndex: null,
+      locationLat: nbListingSettings.locationLat,
+      locationLng: nbListingSettings.locationLng,
+      status: 'PUBLISHED',
+      verificationStatus: 'DETAILS_CONFIRMED',
+      sourceOrganizationId: orgId,
+      sourceBranchId: nbHqBranchId,
+    },
+  });
+
+  console.log(
+    `[DEMO ONLY] ${orgId}: emergency intake enabled for NB-HQ, ` +
+      `${NB_EMERGENCY_CONTACTS.length} escalation contacts, ` +
+      `${NB_EMERGENCY_NUMBERS.length} national numbers, 1 published listing + notice.`,
+  );
+}
+
 async function main(): Promise<void> {
   const nodeEnv = process.env.NODE_ENV ?? 'development';
   if (nodeEnv === 'production' && process.env.SEED_ALLOWED !== 'true') {
@@ -205,6 +392,11 @@ async function main(): Promise<void> {
           },
         });
         branchIds.set(b.code, branch.id);
+      }
+
+      // P4: anonymous emergency intake demo row set for the Nairobi HQ branch.
+      if (orgId === 'demo-org-nairobi' && branchIds.get('NB-HQ')) {
+        await seedNairobiEmergency(prisma, orgId, branchIds.get('NB-HQ')!);
       }
 
       // Departments (Nairobi demo only).

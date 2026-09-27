@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Lint / typecheck / boundaries / unit / build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run boundaries
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    name: End-to-end (Testcontainers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: gate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      # E2e spins up disposable Postgres + Redis via Testcontainers (Docker
+      # runs only the app under test, ephemeral databases on the runner).
+      - run: npm run test:e2e

@@ -4,6 +4,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Prisma } from '@prisma/client';
 import type { EmergencyRequest, EmergencyRequestStatus } from '@prisma/client';
+import { ENV, type Env } from '../../config/config.module';
 import { FieldEncryption } from '../../common/security/crypto';
 import { EventTypes } from '../../events/catalog';
 import { AppError } from '../../common/errors/app-error';
@@ -40,6 +41,7 @@ import {
 
 export const ESCALATION_QUEUE = 'emergency-escalation';
 export const ESCALATION_JOB = 'escalate';
+export const MAINTENANCE_JOB = 'maintenance';
 export const REQUESTS_TOPIC = 'emergency-requests';
 
 const REQUEST_STATUSES: EmergencyRequestStatus[] = [
@@ -83,6 +85,7 @@ export class EmergencyIntakeService {
     private readonly realtime: RealtimeService,
     @Inject(FieldEncryption) private readonly encryption: FieldEncryption,
     @InjectQueue(ESCALATION_QUEUE) private readonly escalationQueue: Queue,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -146,6 +149,40 @@ export class EmergencyIntakeService {
 
     const callerPhoneIndex =
       input.callerPhone !== undefined ? normalizePhone(input.callerPhone) : null;
+
+    // ADR-043: collapse repeat submissions from the same normalized phone while
+    // the earlier request is still open and inside the dedupe window. Unlike
+    // HTTP idempotency keys (the interceptor only guards tenant-scoped routes)
+    // this guards the anonymous surface at the payload level and prevents a
+    // retry or double-tap from creating a second incident.
+    if (callerPhoneIndex !== null) {
+      const recent = await this.prisma
+        .tenantFor(organizationId)
+        .emergencyRequest.findFirst({
+          where: {
+            organizationId: organizationId,
+            branchId: branchId,
+            callerPhoneIndex,
+            status: { in: ['RECEIVED', 'ESCALATED'] },
+            createdAt: {
+              gte: new Date(Date.now() - this.env.EMERGENCY_DEDUPE_SECONDS * 1000),
+            },
+          },
+          select: { id: true, referenceNumber: true },
+          orderBy: { createdAt: 'desc' },
+        });
+      if (recent) {
+        return {
+          request: {
+            id: recent.id,
+            referenceNumber: recent.referenceNumber,
+            duplicate: true,
+          },
+          contact: projection.phone ?? null,
+        };
+      }
+    }
+
     const { token, tokenHash } = generateTrackingToken();
 
     const request = await this.txRunner.run<EmergencyRequest>(
@@ -825,7 +862,16 @@ export class EmergencyIntakeService {
       where: { id: requestId, organizationId },
       select: { id: true, status: true, branchId: true, escalationLevel: true },
     });
-    if (!request || request.status !== 'RECEIVED' || request.escalationLevel >= level) {
+    // A keyboard request is RECEIVED or ESCALATED (each level flips the status
+    // read-model to ESCALATED); ACKNOWLEDGED/RESPONDING/CLOSED/CANCELLED stop
+    // the chain. The `escalationLevel === level - 1` guard is what makes each
+    // level exactly once, so accepting ESCALATED here lets levels >= 2 advance
+    // (and lets the maintenance sweep re-promote a lost later-level job).
+    if (
+      !request ||
+      (request.status !== 'RECEIVED' && request.status !== 'ESCALATED') ||
+      request.escalationLevel >= level
+    ) {
       return 'noop';
     }
     const policy = await db.emergencyIntakePolicy.findFirst({
@@ -837,7 +883,12 @@ export class EmergencyIntakeService {
     if (level > levels.length) return 'noop';
 
     const won = await db.emergencyRequest.updateMany({
-      where: { id: requestId, organizationId, escalationLevel: level - 1, status: 'RECEIVED' },
+      where: {
+        id: requestId,
+        organizationId,
+        escalationLevel: level - 1,
+        status: { in: ['RECEIVED', 'ESCALATED'] },
+      },
       data: { escalationLevel: level, status: 'ESCALATED' },
     });
     if (won.count !== 1) return 'noop';
@@ -879,6 +930,170 @@ export class EmergencyIntakeService {
       await this.scheduleEscalation(requestId, organizationId, level + 1);
     }
     return 'advanced';
+  }
+
+  // ---------------------------------------------------------------------------
+  // P4 hardening — maintenance sweep (ADR-043). Called by the repeatable worker
+  // job outside NODE_ENV=test; both sweeps are guarded/idempotent so they can
+  // race the normal delayed jobs, restarts, or a second worker instance.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Watchdog for lost SLA job-books: re-promotes any open request whose next
+   * escalation level is overdue but whose delayed BullMQ job never fired
+   * (Redis restart, eviction, manual drain). `attemptEscalation`'s guarded
+   * `updateMany` makes this exactly-once even when the original job still
+   * exists — a level can only ever advance by one writer.
+   */
+  async reconcileEscalations(now = new Date()): Promise<{ scanned: number; advanced: number }> {
+    const db = this.prisma.unscoped();
+    const policies = await db.emergencyIntakePolicy.findMany({
+      where: { enabled: true, autoEscalate: true },
+      select: { organizationId: true, branchId: true, levelSeconds: true },
+    });
+    const policyKey = (organizationId: string, branchId: string) =>
+      `${organizationId}:${branchId}`;
+    const byBranch = new Map(
+      policies.map((p) => [policyKey(p.organizationId, p.branchId), p]),
+    );
+    if (byBranch.size === 0) return { scanned: 0, advanced: 0 };
+
+    const open = await db.emergencyRequest.findMany({
+      where: { status: { in: ['RECEIVED', 'ESCALATED'] } },
+      select: {
+        id: true,
+        organizationId: true,
+        branchId: true,
+        status: true,
+        escalationLevel: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      take: 100,
+    });
+
+    let advanced = 0;
+    for (const request of open) {
+      const policy = byBranch.get(policyKey(request.organizationId, request.branchId));
+      if (!policy) continue;
+      const levels = parseLevelSeconds(policy.levelSeconds);
+      let dueLevel: number | null = null;
+
+      if (request.status === 'RECEIVED') {
+        const firstDelay = levelDelayMs(levels[0] ?? levels[levels.length - 1] ?? 5000);
+        if (now.getTime() - request.createdAt.getTime() < firstDelay) continue;
+        dueLevel = 1;
+      } else if (request.escalationLevel < levels.length) {
+        const last = await db.emergencyRequestEvent.findFirst({
+          where: { requestId: request.id, type: 'ESCALATED', level: request.escalationLevel },
+          orderBy: { occurredAt: 'desc' },
+          select: { occurredAt: true },
+        });
+        const triggerAt = last?.occurredAt ?? request.updatedAt;
+        const nextDelay = levelDelayMs(
+          levels[request.escalationLevel] ??
+            levels[levels.length - 1] ??
+            5000,
+        );
+        if (now.getTime() - triggerAt.getTime() < nextDelay) continue;
+        dueLevel = request.escalationLevel + 1;
+      }
+
+      if (dueLevel === null) continue;
+      const outcome = await this.attemptEscalation(request.id, request.organizationId, dueLevel);
+      if (outcome === 'advanced') advanced += 1;
+    }
+
+    return { scanned: open.length, advanced };
+  }
+
+  /**
+   * Retention hook (ADR-043): anonymize caller PII and retire the tracking
+   * token for terminal requests past the configured window. The incident's
+   * reference number and append-only event history remain for audit; only the
+   * PII columns and the token link are dropped. Guarded on `retainedAt` so two
+   * sweep instances can never double-process a row.
+   */
+  async applyRetention(
+    now = new Date(),
+    retentionDays = this.env.EMERGENCY_RETENTION_DAYS,
+  ): Promise<{ scanned: number; retained: number }> {
+    if (retentionDays <= 0) return { scanned: 0, retained: 0 };
+    const cutoff = new Date(now.getTime() - retentionDays * 86_400_000);
+    const db = this.prisma.unscoped();
+    const candidates = await db.emergencyRequest.findMany({
+      where: {
+        status: { in: ['CLOSED', 'CANCELLED'] },
+        retainedAt: null,
+        OR: [{ closedAt: { lt: cutoff } }, { cancelledAt: { lt: cutoff } }],
+      },
+      select: { id: true, organizationId: true, referenceNumber: true },
+      take: 200,
+    });
+
+    let retained = 0;
+    for (const candidate of candidates) {
+      let auditApplied = false;
+      await this.txRunner.run(
+        async (ctx: TxContext) => {
+          const updated = await ctx.db.emergencyRequest.updateMany({
+            where: { id: candidate.id, organizationId: candidate.organizationId },
+            data: {
+              retainedAt: now,
+              // Deterministic sentinel that can never collide with a real
+              // SHA-256 token hash, so the request stops matching any token.
+              trackingTokenHash: `retired:${candidate.id}`,
+              callerNameEnc: null,
+              callerPhoneEnc: null,
+              callerPhoneIndex: null,
+              descriptionEnc: null,
+              landmarkEnc: null,
+              staffNoteEnc: null,
+            },
+          });
+          if (updated.count !== 1) return;
+          auditApplied = true;
+          ctx.emit({
+            type: EventTypes.EmergencyRequestRetained,
+            aggregateType: 'emergency_request',
+            aggregateId: candidate.id,
+            payload: { requestId: candidate.id },
+          });
+          await ctx.db.emergencyRequestEvent.create({
+            data: {
+              id: newId(),
+              organizationId: candidate.organizationId,
+              requestId: candidate.id,
+              type: 'RETENTION',
+              level: null,
+              actor: 'SYSTEM',
+              payload: { retainedAt: now.toISOString() },
+            },
+          });
+          await ctx.db.auditLog.create({
+            data: {
+              id: newId(),
+              organizationId: candidate.organizationId,
+              action: 'emergency_request.pii_retained',
+              resource: 'emergency_request',
+              resourceId: candidate.id,
+              newState: { referenceNumber: candidate.referenceNumber },
+            },
+          });
+        },
+        { organizationId: candidate.organizationId },
+      );
+      if (!auditApplied) continue;
+      this.realtime.publish(candidate.organizationId, REQUESTS_TOPIC, {
+        event: EventTypes.EmergencyRequestRetained,
+        version: 1,
+        aggregateId: candidate.id,
+        payload: { requestId: candidate.id, retainedAt: now.toISOString() },
+      });
+      retained += 1;
+    }
+
+    return { scanned: candidates.length, retained };
   }
 
   // ---------------------------------------------------------------------------

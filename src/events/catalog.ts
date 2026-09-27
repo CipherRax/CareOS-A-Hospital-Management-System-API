@@ -126,6 +126,7 @@ export const EventTypes = {
   EmergencyRequestEscalated: 'Emergency.RequestEscalated',
   EmergencyRequestClosed: 'Emergency.RequestClosed',
   EmergencyRequestCancelled: 'Emergency.RequestCancelled',
+  EmergencyRequestRetained: 'Emergency.RequestRetained',
   /** Communication & documents (brief Phase 9). Payloads carry IDs only. */
   NotificationsQueued: 'Communications.NotificationsQueued',
   ConversationCreated: 'Communications.ConversationCreated',
@@ -279,6 +280,7 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.EmergencyRequestEscalated]: 1,
   [EventTypes.EmergencyRequestClosed]: 1,
   [EventTypes.EmergencyRequestCancelled]: 1,
+  [EventTypes.EmergencyRequestRetained]: 1,
   [EventTypes.NotificationsQueued]: 1,
   [EventTypes.ConversationCreated]: 1,
   [EventTypes.ConversationMessageSent]: 1,

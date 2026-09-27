@@ -25,7 +25,7 @@ coverage and a green quality gate.
 | **Inventory & pharmacy** | Medication catalog, purchase orders, FEFO batch stock under row locking, branch transfers, counts vs. append-only ledger, stock advisories, partial-dispense prescriptions |
 | **Billing & insurance** | Price list, invoices with derived settlement (incl. taxes/discounts/refunds), payments with exactly-once guards, insurance payers/policies/claims |
 | **Laboratory & radiology** | Lab-test catalog with configurable ranges, order/sample/results lifecycle with critical-value acknowledgement, radiology orders with imaging seams |
-| **Inpatient & emergency** | Wards/rooms/beds with one-bed-one-patient enforcement, admissions/transfers/discharges, full emergency-department workflow |
+| **Inpatient & emergency** | Wards/rooms/beds with one-bed-one-patient enforcement, admissions/transfers/discharges, full emergency-department workflow, and a **public anonymous emergency intake** (submit/track/cancel, staff inbox, SLA escalation, reference numbers) |
 | **Communication** | In-app notifications from outbox events, HIPAA-conscious messaging + telemedicine consent flows, quality (feedback/complaints/incidents), patient portal |
 | **Financials** | Double-entry ledger with app-level period locks and a DB balance guard, auto-posting from domain events, M-PESA STK push with secret-gated callbacks + reconciliation |
 | **Operations** | Expenses with segregation of duties, assets, maintenance, stock write-offs + wastage analytics |
@@ -51,8 +51,15 @@ coverage and a green quality gate.
   rendered with `toFixed(2)` — no floating-point drift anywhere (ADR-029).
 - **Idempotency by design.** Idempotency-key interceptors, unique keys on
   journeys, and `FOR UPDATE` locks make replays safe (ADR-009, ADR-032).
-- **Decision records** (ADR-001…037) and an honest **limitations** catalog live
-  in `docs/`.
+- **Public emergency intake (ADR-040/041/043).** Anonymous help requests ride a
+  PUBLISHED-only directory projection; caller PII is AES-256-GCM at rest with a
+  normalized (non-encrypting) duplicate-phone index, SLA escalation is exactly-once
+  via guarded delayed BullMQ jobs, and a repeatable maintenance sweep re-promotes
+  lost escalation jobs and applies PII retention after `EMERGENCY_RETENTION_DAYS`.
+- **Decision records** (ADR-001…043) and an honest **limitations** catalog live
+  in `docs/`. A **CI workflow** (`.github/workflows/ci.yml`) runs the full gate
+  (lint, typecheck, boundaries, unit, build) plus containerized e2e on every push
+  to `main`.
 
 ## Tech stack
 
@@ -106,6 +113,14 @@ npm run db:migrate:deploy
 npm run dev
 ```
 
+Optionally load the **demo dataset** (2 orgs, users, roles, an intake-enabled
+Nairobi branch with escalation contacts + national numbers, and a PUBLISHED
+public listing) so the anonymous emergency flow works immediately:
+
+```bash
+npm run db:seed
+```
+
 Open <http://localhost:3000/api/v1> (Swagger docs are enabled by default when
 `ENABLE_SWAGGER=true`). Health endpoints live at the root: `/health`,
 `/health/live`, `/health/ready`.
@@ -119,8 +134,10 @@ npm run worker          # production build
 npm run worker:dev      # watch mode
 ```
 
-> Delivery is currently push-triggered (no scheduler yet) — see
-> `docs/limitations.md`.
+> Outbox delivery is currently push-triggered (no scheduler yet), but the
+> worker does register the **emergency maintenance sweep** (a BullMQ repeatable
+> `maintenance` job that reconciles lost escalation jobs and applies PII
+> retention) — see `docs/limitations.md`.
 
 ## Configuration
 
@@ -128,9 +145,12 @@ All configuration is validated by Zod at boot; the app refuses to start on
 invalid or incomplete settings. Key variables (see `.env.example` for all):
 
 - `DATABASE_URL` / `DATABASE_DIRECT_URL` — PostgreSQL
-- `REDIS_*` — Redis for realtime + outbox
+- `REDIS_*` — Redis for realtime + outbox (+ `BULL_PREFIX` for BullMQ)
 - `S3_*` — MinIO/S3 object storage
 - `JWT_*`, `MFA_*`, `INVITE_*` — auth tokens
+- `EMERGENCY_*` — public emergency intake: `EMERGENCY_RETENTION_DAYS` (PII
+  retention window, 0 disables), `EMERGENCY_DEDUPE_SECONDS` (duplicate-submit
+  window), `EMERGENCY_SWEEP_INTERVAL_MS` (maintenance sweep cadence)
 - `CORS_ORIGINS`, `LOG_LEVEL`, `API_PREFIX`, `PORT`
 
 ## Quality gate
@@ -149,9 +169,9 @@ npm run test:e2e
 | Lint | `npm run lint` |
 | Typecheck | `npm run typecheck` |
 | Module boundaries | `npm run boundaries` |
-| Unit tests | `npm test` (371 tests · 52 suites) |
+| Unit tests | `npm test` (418 tests · 58 suites) |
 | Build | `npm run build` |
-| E2E (Testcontainers) | `npm run test:e2e` (185 tests · 16 suites) |
+| E2E (Testcontainers) | `npm run test:e2e` (217 tests · 18 suites) |
 
 E2E spins up fresh Postgres + Redis via Testcontainers, applies migrations
 idempotently, and exercises the API end to end — including real RLS isolation,
@@ -161,17 +181,20 @@ concurrency, and role-separation checks. Reuse external infra with
 ## Documentation
 
 - **`PROGRESS.md`** — phase-by-phase delivery record against the product brief.
-- **`docs/decisions.md`** — 37 accepted architecture/engineering decision records.
+- **`docs/decisions.md`** — accepted architecture/engineering decision records
+  (ADR-001…043, newest first).
 - **`docs/limitations.md`** — honest catalog of stubs, deferrals, and caveats.
 - **`docs/roadmap.md`** — tracked backlog of deferred production items.
+- **`docs/diagrams/`** — architecture/sequence diagrams (Mermaid).
 - **Swagger** — interactive API docs (dev default) under `/api/v1`.
 
 ## Status
 
-All brief phases (0–13) are delivered and pushed to `main`. Deferred production
-items (scheduler, live M-PESA adapter, delivery adapters, PDF tooling) are
-tracked in **`docs/roadmap.md`**, with the full caveat catalog in
-`docs/limitations.md`.
+All brief phases (0–13) are delivered, and the backend patch (P1 session &
+display devices, P2 public directory, P3 public emergency intake, P4 hardening)
+is on `main`. Deferred production items (scheduler, live M-PESA adapter,
+delivery adapters, PDF tooling) are tracked in **`docs/roadmap.md`**, with the
+full caveat catalog in `docs/limitations.md`.
 
 ## License
 

@@ -69,7 +69,15 @@ export class IdempotencyInterceptor implements NestInterceptor {
     const scopeKey = `${req.method.toUpperCase()} ${routePattern}`;
     const requestHash = this.hash(JSON.stringify(req.body ?? {}));
 
-    const organizationId = this.tenantContext.requireOrg();
+    // Public/anonymous routes have no tenant scope, so there is no
+    // (organizationId, scopeKey, key) row to guard with. Pass through instead
+    // of raising TenantRequiredError (previously any anonymous request with an
+    // Idempotency-Key 500'd). Duplicate-suppression on the public emergency
+    // submit is handled by the payload-based dedupe window (ADR-043).
+    const organizationId = this.tenantContext.scope.organizationId;
+    if (!organizationId) {
+      return next.handle();
+    }
 
     return from(this.acquire(organizationId, scopeKey, key, requestHash)).pipe(
       switchMap((decision): Observable<unknown> => {
@@ -90,14 +98,27 @@ export class IdempotencyInterceptor implements NestInterceptor {
         return next.handle().pipe(
           tap({
             next: (_value) => {
-              const reply = http.getResponse<{ raw: unknown }>();
+              const reply = http.getResponse<{
+                raw: unknown;
+                statusCode?: number;
+              }>();
               const raw = reply.raw as {
                 writableEnded: boolean;
                 once: (evt: string, cb: () => void) => void;
               };
               if (!raw.once) return;
+              // Persist the route's real status (e.g. 201) so replays reproduce
+              // it instead of pinning every record to 200.
+              const status = reply.statusCode ?? 200;
               const persist = () => {
-                void this.complete(organizationId, scopeKey, key, requestHash, _value);
+                void this.complete(
+                  organizationId,
+                  scopeKey,
+                  key,
+                  requestHash,
+                  _value,
+                  status,
+                );
               };
               if (raw.writableEnded) persist();
               else raw.once('finish', persist);
@@ -239,6 +260,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
     idempotencyKey: string,
     requestHash: string,
     value: unknown,
+    status: number,
   ): Promise<void> {
     try {
       await this.prisma.tenant.idempotencyRecord.updateMany({
@@ -246,7 +268,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
         data: {
           status: 'COMPLETED',
           responseBody: (value ?? Prisma.JsonNull) as Prisma.InputJsonValue,
-          responseStatus: 200,
+          responseStatus: status,
         },
       });
     } catch (err) {

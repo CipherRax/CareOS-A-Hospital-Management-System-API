@@ -308,7 +308,7 @@ describe('public emergency intake (patch P3)', () => {
           where: { requestId },
           select: { type: true, level: true },
         });
-        return { done: ev.some((e) => e.type === 'ESCALATED' && e.level >= 1) };
+        return { done: ev.some((e) => e.type === 'ESCALATED' && (e.level ?? 0) >= 1) };
       },
       ({ done }) => done,
     );
@@ -318,7 +318,7 @@ describe('public emergency intake (patch P3)', () => {
       orderBy: { occurredAt: 'asc' },
       select: { type: true, level: true },
     });
-    expect(events.some((e) => e.type === 'ESCALATED' && e.level >= 1)).toBe(true);
+    expect(events.some((e) => e.type === 'ESCALATED' && (e.level ?? 0) >= 1)).toBe(true);
 
     const ack = await app.inject({
       method: 'POST',

@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 388/388 unit (53 suites) |
+| `npm test`   | 418/418 unit (58 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 203/203 (17 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 217/217 (18 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -464,9 +464,9 @@ Done:
   PO lifecycle + illegal moves + over-receive, branch transfer both ledger legs,
   stock count create→record→apply (on-hand reset + ADJUSTMENT leg), alerts,
   pharmacy task projection under replay, role separation (doctor cannot
-  dispense), idempotency-key replay (200 cached response, no double-dispense).
-  The idempotency-replay status (200) and the raw-SQL `lockBatchRows` caveat
-  are documented in `docs/limitations.md`. Unit suites added for
+  dispense), idempotency-key replay (reproduces the original 201 status, no
+  double-dispense). The original-status replay and the raw-SQL `lockBatchRows`
+  caveat are documented in `docs/limitations.md`. Unit suites added for
   fefo, stock-risk/ledger, and the prescription-flow / po-flow domains (27
   suites / 182 unit tests total).
 
@@ -500,7 +500,7 @@ Done:
   recomputed via `settleInvoiceStatus`; `RCT-YYYY-NNNNNN` receipts. Overpayment
   is rejected (400); payment on DRAFT is rejected (409
   `INVALID_WORKFLOW_TRANSITION`); refunding a payment re-opens the invoice
-  (PAID → ISSUED edge). Idempotency-key replays return the cached 200.
+  (PAID → ISSUED edge). Idempotency-key replays reproduce the stored status (201).
 - **Insurance.** Payers (active flag), patient policies (FULL / PARTIAL with
   `coveragePercent`, patient-number + policy-number matching), and claims
   DRAFT → SUBMITTED → APPROVED / PARTIALLY_APPROVED / DENIED → PAID. Actions
@@ -1204,12 +1204,96 @@ multi-level autonomous SLA escalation (ADR-040) and PII encrypted at rest
   disabled facility rejected → numbers/notice fallback + reference). E2E total:
   18 suites / 217 (+14). Unit 56 suites / 401 (+13).
 
-**Open notes (see `docs/limitations.md`):** escalation is best-effort —
-delayed BullMQ jobs are lost if Redis is down at fire time with no outbox
-reconciliation sweep (P4: hardening); no SMS/voice bridge from escalation
-"call the numbers" (action is the terminal nudge); single latest encrypted
-staff note without author tracking; anonymous submit requires either a
-resolvable facility location or an explicit caller location.
+**Open notes (see `docs/limitations.md`):** escalation is best-effort — delayed
+BullMQ jobs are lost if Redis is down at fire time; a reconcile + retention
+sweep now backstops this (P4). No SMS/voice bridge from escalation "call the
+numbers" (action is the terminal nudge); single latest encrypted staff note
+without author tracking; anonymous submit requires either a resolvable facility
+location or an explicit caller location.
+
+### P4 — Hardening & release (COMPLETE)
+
+Closes the P0/P3 audit gaps flagged for release: rate-limit unit mismatch,
+anonymous idempotency, lost-SLA-job reconciliation + PII retention hooks
+(ADR-043), throttle buffer fixes, a runnable DEMO seed, and a CI workflow.
+
+- **Rate-limit units fixed.** `@nestjs/throttler` hands `ttl`/`blockDuration`
+  to the storage in **milliseconds**; `RedisThrottlerStorage` was treating them
+  as seconds — `@Throttle({ ttl: 60_000 })` silently became a ~16.7h window and
+  the root throttlers (`ttl: 60` / `ttl: 5`) were 60ms / 5ms (no real limit).
+  The storage now floors ms → whole seconds (`toSeconds`, min 1 s) before the
+  fixed-window bucket math and `EXPIRE`
+  (`src/database/redis-throttler.storage.ts`); root throttlers in
+  `database.module.ts` are explicit `{ ttl: 60_000, limit: 120 }` /
+  `{ ttl: 5_000, limit: 30 }`. Fail-open behaviour is retained. Unit suite
+  `test/unit/database/redis-throttler.storage.spec.ts`.
+- **Anonymous idempotency no longer 500s.** The global idempotency interceptor
+  (APP_INTERCEPTOR) called `tenantContext.requireOrg()` on every guarded route,
+  so any anonymous `POST` carrying an `Idempotency-Key` died with a
+  TenantRequiredError. It now reads `scope.organizationId` and passes through
+  when there is no tenant scope (the public emergency submit is guarded at the
+  payload layer by the dedupe window instead). Also persists the route's **real**
+  `reply.statusCode` (e.g. 201), so replays reproduce the original status rather
+  than a pinned 200 (`src/common/interceptors/idempotency.interceptor.ts`;
+  unit suite `test/unit/security/idempotency.interceptor.spec.ts`).
+- **Submit dedupe (ADR-043).** `submitPublic` collapses repeat submissions from
+  the same normalized phone while an earlier request for that branch is still
+  open and inside `EMERGENCY_DEDUPE_SECONDS` (default 120 s): the call returns
+  the existing request with `duplicate: true` and no second token is minted.
+  Guards the anonymous surface that the HTTP idempotency interceptor cannot
+  reach.
+- **Escalation chain reopened.** The P3 `attemptEscalation` guard only advanced
+  from `status: RECEIVED`, but level 1 flips the read-model to `ESCALATED` — so
+  levels ≥ 2 could never fire and the watchdog could not re-promote them. It now
+  accepts `RECEIVED | ESCALATED` (the `escalationLevel === level-1` guard keeps
+  every level exactly once). This also makes multi-level SLA escalation actually
+  work beyond level 1.
+- **Maintenance sweep (ADR-043).** The escalation worker (renamed
+  `EmergencyIntakeWorker`) now also registers one repeatable `maintenance` job
+  per process (`EMERGENCY_SWEEP_INTERVAL_MS`, default 60 s), scheduled only
+  outside `NODE_ENV=test` so e2e stays deterministic. One maintenance tick runs:
+  - `reconcileEscalations` — scan open RECEIVED/ESCALATED requests (take 100),
+    reload enabled+autoEscalate policies, and re-`attemptEscalation` any request
+    whose next level is overdue but whose delayed job never fired (Redis
+    restart / eviction). The guarded `updateMany` makes it exactly-once even
+    against a still-live job.
+  - `applyRetention` — for CLOSED/CANCELLED requests older than
+    `EMERGENCY_RETENTION_DAYS` (default 90; 0 disables), per request in a tenant
+    tx: guarded `updateMany` stamps `retainedAt`, retires the tracking token to
+    a deterministic `retired:<id>` sentinel that can never match a SHA-256 hash,
+    nulls the caller PII columns (`callerNameEnc`/`callerPhoneEnc`/
+    `callerPhoneIndex`/`descriptionEnc`/`landmarkEnc`/`staffNoteEnc`), writes a
+    `RETENTION` event (actor `SYSTEM`) + audit row, emits
+    `Emergency.RequestRetained`, and publishes to the requests topic. The
+    reference number and append-only event history survive for audit.
+- **Schema:** `EmergencyRequest.retainedAt` + `@@index([status, retainedAt])`;
+  `EmergencyRequestEventType` gains `RETENTION` (migration
+  `20261001120000_phase_p4_hardening`).
+- **Demo seed.** `prisma/seed.ts` extends demo-org-nairobi / NB-HQ with a fully
+  runnable anonymous surface: intake policy enabled (levels 5m/15m/30m, emergency
+  phone), 3 ordered escalation contacts, the KE national numbers (999/112/997/
+  115), an active public notice, directory listing settings
+  (`emergencyIntakeEnabled` + coords) and a PUBLISHED
+  `public_facility_listing` projection mirroring the publish() shape — so
+  `npm run db:seed` alone makes the whole §6.15 flow exercisable.
+- **CI (`github` workflow).** New `.github/workflows/ci.yml`: on push/PR to main
+  it runs `npm ci` → `prisma generate` → lint → typecheck → boundaries → unit →
+  build, then a Testcontainers e2e job (Docker on the runner).
+- **Worker/module wiring.** BullMQ `forRootAsync` now sets `prefix:
+  env.BULL_PREFIX` (was declared but unused); the queue is injected into the
+  worker; the module registers `EmergencyIntakeWorker`.
+- **Tests:** +17 unit (58 suites / 418) covering the throttle unit conversion,
+  anonymous idempotency pass-through + scoped replay shape, submit dedupe, the
+  reconcile re-promote (RECEIVED → 1 and stuck ESCALATED → level 2), retention
+  anonymise/retire/race-skip/disabled, plus a multi-level escalation-chain
+  assertion. E2E unchanged at 18 suites / 217.
+
+**Open notes (see `docs/limitations.md`):** the retention sweep does not
+distribute PII across shards or rewrite outbox/SSE history; timing-safe token
+comparison was deliberately **not** added (tracking lookup is already a single
+hash-index equality, so constant-time compare would be dead code); the
+repeatable sweep is optimistic (single-writer guarded, but a fleet of app
+instances each schedules the same repeatable job — BullMQ dedupes by jobId).
 
 ## Notes
 
@@ -1222,11 +1306,12 @@ resolvable facility location or an explicit caller location.
   work was committed earlier under the label "Phase 2" and is documented here as
   Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
   keep git history unchanged; git history is unchanged.
-- The e2e suite reaches 203 tests across 17 suites (identity, patients,
+- The e2e suite reaches 217 tests across 18 suites (identity, patients,
   documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, the phase-4
   clinical spec, the phase-5 inventory/pharmacy spec, the phase-6 billing
   spec, the phase-7 laboratory/radiology spec, the phase-8
   inpatient/emergency spec, the phase-10 communication spec, the phase-11
   financial/ledger/M-PESA spec, the phase-12 operations spec, the phase-13
-  analytics/reports spec, and the public-directory spec; file names keep the
-  old labels to avoid churn while the sections here track the brief's phases).
+  analytics/reports spec, the public-directory spec, and the emergency-intake
+  spec; file names keep the old labels to avoid churn while the sections here
+  track the brief's phases).

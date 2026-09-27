@@ -1,0 +1,22 @@
+# Public emergency intake — system context (ADR-038/040/041/043)
+# careOS — docs/diagrams/emergency-intake-context.mmd
+
+flowchart LR
+  A[Anonymous caller<br/>no tenant scope] -->|POST /public/emergency/requests| P[PublicEmergencyController]
+
+  P -->|"slug -> PUBLISHED only"| D[(public_facility_listings<br/>projection, ADR-038)]
+  P -->|normalized phone dedupe<br/>(EMERGENCY_DEDUPE_SECONDS)| Rq[(emergency_requests<br/>tenant RLS)]
+  P -->|caller PII AES-256-GCM<br/>token = SHA-256 hash| Enc[FieldEncryption<br/>ADR-041]
+
+  Rq -->|outbox event| O[(outbox_events)]
+  Rq -->|delayed job level 1| Q[(BullMQ<br/>emergency-escalation queue)]
+  Q -->|escalate job| W[EmergencyIntakeWorker]
+  W -->|guarded updateMany<br/>exactly-once| Rq
+
+  S[Staff / emergency board] -->|GET /emergency/requests/stream| SSE[SSE on<br/>emergency-requests topic]
+  Rq -->|Emergency.RequestRetained etc.| Realtime[(Redis pub/sub)]
+  Realtime --> SSE
+
+  W -->|repeat maintenance job<br/>(NODE_ENV != test)| MT[reconcileEscalations + applyRetention]
+  MT -->|re-promote overdue<br/>lost SLA jobs| Q
+  MT -->|retain PII after<br/>EMERGENCY_RETENTION_DAYS| Rq

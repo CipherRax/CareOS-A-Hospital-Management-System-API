@@ -23,13 +23,27 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
 
   constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
 
+  /**
+   * @nestjs/throttler calls increment with `ttl` and `blockDuration` in
+   * milliseconds (its internal stride is date-based). This storage uses
+   * fixed-window Redis buckets, so the millisecond values are floored to whole
+   * seconds before they touch EXPIRE. Keeping the conversion here (not in the
+   * ThrottlerModule configs) means per-route `@Throttle({ ttl: 60_000 })`
+   * really is a 60-second window and the root throttlers behave as written.
+   */
+  private static toSeconds(value: number): number {
+    return Math.max(1, Math.floor(value / 1000));
+  }
+
   async increment(
     key: string,
-    ttlSeconds: number,
+    ttlMs: number,
     limit: number,
-    blockDuration: number,
+    blockDurationMs: number,
     throttlerName: string,
   ): Promise<ThrottlerStorageRecord> {
+    const ttlSeconds = RedisThrottlerStorage.toSeconds(ttlMs);
+    const blockDuration = RedisThrottlerStorage.toSeconds(blockDurationMs);
     const nowSec = Math.floor(Date.now() / 1000);
     const bucketStart = Math.floor(nowSec / ttlSeconds) * ttlSeconds;
     const bucketKey = `throttle:${throttlerName}:${key}:${bucketStart}`;

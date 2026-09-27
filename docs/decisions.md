@@ -3,6 +3,56 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-043 — Anonymous emergency intake is sweeper-backed: lost-job reconciliation, payload dedupe, and PII retention
+
+**Status:** accepted (Patch P4)
+
+**Context:** three release-gap behaviours in the §6.15 anonymous intake flow
+needed a home. (1) Escalation levels are delayed BullMQ jobs; if Redis loses a
+job between scheduling and fire time, an unacknowledged request silently stops
+escalating — with no outbox row to replay. (2) The global HTTP idempotency
+interceptor only guards tenant-scoped routes, so an anonymous double-tap of
+`POST /public/emergency/requests` could mint two incidents. (3) The P3 schema
+kept caller PII encrypted-but-indefinitely, with no SLA after closure.
+
+**Decision:**
+- **Reconciliation sweep.** The escalation processor becomes one unified worker
+  (`EmergencyIntakeWorker`) that also registers a repeatable `maintenance` job
+  (BullMQ `repeat: { every: EMERGENCY_SWEEP_INTERVAL_MS }`, default 60 s,
+  scheduled only outside `NODE_ENV=test` so e2e stays deterministic).
+  `reconcileEscalations` (unscoped scan of open RECEIVED/ESCALATED requests,
+  take 100, plus the enabled `autoEscalate` policies) re-runs
+  `attemptEscalation` for any request whose next level is overdue, which is
+  exactly-once via the existing guarded `updateMany` even against a still-live
+  job.
+- **Payload dedupe.** `submitPublic` keeps a normalized `callerPhoneIndex` and,
+  before minting a token, looks for an open (RECEIVED/ESCALATED) request from
+  that phone at the same branch inside `EMERGENCY_DEDUPE_SECONDS` (default 120
+  s); a hit returns `{ request: { id, referenceNumber, duplicate: true } }` and
+  no second token.
+- **Retention hook.** `applyRetention` anonymizes CLOSED/CANCELLED requests
+  past `EMERGENCY_RETENTION_DAYS` (default 90; 0 disables) one per tenant tx:
+  guarded `updateMany` stamps `retainedAt`, retires the tracking token to a
+  `retired:<id>` sentinel that can never collide with a SHA-256 hash, nulls the
+  caller PII columns, writes a `RETENTION` event (actor `SYSTEM`) + audit row,
+  emits `Emergency.RequestRetained`, and publishes to the requests topic. The
+  reference number and append-only event history survive for audit; PII does
+  not.
+- **Concurrent escalation was reopened for later levels.** The P3 guard only
+  advanced from `status: RECEIVED`, but level 1 sets the read-model to
+  `ESCALATED`; it now accepts `RECEIVED | ESCALATED` (the `escalationLevel ===
+  level-1` predicate keeps every level exactly once).
+
+**Consequences:** lost SLA jobs are re-promoted within one sweep interval rather
+than lost outright (still best-effort, not instantaneous); the anonymous surface
+has a payload-level guard the HTTP interceptor cannot provide; PII has a
+snowballing retention lifecycle without deleting the incident audit trail.
+Processes are single-writer guarded but the repeatable job is registered per
+instance — BullMQ dedupes by `jobId`, and the guarded writes keep a multi-instance
+fleet safe. Timing-safe token comparison was explicitly rejected: tracking
+lookup is a single hash-index equality, so a constant-time compare would be dead
+code.
+
 ## ADR-042 — `/auth/me` and `X-Branch-Id` share one permission resolver and can never widen access
 
 **Status:** accepted (Patch P1)
@@ -794,7 +844,9 @@ returns 409, a replay of a finished request returns the stored response.
 
 **Consequences:** B-tree index locality is per-org; Prisma generates the
 compound unique name `organizationId_scopeKey_idempotencyKey`, which
-`findUnique` must use explicitly.
+`findUnique` must use explicitly. The replay payload persisted the route's real
+`reply.statusCode` from P4 (previously a pinned `200`), so a replay reproduces
+the original status and body (ADR-043).
 
 ## ADR-008 — Append-only audit log enforced in the database
 

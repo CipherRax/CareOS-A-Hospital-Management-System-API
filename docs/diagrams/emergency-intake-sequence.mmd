@@ -1,0 +1,44 @@
+# Emergency intake — submit-to-escalation sequence + P4 sweep (ADR-040/043)
+# careOS — docs/diagrams/emergency-intake-sequence.mmd
+
+sequenceDiagram
+  autonumber
+  participant C as Anonymous caller
+  participant P as PublicEmergencyController
+  participant SVC as EmergencyIntakeService
+  participant DB as tenant emergency_requests
+  participant Q as BullMQ emergency-escalation
+  participant W as EmergencyIntakeWorker
+  participant RT as Realtime/SSE
+
+  C->>P: POST /public/emergency/requests (slug, callerPhone, description, location)
+  P->>SVC: submitPublic()
+  SVC->>SVC: callerPhoneIndex = normalize(callerPhone)
+  alt phone present and open request inside EMERGENCY_DEDUPE_SECONDS
+    SVC-->>C: { request: { id, referenceNumber, duplicate: true } }
+  else no recent duplicate
+    SVC->>DB: tx: create + RECEIVED event + counter (EMR-…), token hash only
+    SVC->>SVC: token returned exactly once
+    opt policy.enabled && autoEscalate
+      SVC->>Q: add('escalate', {requestId, level:1}, jobId '<id>-1')  delay
+    end
+    SVC-->>C: { request, trackingToken, contact }
+  end
+
+  Note over W,Q: later, each delayed level fires (repeated for levels 2..N)
+  Q->>W: escalate job (level k)
+  W->>SVC: attemptEscalation(requestId, org, level k)
+  SVC->>DB: guarded updateMany (escalationLevel = k-1, status RECEIVED|ESCALATED)
+  alt won
+    SVC->>SVC: write ESCALATED event + CALL_NOW/await-next-level
+    SVC->>Q: add level k+1 job (unless final level)
+    SVC->>RT: Emergency.RequestEscalated
+  else noop (already acked / a higher level / closed)
+  end
+
+  Note over W: repeat maintenance job every EMERGENCY_SWEEP_INTERVAL_MS (not in test)
+  W->>SVC: reconcileEscalations() — scan open requests + enabled policies
+  SVC->>SVC: recompute overdue level (lost-job watchdog) -> attemptEscalation (idempotent)
+  W->>SVC: applyRetention() — CLOSED/CANCELLED older than EMERGENCY_RETENTION_DAYS
+  SVC->>DB: guarded tx: retainedAt, token='retired:<id>', null caller PII + RETENTION event + audit
+  SVC->>RT: Emergency.RequestRetained

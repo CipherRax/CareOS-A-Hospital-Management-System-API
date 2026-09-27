@@ -163,7 +163,9 @@ describe('tenant pipeline (auth, tenancy, outbox, idempotency) — Phase 0', () 
     expect(recordStatus).toBe('COMPLETED');
 
     const res2 = await doPost();
-    expect(res2.statusCode).toBe(200);
+    // The idempotency contract replays the stored response; P4 made it
+    // reproduce the original status (201) instead of a pinned 200.
+    expect(res2.statusCode).toBe(201);
     expect(res2.json().data.auditId).toBe(auditId1);
 
     const count = await prisma

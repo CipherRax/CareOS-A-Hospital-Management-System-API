@@ -761,8 +761,9 @@ describe('phase5 inventory & pharmacy', () => {
     const replayed = await post('/pharmacy/stock/dispense', pharmacist, payload, {
       'idempotency-key': key,
     });
-    // The idempotency contract replays the stored response as a 200 envelope.
-    expect(replayed.statusCode).toBe(200);
+    // The idempotency contract replays the stored response; P4 made it
+    // reproduce the original status (201) instead of a pinned 200.
+    expect(replayed.statusCode).toBe(201);
     expect(replayed.json().success).toBe(true);
 
     // Only one unit left the shelf despite the replay.

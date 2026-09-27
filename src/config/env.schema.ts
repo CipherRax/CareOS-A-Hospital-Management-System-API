@@ -104,6 +104,16 @@ export const envSchema = z.object({
   // is disabled and the feed is empty; the anonymous directory still serves
   // org-published branches.
   PUBLIC_FACILITY_SOURCE_CSV_URL: urlSchema.optional(),
+
+  // Public emergency intake (brief §6.15, patch P4 hardening — ADR-043).
+  // EMERGENCY_RETENTION_DAYS impels the maintenance sweep to anonymize caller
+  // PII on terminal requests older than N days (0 disables retention). Duplicate
+  // submissions from the same normalized phone within EMERGENCY_DEDUPE_SECONDS
+  // against an open request are collapsed. EMERGENCY_SWEEP_INTERVAL_MS is the
+  // BullMQ repeat period for reconcile+retention (not started under NODE_ENV=test).
+  EMERGENCY_RETENTION_DAYS: z.coerce.number().int().nonnegative().default(90),
+  EMERGENCY_DEDUPE_SECONDS: z.coerce.number().int().nonnegative().default(120),
+  EMERGENCY_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60000),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -132,5 +142,6 @@ export function envSummary(env: Env): Record<string, unknown> {
     redis: `${env.REDIS_HOST}:${env.REDIS_PORT}`,
     metrics: env.METRICS_ENABLED,
     otel: env.OTEL_ENABLED,
+    emergencyRetentionDays: env.EMERGENCY_RETENTION_DAYS,
   };
 }

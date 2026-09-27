@@ -26,8 +26,10 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–042.
   append-only events, public submit (idempotent) + tracking/cancel/update,
   staff inbox + SSE + actions, neutral notifications, BullMQ escalation
   (ADR-040), field encryption (ADR-041), ED-arrival link.
-- [ ] **P4 — Hardening & release.** Abuse controls, retention hooks, DEMO seed,
-  full tests, docs/diagrams, README, CI.
+- [x] **P4 — Hardening & release.** Abuse controls (throttle ttl-unit fix,
+  anonymous idempotency pass-through, submit dedupe), retention hooks +
+  escalation reconciliation sweep (ADR-043), DEMO seed, full tests,
+  docs/diagrams, README, CI workflow.
 
 ## High priority
 

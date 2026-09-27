@@ -34,8 +34,8 @@ import { PharmacyTaskConsumer } from '../events/consumers/pharmacy-tasks.consume
       useFactory: (redis: Redis) => ({
         storage: new RedisThrottlerStorage(redis),
         throttlers: [
-          { name: 'default', ttl: 60, limit: 120 },
-          { name: 'short', ttl: 5, limit: 30 },
+          { name: 'default', ttl: 60_000, limit: 120 },
+          { name: 'short', ttl: 5_000, limit: 30 },
         ],
       }),
     }),
