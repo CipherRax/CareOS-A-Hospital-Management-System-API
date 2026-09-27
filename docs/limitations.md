@@ -122,6 +122,18 @@ working code with a caveat.
   `body.data.items`. The metrics/bottleneck/dashboard payloads are plain
   objects and read via `body.data` as a single object.
 
+- **The geocoding provider is a no-op stub (P2).** `[stub]` `NoopGeocodingProvider`
+  (`GEOCODING_PROVIDER` in `src/modules/directory/providers`) reports
+  `supported: false` and returns zero results; `GET /public/geocode` answers
+  honestly with `{ supported: false, provider: 'noop', results: [] }`. No
+  coordinates are ever autofilled for suggested/corrected listings from a map.
+- **The facility CSV feed is disabled unless `PUBLIC_FACILITY_SOURCE_CSV_URL`
+  is set (P2).** `[stub]` `RemoteCsvFacilityDirectoryProvider` (RFC-4180-ish
+  parser; skips malformed rows) only runs when the optional env var is
+  configured; otherwise `POST /admin/listings/import/run` throws
+  `DIRECTORY_SOURCE_UNAVAILABLE` (503). The 15s fetch timeout and the URL
+  trust/rate limits are operator concerns.
+
 ## Known caveats in shipped code
 
 - **`/auth/me` `patient` is always null (P1).** Staff↔patient links are not
@@ -138,6 +150,26 @@ working code with a caveat.
   branch the caller already holds; un-assigned ids → 403. It does not widen
   access and does not (yet) filter every downstream query — features consume
   `TenantScope.branchId` explicitly.
+- **The public directory has no separate `careos_public` read-only role (P2,
+  ADR-038).** The patch enforces the public boundary in application code
+  (`prisma.unscoped()` projections + whitelisted serializer + skip of tenant
+  middleware), so `PublicFacilityListing`/`ImportedFacility`/
+  `OnboardingInquiry` are reachable READ-ONLY for anonymous callers; the
+  dedicated Postgres role is a documented operator step, not provisioned here.
+- **Public directory search is exact/`CONTAINS` (P2, ADR-039).** Matches are
+  intentional-exact (no fuzzy/hard-corrected spelling); search results are not
+  distance-ranked and can list facilities far apart when several share a town.
+  `distanceKm` is authored only on `/nearby` results.
+- **Public directory wait estimates are always null (P2).** `serializePublicListing`
+  does not fabricate busyness; `waitEstimateMinutes` will resolve in P4 when
+  ED-inbox telemetry feeds the projection.
+- **Directory cache is a 60s snapshot with coarse invalidation (P2).** Reads are
+  cached on `directory:v{rev}:{base}:{hash}`; any admin listing action bumps
+  `directory:rev` and the cache consumer idempotently re-bumps on
+  `Directory.PublicListingChanged`. A change can therefore be stale for up to
+  60s on the public side. The revision counter is Redis-only — a Redis flush
+  resets it (safe: returns to direct reads), and it is not the source of truth
+  for the rows themselves.
 - **Display `GET /display/queue` and `POST /admin/display-devices*` alias the
   existing `POST /display/devices*` surface (P1).** Both route families call
   the same `DisplayService`; there is one implementation, not two.

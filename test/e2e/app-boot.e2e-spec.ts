@@ -118,6 +118,15 @@ describe('app boot + envelope + deny-by-default (Phase 0 acceptance)', () => {
       '/api/v1/auth/invites/accept',
       '/api/v1/auth/password/request',
       '/api/v1/auth/password/reset',
+      // Public facility directory surfaces (Phase 2): anonymous by design,
+      // IP-rate-limited, and reading only the PUBLISHED projection.
+      '/api/v1/public/facilities/nearby',
+      '/api/v1/public/facilities/search',
+      '/api/v1/public/facilities/:slug',
+      '/api/v1/public/facilities/config',
+      '/api/v1/public/facilities/suggest',
+      '/api/v1/public/geocode',
+      '/api/v1/public/onboarding-inquiries',
     ]);
     const failures: string[] = [];
 

@@ -181,6 +181,8 @@ const ALL = [
   G.mpesa.read,
   G.mpesa.initiate,
   G.mpesa.reconcile,
+  G.publicListing.manage,
+  G.facilityDirectory.facilitiesManage,
 ];
 
 /**
@@ -308,6 +310,7 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.maintenance.create,
       G.maintenance.manage,
       G.analytics.read,
+      G.publicListing.manage,
     ],
   },
   DOCTOR: {
@@ -701,6 +704,7 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.maintenance.create,
       G.maintenance.manage,
       G.analytics.read,
+      G.publicListing.manage,
     ],
   },
   AUDITOR: {

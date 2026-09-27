@@ -273,6 +273,16 @@ export const PERMISSION_GROUPS = {
   analytics: {
     read: 'analytics.read',
   },
+  // Public facility directory (brief §6.14, patch P2). public_listing.manage
+  // covers publishing/updating one's own branch listing; platform.facilities.manage
+  // is the cross-tenant operator surface (suspend/confirm/import sync/verified
+  // feed) and is granted only to platform-level roles.
+  publicListing: {
+    manage: 'public_listing.manage',
+  },
+  facilityDirectory: {
+    facilitiesManage: 'platform.facilities.manage',
+  },
 } as const;
 
 export type Permission = string;

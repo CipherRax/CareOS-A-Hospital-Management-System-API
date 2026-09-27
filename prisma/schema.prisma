@@ -4332,3 +4332,137 @@ model ReportExport {
   @@index([organizationId, createdAt])
   @@map("report_exports")
 }
+
+// ---------------------------------------------------------------------------
+// Public facility directory (brief §6.14; ADR-038/039, patch P2).
+//
+// CROSS-TENANT: these tables are NOT in TENANT_MODELS. They hold only
+// sanitized, denormalized projection data for anonymous public consumers (the
+// directory feed). sourceOrganizationId / sourceBranchId are inert pointers
+// (deliberately without FK): the projection is an independent read model that
+// must never grant a path back into tenant tables (ADR-038). Only fields a
+// member of the public may see are persisted here.
+// ---------------------------------------------------------------------------
+enum PublicListingStatus {
+  DRAFT
+  PUBLISHED
+  SUSPENDED
+}
+
+enum PublicVerificationStatus {
+  UNVERIFIED
+  DETAILS_CONFIRMED
+}
+
+model PublicFacilityListing {
+  id   String @id
+  slug String @unique
+  name String
+  summary     String?
+  description String?
+  address     String?
+  county      String?
+  town        String?
+  phone       String?
+  email       String?
+  website     String?
+  timezone    String @default("Africa/Nairobi")
+
+  hours         Json?
+  departments   Json?
+  insurance     String[]
+  accessibility String[]
+  services      Json?
+  feeNote       Json?
+
+  open24h              Boolean @default(false)
+  emergency24h         Boolean @default(false)
+  ambulanceAvailable   Boolean @default(false)
+  emergencyIntakeEnabled Boolean @default(false)
+  acceptsOnlineBooking Boolean @default(false)
+  emergencyIntakeIndex Int?
+
+  locationLat Float?
+  locationLng Float?
+
+  status             PublicListingStatus      @default(DRAFT)
+  verificationStatus PublicVerificationStatus @default(UNVERIFIED)
+  lastConfirmedAt    DateTime?
+  partner            Boolean @default(true)
+  sourceOrganizationId String?
+  sourceBranchId       String?
+  importedSourceId     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, locationLat, locationLng])
+  @@index([status, county])
+  @@index([status, town])
+  @@index([sourceOrganizationId, sourceBranchId])
+  @@map("public_facility_listings")
+}
+
+/** Source row the directory importer ingests (facility-directory CSV feed). */
+model ImportedFacility {
+  id       String @id
+  sourceId String @unique
+  name     String
+  address  String?
+  county   String?
+  town     String?
+  phone    String?
+  email    String?
+  website  String?
+  hours        Json?
+  locationLat  Float?
+  locationLng  Float?
+  provider     String @default("csv")
+  licence      String?
+  partner      Boolean @default(false)
+  raw          Json?
+
+  importedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([county, town])
+  @@index([partner])
+  @@map("imported_facilities")
+}
+
+enum OnboardingInquiryKind {
+  FACILITY_SUGGESTION
+  LISTING_CORRECTION
+  ONBOARDING_REQUEST
+}
+
+enum OnboardingInquiryStatus {
+  PENDING
+  REVIEWED
+}
+
+/**
+ * Unauthenticated health-facility suggestions & onboarding requests (brief
+ * §6.14). Contact details capture only the submitter's reachable info (never
+ * a location: finder/requester coordinates are not persisted anywhere).
+ */
+model OnboardingInquiry {
+  id     String @id
+  kind   OnboardingInquiryKind   @default(FACILITY_SUGGESTION)
+  status OnboardingInquiryStatus @default(PENDING)
+
+  facilityName String?
+  address      String?
+  county       String?
+  town         String?
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  notes        String?
+
+  reviewedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@map("onboarding_inquiries")
+}

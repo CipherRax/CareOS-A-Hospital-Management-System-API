@@ -14,11 +14,12 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–042.
   `PATCH /auth/me/preferences`, `X-Branch-Id` validation in `TenantScope`,
   re-pair/rescan surface for `DisplayDevice`, `/auth/me`↔guard parity test,
   device-token-scope test, aliased `/display/queue` if needed.
-- [ ] **P2 — Public directory.** PostGIS + fallback (ADR-039),
-  `PublicFacilityListing` projection + `PublicListingChanged` consumer + read-
-  only `careos_public` role (ADR-038), listing settings/publish/suspend/
-  confirm, nearby/search/profile/config/suggest, `FacilityDirectoryProvider` +
-  importer (`partner: false`), `GeocodingProvider`, caching, throttles,
+- [x] **P2 — Public directory.** PostGIS + fallback (ADR-039),
+  `PublicFacilityListing`/`ImportedFacility`/`OnboardingInquiry` projections +
+  `PublicListingChanged` consumer + cache (read-only `careos_public` role
+  deferred to operator provisioning, ADR-038), listing settings/publish/
+  suspend/confirm, nearby/search/profile/config/suggest, CSV
+  `FacilityDirectoryProvider` + importer, `GeocodingProvider` seam, throttles,
   onboarding inquiries.
 - [ ] **P3 — Emergency intake.** Reference numbers (verify-before-production),
   intake policy + contacts (≥1 contact + escalation chain required), request +

@@ -99,6 +99,11 @@ export const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+
+  // Public facility directory (brief §6.14, patch P2). When unset the importer
+  // is disabled and the feed is empty; the anonymous directory still serves
+  // org-published branches.
+  PUBLIC_FACILITY_SOURCE_CSV_URL: urlSchema.optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

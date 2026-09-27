@@ -12,6 +12,8 @@ import { LedgerModule } from '../ledger/ledger.module';
 import { LedgerPostingConsumer } from '../ledger/ledger-postings.consumer';
 import { InsightsModule } from '../insights/insights.module';
 import { RollupTouchConsumer } from '../insights/rollups.consumer';
+import { DirectoryModule } from '../directory/directory.module';
+import { PublicListingConsumer } from '../directory/directory.consumer';
 
 /**
  * Composition root for the transactional outbox.
@@ -25,7 +27,7 @@ import { RollupTouchConsumer } from '../insights/rollups.consumer';
  */
 @Global()
 @Module({
-  imports: [DatabaseModule, NotificationsModule, LedgerModule, InsightsModule],
+  imports: [DatabaseModule, NotificationsModule, LedgerModule, InsightsModule, DirectoryModule],
   providers: [
     {
       provide: OUTBOX_CONSUMERS,
@@ -35,13 +37,15 @@ import { RollupTouchConsumer } from '../insights/rollups.consumer';
         notifications: NotificationConsumer,
         ledger: LedgerPostingConsumer,
         rollups: RollupTouchConsumer,
-      ): OutboxConsumer[] => [timeline, pharmacyTasks, notifications, ledger, rollups],
+        publicListing: PublicListingConsumer,
+      ): OutboxConsumer[] => [timeline, pharmacyTasks, notifications, ledger, rollups, publicListing],
       inject: [
         TimelineProjectionConsumer,
         PharmacyTaskConsumer,
         NotificationConsumer,
         LedgerPostingConsumer,
         RollupTouchConsumer,
+        PublicListingConsumer,
       ],
     },
     ConsumerOutboxDispatcher,

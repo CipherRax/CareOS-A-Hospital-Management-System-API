@@ -61,6 +61,7 @@ import { LedgerModule } from '../modules/ledger/ledger.module';
 import { MpesaModule } from '../modules/mpesa/mpesa.module';
 import { OperationsModule } from '../modules/operations/operations.module';
 import { InsightsModule } from '../modules/insights/insights.module';
+import { DirectoryModule } from '../modules/directory/directory.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -137,6 +138,7 @@ import { newId } from '../common/lib/uuidv7';
     OperationsModule,
     InsightsModule,
     OutboxModule,
+    DirectoryModule,
   ],
   providers: [
     // Guard order: throttler (outer) -> JWT identity -> session/tenant

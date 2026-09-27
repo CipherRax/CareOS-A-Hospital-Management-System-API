@@ -108,6 +108,12 @@ export const ErrorCodes = {
   FILE_TYPE_REJECTED: 'FILE_TYPE_REJECTED',
   FILE_TOO_LARGE: 'FILE_TOO_LARGE',
   S3_UNAVAILABLE: 'S3_UNAVAILABLE',
+
+  // public facility directory (brief §6.14, patch P2)
+  PUBLIC_LISTING_NOT_PUBLISHED: 'PUBLIC_LISTING_NOT_PUBLISHED',
+  INVALID_COORDINATES: 'INVALID_COORDINATES',
+  GEOCODING_UNAVAILABLE: 'GEOCODING_UNAVAILABLE',
+  DIRECTORY_SOURCE_UNAVAILABLE: 'DIRECTORY_SOURCE_UNAVAILABLE',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -203,4 +209,9 @@ export const ERROR_CODE_HTTP: Record<ErrorCode, ErrorCodeMeta> = {
   [ErrorCodes.FILE_TYPE_REJECTED]: { httpStatus: 415 },
   [ErrorCodes.FILE_TOO_LARGE]: { httpStatus: 413 },
   [ErrorCodes.S3_UNAVAILABLE]: { httpStatus: 503 },
+
+  [ErrorCodes.PUBLIC_LISTING_NOT_PUBLISHED]: { httpStatus: 404 },
+  [ErrorCodes.INVALID_COORDINATES]: { httpStatus: 422 },
+  [ErrorCodes.GEOCODING_UNAVAILABLE]: { httpStatus: 422 },
+  [ErrorCodes.DIRECTORY_SOURCE_UNAVAILABLE]: { httpStatus: 503 },
 } as const;

@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 371/371 unit (52 suites) |
+| `npm test`   | 388/388 unit (53 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 185/185 (16 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 203/203 (17 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -1073,6 +1073,72 @@ of the P0 decisions.
 honest about the access-token/refresh-TTL model that actually enforces
 lifetime.
 
+### P2 — Cross-tenant public facility directory (COMPLETE)
+
+Implements brief §6.14 (location-based facility search, facility profiles,
+provider listing management, remote facility onboarding) and the public
+directory foundation for §6.15 (emergency requests reuse the same
+PUBLISHED-only projection).
+
+- **Public read path is cross-tenant and sanitized (ADR-038):**
+  `PublicFacilityListing`, `ImportedFacility`, `OnboardingInquiry` are
+  projection + intake tables outside `TENANT_MODELS`; tenant scope never
+  applies. Reads go through `prisma.unscoped()` in `DirectoryService`/
+  `GeoRepository` and expose only a whitelisted serialized shape
+  (`serializePublicListing` — no `sourceOrganizationId`/`status`/internal
+  fields leak to callers). A dedicated read-only `careos_public` DB role is
+  the operator-side hardening for this patch (ADR-038 intent, not provisioned
+  here — limitation).
+- **Geolocation (ADR-039):** canonical `locationLat`/`locationLng` doubles +
+  `GeoRepository` that probes PostGIS once (cached) and uses
+  `ST_DWithin`-over-geography candidates with an exact haversine
+  distance/rank computed in JS, falling back to bbox narrowing without
+  PostGIS. Matches are INTENTIONAL-EXACT only; wait estimates stay null.
+- **Public API (`/api/v1/public/...`, all `@Public()`, IP-rate-limited):**
+  `GET /public/facilities/nearby` (lat/lng/radiusKm, ranked by
+  `distanceKm`), `GET /public/facilities/search`, `GET
+  /public/facilities/:slug` (404 `PUBLIC_LISTING_NOT_PUBLISHED` unless
+  `PUBLISHED`), `GET /public/facilities/config`, `GET /public/geocode`
+  (honest `{supported:false}` with the NoopGeocodingProvider seam), `POST
+  /public/facilities/suggest` and `POST /public/onboarding-inquiries`
+  (reviews store submitter contact, never coordinates).
+- **Provider surfaces:** `GET/PUT /settings/listing` drafts per-branch
+  listing settings (`public_listing.manage`); `POST /admin/listings/publish`
+  turns them into a PUBLISHED projection (emits
+  `Directory.PublicListingChanged`); `GET /admin/listings/mine`; platform
+  `platform.facilities.manage` gets list + suspend/unsuspend/confirm/PATCH +
+  `POST /admin/listings/import/run` + `POST /admin/listings/import/:sourceId`
+  (RFC-4180-ish CSV feed via `FACILITY_DIRECTORY_PROVIDER`, throws
+  `DIRECTORY_SOURCE_UNAVAILABLE` while `PUBLIC_FACILITY_SOURCE_CSV_URL` is
+  unset).
+- **Cache invalidation:** Rabbit–the encode is a revision timestamp; public
+  keys are `directory:v{rev}:{base}:{hash}` with a 60s TTL; every publish/
+  suspend/update/import `INCR`s `directory:rev` (outbox consumer
+  `public-directory-cache` idempotently does the same on the published
+  event; platform writes bump inline).
+- **Permissions/errors/events:** `public_listing.manage` (HOSPITAL_ADMIN,
+  MANAGER, ALL) + `platform.facilities.manage` (ALL); error codes
+  `PUBLIC_LISTING_NOT_PUBLISHED` (404), `INVALID_COORDINATES` (422),
+  `GEOCODING_UNAVAILABLE` (422), `DIRECTORY_SOURCE_UNAVAILABLE` (503);
+  `EventTypes.PublicListingChanged = 'Directory.PublicListingChanged'`
+  (version 1); optional `PUBLIC_FACILITY_SOURCE_CSV_URL` env.
+- **Schema:** `public_facility_listings`, `imported_facilities`,
+  `onboarding_inquiries` + enums (`PublicListingStatus`,
+  `PublicVerificationStatus`, `OnboardingInquiryKind`,
+  `OnboardingInquiryStatus`) in migration
+  `20260930100000_phase_p2_public_directory`. Not in `TENANT_MODELS`.
+- **Tests:** new unit spec for the CSV provider + directory domain (slug,
+  haversine, settings parse, serializer); new `public-directory` e2e suite
+  (publish→anonymous nearby/search/profile → suggest/geocode → suspend 404 →
+  confirm/unsuspend, plus permission + deny-by-default checks). E2E total:
+  17 suites / 203 (+14). Unit 53 suites / 388 (+17).
+
+**Open notes (see `docs/limitations.md`):** no `careos_public` read-only role
+provisioned by the patch (operator step documented in ADR-038);
+`NoopGeocodingProvider` is a named stub (no coordinate autofill);
+all-published search does not rank by distance; CSV feed disabled by default;
+wait estimates are always null (no timeline/ED data in the projection).
+
 ## Notes
 
 - Testcontainers uses `postgres:17-alpine` by default because `postgres:16-alpine`
@@ -1084,11 +1150,11 @@ lifetime.
   work was committed earlier under the label "Phase 2" and is documented here as
   Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
   keep git history unchanged; git history is unchanged.
-- The e2e suite reaches 185 tests across 16 suites (identity, patients,
+- The e2e suite reaches 203 tests across 17 suites (identity, patients,
   documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, the phase-4
   clinical spec, the phase-5 inventory/pharmacy spec, the phase-6 billing
   spec, the phase-7 laboratory/radiology spec, the phase-8
   inpatient/emergency spec, the phase-10 communication spec, the phase-11
-  financial/ledger/M-PESA spec, the phase-12 operations spec, and the phase-13
-  analytics/reports spec; file names keep the old labels to avoid churn while
-  the sections here track the brief's phases).
+  financial/ledger/M-PESA spec, the phase-12 operations spec, the phase-13
+  analytics/reports spec, and the public-directory spec; file names keep the
+  old labels to avoid churn while the sections here track the brief's phases).
