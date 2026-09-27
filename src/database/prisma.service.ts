@@ -114,6 +114,12 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'Admission',
   'Discharge',
   'EmergencyVisit',
+  // Public emergency intake (patch P3). Tenancy applies; EmergencyNumber and
+  // PublicNotice stay cross-tenant (read via unscoped on the anonymous path).
+  'EmergencyIntakePolicy',
+  'EmergencyContact',
+  'EmergencyRequest',
+  'EmergencyRequestEvent',
   // Communication & documents (brief Phase 9).
   'VirtualSession',
   'Notification',

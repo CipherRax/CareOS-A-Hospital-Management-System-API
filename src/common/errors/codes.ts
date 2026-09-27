@@ -114,6 +114,11 @@ export const ErrorCodes = {
   INVALID_COORDINATES: 'INVALID_COORDINATES',
   GEOCODING_UNAVAILABLE: 'GEOCODING_UNAVAILABLE',
   DIRECTORY_SOURCE_UNAVAILABLE: 'DIRECTORY_SOURCE_UNAVAILABLE',
+
+  // public emergency intake (brief §6.15, patch P3)
+  FACILITY_NOT_ACCEPTING_REQUESTS: 'FACILITY_NOT_ACCEPTING_REQUESTS',
+  LOCATION_REQUIRED: 'LOCATION_REQUIRED',
+  EMERGENCY_CALL_NOW: 'EMERGENCY_CALL_NOW',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -214,4 +219,7 @@ export const ERROR_CODE_HTTP: Record<ErrorCode, ErrorCodeMeta> = {
   [ErrorCodes.INVALID_COORDINATES]: { httpStatus: 422 },
   [ErrorCodes.GEOCODING_UNAVAILABLE]: { httpStatus: 422 },
   [ErrorCodes.DIRECTORY_SOURCE_UNAVAILABLE]: { httpStatus: 503 },
+  [ErrorCodes.FACILITY_NOT_ACCEPTING_REQUESTS]: { httpStatus: 422 },
+  [ErrorCodes.LOCATION_REQUIRED]: { httpStatus: 422 },
+  [ErrorCodes.EMERGENCY_CALL_NOW]: { httpStatus: 409 },
 } as const;

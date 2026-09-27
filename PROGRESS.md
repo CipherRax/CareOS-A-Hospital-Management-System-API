@@ -1139,6 +1139,78 @@ provisioned by the patch (operator step documented in ADR-038);
 all-published search does not rank by distance; CSV feed disabled by default;
 wait estimates are always null (no timeline/ED data in the projection).
 
+### P3 — Public emergency intake (COMPLETE)
+
+Implements brief §6.15 for anonymous help requests: an intake-enabled branch
+takes a caller's request through reception → acknowledgment → response with a
+multi-level autonomous SLA escalation (ADR-040) and PII encrypted at rest
+(ADR-041). Reuses the P2 PUBLISHED projection as the anonymous read gate
+(ADR-038) — the public path never touches tenant tables.
+
+- **Public API (`/api/v1/public/emergency/*`, anonymous, IP-rate-limited):**
+  `POST /public/emergency/requests` (submit; 404 `PUBLIC_LISTING_NOT_PUBLISHED`
+  for unknown slug, 422 `FACILITY_NOT_ACCEPTING_REQUESTS` if the projection is
+  disabled or the source pointers are missing, 422 `LOCATION_REQUIRED`/`INVALID_COORDINATES` for location),
+  `POST /public/emergency/requests/track` (caller pulls status via the
+  once-returned token; only the SHA-256 hash is stored), `POST
+  /public/emergency/requests/cancel` (409 `EMERGENCY_CALL_NOW` once a responder
+  is dispatched, per `callerAction`), `GET /public/emergency/numbers`
+  (reference numbers, built-in KE/EU fallback when none are seeded), `GET
+  /public/emergency/notice` (safe `INFO` default).
+- **Staff inbox (`emergency_requests.read/manage`):** `GET /emergency/requests`
+  (page + newest-first), `GET /emergency/requests/stream` (SSE on the
+  `emergency-requests` topic, mirrors the display-device stream), `GET
+  /emergency/requests/:id` (decrypted `RequestView` + typed event history),
+  `POST /emergency/requests/:id/{acknowledge,respond,note,close}`.
+- **Branch policy (`emergency_settings.manage`):** `GET/PUT
+  /settings/emergency` (enabled, autoEscalate, per-level `levelSeconds` SLA,
+  `emergencyPhone`), `GET/POST/PATCH/DELETE
+  /settings/emergency/contacts` (ordered escalation chain).
+- **Platform reference tables (`platform.facilities.manage`):**
+  `GET/POST/PUT/DELETE /admin/emergency/numbers` and `/admin/emergency/notices`;
+  both propagate to the anonymous surfaces.
+- **Escalation (ADR-040):** BullMQ `emergency-escalation` queue, job name
+  `escalate`, deduped `jobId: '<requestId>-<level>'` (job IDs cannot contain
+  `:`). `attemptEscalation` uses a guarded `updateMany` (`where status:
+  RECEIVED AND escalationLevel = level-1`) so each level fires exactly once;
+  sub-second `levelSeconds` are treated as milliseconds (tests run at 150ms),
+  `>=1` as seconds. Acknowledgement/respond/close/cancel stops escalation (the
+  guarded update becomes a no-op); the final level is the "call the numbers"
+  nudge. `callerAction`: `RESPONDED→HELP_ON_WAY`, terminal/ack→`WAIT`,
+  `escalationLevel>0→CALL_NOW`, else `WAIT`.
+- **Reference/token model:** `EMR-YYYY-NNNNNN` via the `counters` raw-SQL
+  `INSERT … ON CONFLICT` pattern (`emergency_request_number`); tokens are
+  32-char base64url, only SHA-256 persisted, returned exactly once.
+- **Permissions/errors/events:** adds `emergency_requests.read|manage`
+  (HOSPITAL_ADMIN, MANAGER, ALL) + `emergency_settings.manage` (HOSPITAL_ADMIN,
+  MANAGER); error codes `FACILITY_NOT_ACCEPTING_REQUESTS` (422),
+  `LOCATION_REQUIRED` (422), `INVALID_COORDINATES` (422),
+  `EMERGENCY_CALL_NOW` (409) — the new `INVALID_COORDINATES` and
+  `PUBLIC_LISTING_NOT_PUBLISHED` cases slot into the P2 set;
+  `EventTypes.EmergencyRequest*` (`Received/Acknowledged/Responding/
+  Escalated/Closed/Cancelled`, version 1).
+- **Schema:** `emergency_intake_policies`, `emergency_contacts`,
+  `emergency_requests`, `emergency_request_events` inside `TENANT_MODELS`;
+  `emergency_numbers`, `public_notices` are cross-tenant reference tables;
+  enums `EmergencyRequestStatus`/`EmergencyRequestEventType`/
+  `EscalationActor`/`EmergencyNoticeSeverity`; append-only event trigger (in
+  migration `20260930120000_phase_p3_emergency_intake`, which also adds the
+  back-relations on `Organization`/`branches`).
+- **Tests:** 2 unit suites (escalation domain incl. `callerAction`, submit
+  guards + happy path incl. token-hash-only persistence and job scheduling)
+  and a 14-test e2e suite (publish intake-enabled listing → anonymous submit →
+  token never stored in clear → track/cancel → SLA escalation → ack stops it →
+  respond drifts caller to `HELP_ON_WAY` and blocks cancel → inbox decrypt →
+  disabled facility rejected → numbers/notice fallback + reference). E2E total:
+  18 suites / 217 (+14). Unit 56 suites / 401 (+13).
+
+**Open notes (see `docs/limitations.md`):** escalation is best-effort —
+delayed BullMQ jobs are lost if Redis is down at fire time with no outbox
+reconciliation sweep (P4: hardening); no SMS/voice bridge from escalation
+"call the numbers" (action is the terminal nudge); single latest encrypted
+staff note without author tracking; anonymous submit requires either a
+resolvable facility location or an explicit caller location.
+
 ## Notes
 
 - Testcontainers uses `postgres:17-alpine` by default because `postgres:16-alpine`

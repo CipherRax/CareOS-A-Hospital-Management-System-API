@@ -189,6 +189,12 @@ model Organization {
   reconciliationRuns       ReconciliationRun[]
   reconciliationExceptions ReconciliationException[]
   reportExports            ReportExport[]
+
+  // Public emergency intake (brief §6.15, patch P3).
+  emergencyIntakePolicies EmergencyIntakePolicy[] @relation("EmergencyIntakePolicyOrg")
+  emergencyContacts       EmergencyContact[]       @relation("EmergencyContactOrg")
+  emergencyRequests       EmergencyRequest[]       @relation("EmergencyRequestOrg")
+  emergencyRequestEvents  EmergencyRequestEvent[]  @relation("EmergencyEventOrg")
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +395,11 @@ model Branch {
   admissions      Admission[]
   emergencyVisits EmergencyVisit[]
   virtualSessions VirtualSession[]
+
+  // Public emergency intake (brief §6.15, patch P3).
+  emergencyIntakePolicies EmergencyIntakePolicy[] @relation("EmergencyIntakePolicyBranch")
+  emergencyContacts       EmergencyContact[]       @relation("EmergencyContactBranch")
+  emergencyRequests       EmergencyRequest[]       @relation("EmergencyRequestBranch")
 
   expenses Expense[]
   assets   Asset[]
@@ -3609,6 +3620,194 @@ model EmergencyVisit {
   @@index([organizationId, branchId, status, arrivedAt])
   @@index([organizationId, patientId, arrivedAt])
   @@map("emergency_visits")
+}
+
+// ---------------------------------------------------------------------------
+// Public emergency intake (patch P3, brief §6.15). Caller-facing emergency
+// help requests against a published directory branch: tenant-scoped request +
+// per-branch intake policy + escalation contacts, with an append-only event
+// history (ADR-040) and AES-256-GCM encryption of caller PII (ADR-041).
+// Emergency numbers + public notices are cross-tenant reference rows read on
+// the anonymous public path (NOT in TENANT_MODELS).
+// ---------------------------------------------------------------------------
+
+enum EmergencyRequestStatus {
+  RECEIVED
+  ACKNOWLEDGED
+  RESPONDING
+  ESCALATED
+  CLOSED
+  CANCELLED
+}
+
+enum EmergencyRequestEventType {
+  RECEIVED
+  ACKNOWLEDGED
+  RESPONDING
+  ESCALATED
+  CLOSED
+  CANCELLED
+}
+
+enum PublicNoticeSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model EmergencyIntakePolicy {
+  id                   String   @id
+  organizationId       String
+  branchId             String
+  // Enable the branch for anonymous emergency help requests. Mirrored onto the
+  // public projection at publish time (ADR-038) so the anonymous path checks
+  // the projection, never tenant tables.
+  enabled              Boolean  @default(false)
+  autoEscalate         Boolean  @default(true)
+  requireDescription   Boolean  @default(false)
+  allowAnonymousCaller Boolean  @default(false)
+  // SLA seconds per escalation level (>= 1 entry when autoEscalate). The last
+  // level's job is the "calling national/facility numbers" final nudge.
+  levelSeconds         Json
+  // Display phone for this branch; falls back to the branch/listings phone.
+  emergencyPhone       String?
+  updatedAt            DateTime @updatedAt
+  version              Int      @default(0)
+
+  organization Organization @relation("EmergencyIntakePolicyOrg", fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation("EmergencyIntakePolicyBranch", fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, branchId])
+  @@index([organizationId, branchId, enabled])
+  @@map("emergency_intake_policies")
+}
+
+model EmergencyContact {
+  id             String   @id
+  organizationId String
+  branchId       String
+  name           String
+  // Staff escalation phone (org-internal; not caller PII, stored plaintext).
+  phone          String
+  role           String
+  // Escalation chain position (1-based). Attempted in order per level.
+  order          Int
+  active         Boolean  @default(true)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  version        Int      @default(0)
+
+  organization Organization @relation("EmergencyContactOrg", fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation("EmergencyContactBranch", fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, branchId, order])
+  @@index([organizationId, branchId, active])
+  @@map("emergency_contacts")
+}
+
+model EmergencyRequest {
+  id                 String                @id
+  organizationId     String
+  branchId           String
+  referenceNumber    String
+  // sha256 hex of the caller's tracking token; only hashes are persisted.
+  trackingTokenHash  String                @unique
+  status             EmergencyRequestStatus @default(RECEIVED)
+  // 0 = not escalated; N = escalated to contact N (order). Read model
+  // convenience over the event history (ADR-040).
+  escalationLevel    Int                   @default(0)
+  // Caller PII — AES-256-GCM encrypted at rest (ADR-041).
+  callerNameEnc      String?
+  callerPhoneEnc     String?
+  // Searchable derivative for duplicate-phone matching (ADR-041): normalized
+  // plaintext index, never the raw value.
+  callerPhoneIndex   String?
+  descriptionEnc     String?
+  // Reported location. landmark is encrypted; coordinates are plain doubles
+  // (approximate, never a home address).
+  locationLat        Float?
+  locationLng        Float?
+  landmarkEnc        String?
+  staffNoteEnc       String?
+  source             String                @default("PUBLIC")
+
+  acknowledgedById   String?
+  acknowledgedAt     DateTime?
+  respondedById      String?
+  respondedAt        DateTime?
+  closedById         String?
+  closedAt           DateTime?
+  cancelledById      String?
+  cancelledAt        DateTime?
+
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation("EmergencyRequestOrg", fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation("EmergencyRequestBranch", fields: [branchId], references: [id], onDelete: Restrict)
+
+  events EmergencyRequestEvent[]
+
+  @@unique([organizationId, referenceNumber])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, branchId, createdAt])
+  @@map("emergency_requests")
+}
+
+// Append-only request history (ADR-040). Status/level are derived from this;
+// the updatedAt/version on EmergencyRequest is the convenience read model.
+// Rows reference the request restrictively so a request cannot delete its own
+// history.
+model EmergencyRequestEvent {
+  id         String                   @id
+  organizationId String
+  requestId  String
+  type       EmergencyRequestEventType
+  level      Int?
+  actor      String // PUBLIC | STAFF | SYSTEM | CALLER.
+  actorId    String?
+  payload    Json?
+  occurredAt DateTime                 @default(now())
+
+  organization Organization @relation("EmergencyEventOrg", fields: [organizationId], references: [id], onDelete: Restrict)
+  request     EmergencyRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@index([requestId, occurredAt])
+  @@index([organizationId, type, occurredAt])
+  @@map("emergency_request_events")
+}
+
+// National/regional emergency numbers surfaced by the anonymous public
+// endpoint (cross-tenant reference data — NOT in TENANT_MODELS).
+model EmergencyNumber {
+  id        String   @id
+  country   String   @default("KE")
+  purpose   String // ambulance | police | fire | national.
+  label     String
+  phone     String
+  hours     String?
+  public    Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@index([country, purpose, public])
+  @@map("emergency_numbers")
+}
+
+// Active service notices for the anonymous public emergency surface.
+model PublicNotice {
+  id        String               @id
+  title     String
+  message   String
+  severity  PublicNoticeSeverity @default(INFO)
+  active    Boolean              @default(true)
+  startsAt  DateTime             @default(now())
+  endsAt    DateTime?
+  updatedAt DateTime             @updatedAt
+
+  @@index([active, startsAt, endsAt])
+  @@map("public_notices")
 }
 
 // ---------------------------------------------------------------------------

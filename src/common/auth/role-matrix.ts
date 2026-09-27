@@ -183,6 +183,9 @@ const ALL = [
   G.mpesa.reconcile,
   G.publicListing.manage,
   G.facilityDirectory.facilitiesManage,
+  G.emergencyRequests.read,
+  G.emergencyRequests.manage,
+  G.emergencySettings.manage,
 ];
 
 /**
@@ -311,6 +314,9 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.maintenance.manage,
       G.analytics.read,
       G.publicListing.manage,
+      G.emergencyRequests.read,
+      G.emergencyRequests.manage,
+      G.emergencySettings.manage,
     ],
   },
   DOCTOR: {
@@ -466,6 +472,8 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.inpatient.read,
       G.emergency.read,
       G.emergency.register,
+      G.emergencyRequests.read,
+      G.emergencyRequests.manage,
       G.notifications.read,
       G.messaging.read,
       G.messaging.send,
@@ -705,6 +713,7 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.maintenance.manage,
       G.analytics.read,
       G.publicListing.manage,
+      G.emergencyRequests.read,
     ],
   },
   AUDITOR: {

@@ -283,6 +283,16 @@ export const PERMISSION_GROUPS = {
   facilityDirectory: {
     facilitiesManage: 'platform.facilities.manage',
   },
+  // Public emergency intake (patch P3). emergencyRequests is the tenant inbox
+  // + actions surface; emergencySettings manages per-branch intake policy and
+  // the escalation contact chain.
+  emergencyRequests: {
+    read: 'emergency_requests.read',
+    manage: 'emergency_requests.manage',
+  },
+  emergencySettings: {
+    manage: 'emergency_settings.manage',
+  },
 } as const;
 
 export type Permission = string;

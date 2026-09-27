@@ -21,7 +21,7 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–042.
   suspend/confirm, nearby/search/profile/config/suggest, CSV
   `FacilityDirectoryProvider` + importer, `GeocodingProvider` seam, throttles,
   onboarding inquiries.
-- [ ] **P3 — Emergency intake.** Reference numbers (verify-before-production),
+- [x] **P3 — Emergency intake.** Reference numbers (verify-before-production),
   intake policy + contacts (≥1 contact + escalation chain required), request +
   append-only events, public submit (idempotent) + tracking/cancel/update,
   staff inbox + SSE + actions, neutral notifications, BullMQ escalation

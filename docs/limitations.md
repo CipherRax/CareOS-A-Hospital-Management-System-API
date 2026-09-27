@@ -97,8 +97,23 @@ working code with a caveat.
 - **Emergency intake metrics are partial (per brief §11).** `metrics.snapshots.emergencyIntake`
   aggregates arrivals/triage minutes/untriaged-now/per-branch/per-hour from
   `EmergencyVisit` timestamps. The brief's intake-request metrics
-  (acknowledgement, escalation, dispatch latency) land with the public
-  emergency-intake flow (a later phase) — the snapshot notes this on the payload.
+  (acknowledgement, escalation, dispatch latency) arrive with the P3 public
+  emergency-intake flow but are **not wired to the snapshot**: dispatch-latency
+  metrics remain partial until the ED-arrival link (roadmap P4). The snapshot
+  notes this on the payload.
+- **P3 emergency escalation is best-effort and has no notification/watchdog
+  gap (brief §6.15).** Each level is a delayed BullMQ job deduped by
+  `jobId = <requestId>-<level>`. Recovery relies on `retryAttempts`; if Redis
+  loses a job between scheduling and fire time there is no outbox- or
+  DB-reconciliation sweep to re-promote the request (P4 hardening). The final
+  escalation level is a "call the numbers" state (`CALL_NOW`) — there is no
+  SMS/voice bridge out to the contact chain, and duplicate-phone matching only
+  falls back to the plaintext `callerPhoneIndex` derivative (ADR-041), nothing
+  fuzzy. Staff notes are a single latest encrypted value without an author or
+  timestamp column on the request (the event history carries the `note` event).
+  Anonymous submit requires a resolvable facility location or an explicit
+  caller location; a publish re-enable (SUSPENDED→PUBLISHED) does not resubmit
+  background jobs already scheduled under the previous policy.
 - **`patient-experience` composite needs populated cohorts to be meaningful, and
   an all-unknown weights set yields `null`.** Components with zero samples are
   dropped from the weighted average (never computed as 0), so early histories

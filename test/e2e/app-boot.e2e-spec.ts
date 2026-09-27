@@ -127,6 +127,10 @@ describe('app boot + envelope + deny-by-default (Phase 0 acceptance)', () => {
       '/api/v1/public/facilities/suggest',
       '/api/v1/public/geocode',
       '/api/v1/public/onboarding-inquiries',
+      // Public emergency intake (Phase 3): anonymous by design, IP-rate-limited,
+      // reading only the projection / cross-tenant reference tables.
+      '/api/v1/public/emergency/numbers',
+      '/api/v1/public/emergency/notice',
     ]);
     const failures: string[] = [];
 

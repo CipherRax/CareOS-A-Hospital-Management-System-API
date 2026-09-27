@@ -62,6 +62,7 @@ import { MpesaModule } from '../modules/mpesa/mpesa.module';
 import { OperationsModule } from '../modules/operations/operations.module';
 import { InsightsModule } from '../modules/insights/insights.module';
 import { DirectoryModule } from '../modules/directory/directory.module';
+import { EmergencyIntakeModule } from '../modules/emergency-intake/emergency-intake.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -139,6 +140,7 @@ import { newId } from '../common/lib/uuidv7';
     InsightsModule,
     OutboxModule,
     DirectoryModule,
+    EmergencyIntakeModule,
   ],
   providers: [
     // Guard order: throttler (outer) -> JWT identity -> session/tenant
