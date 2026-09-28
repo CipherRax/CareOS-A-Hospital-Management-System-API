@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 483/483 unit (63 suites) |
+| `npm test`   | 491/491 unit (64 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 232/232 (20 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 234/234 (20 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -1448,6 +1448,50 @@ not an SMTP/SMPP client, so a real deployment still needs a relay; PUSH is
 addressed by recipient id because no device token is stored; bodies remain
 PHI-neutral by construction (ADR-034), which is what makes sending them
 off-system acceptable at all.
+
+## Phase P7 — Coding-import consumer (COMPLETE)
+
+The first of the two "event with no downstream processor" gaps on the roadmap.
+`Reference.CodingSystemImported` was published and dropped: the dispatcher acks
+an event nobody subscribes to, so importing a clinical coding reference — the set
+every coded diagnosis is validated against — had no observable effect on anyone
+who selects codes from it.
+
+- **It notifies the reference owners, and reconciles nothing — on purpose.**
+  `CodingReferenceConsumer` (`coding-reference`) fans a PHI-neutral "reference
+  set changed" notice out to the distinct *active* users whose roles include
+  `coding.manage`, carrying the inserted/total counts. The audience is resolved
+  from real `Role.permissions`/`UserRole` rows rather than the import's actor:
+  a receipt for an action you just took is noise, whereas the people who select
+  codes are the ones whose world moved. The obvious richer design — reconcile
+  diagnoses whose code is now gone — was dropped after reading the import path:
+  `CodingService.importConcepts` upserts only the payload's concepts and its
+  `update` branch sets `isActive: true` and nothing else, so it never
+  deactivates or deletes; `Diagnosis` snapshots `code`/`description` at
+  authoring time; and the relation is `onDelete: SetNull`. An import therefore
+  cannot orphan a `codeConceptId` or silently rewrite recorded text, so there
+  is no integrity damage at this point to detect. ADR-046 records that the
+  gap that *would* matter is a concept **deactivation** endpoint, which does not
+  exist yet and would need a real pass.
+- **Replay-safe ids.** One deterministic notification id per (event,
+  recipient) — `notif-<eventId>-coding-<userId>` — so a crash between the
+  notification write and the `ProcessedEvent` write replays into
+  `createForUser`'s upsert instead of double-notifying. Counts are coerced to
+  `0` rather than rendered `NaN` when a payload is odd, and an event with no
+  resolvable `codingSystemId`, or an org with no `coding.manage` role, is a
+  logged no-op instead of an exception that would retry a doomed row.
+- **Tests:** +8 unit (`test/unit/coding/coding.consumer.spec.ts`) for fan-out,
+  the role/active filter, replay-id stability, the aggregate-id fallback, the
+  two no-op paths, and count coercion. E2E +2 in
+  `test/e2e/phase4-clinical.e2e-spec.ts`, which grant `coding.manage` through
+  real `Role`/`UserRole` rows (the e2e principal carries permissions as headers,
+  so the consumer could not otherwise see an audience), import a reference,
+  drain the outbox, and assert the notification arrives `SENT` and carries the
+  system id but not the concept text — plus the negative case proving a
+  `coding.read`-only role is not notified.
+- **Deliberately still open:** `Storage.DocumentUploaded` has no consumer. Its
+  roadmap item is paired with document content security, which subscribes to the
+  event; building a throwaway consumer for it now would only be replaced.
 
 ## Notes
 

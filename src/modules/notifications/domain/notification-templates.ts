@@ -24,6 +24,12 @@ export const BUILT_IN_TEMPLATES: Record<
     bodyTemplate: 'A lab result was released. Reference: [labResultId].',
     allowlistedVariables: ['labResultId'],
   },
+  'coding.reference_updated': {
+    subjectTemplate: 'A clinical coding reference was updated',
+    bodyTemplate:
+      'A coding reference set was imported. Codes added: [inserted] of [total]. Reference: [codingSystemId].',
+    allowlistedVariables: ['codingSystemId', 'inserted', 'total'],
+  },
 };
 
 export function renderTemplate(

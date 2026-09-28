@@ -3,6 +3,55 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-046 — A coding-reference import notifies the reference owners; it reconciles nothing, because it cannot break anything
+
+**Status:** accepted (Patch P7)
+
+**Context:** `Reference.CodingSystemImported` was published and dropped. The
+dispatcher acknowledges an event with no subscriber
+(`consumer-outbox-dispatcher.ts` returns `true` when `consumers.length === 0`),
+so importing a clinical coding reference — the thing every coded diagnosis and
+procedure line is validated against — produced no observable effect on anyone
+who selects codes from it. The roadmap tracked it as a missing consumer.
+
+The obvious "make it meaningful" instinct is a reconciliation pass: find
+diagnoses whose `codeConceptId` now points at a deactivated or missing concept
+and flag them. Reading the import path before designing that killed the idea.
+`CodingService.importConcepts` upserts exactly the concepts in the payload and
+its `update` branch sets `isActive: true` and nothing else. It never sets
+`isActive: false`, never deletes, and never touches a concept outside the
+payload. `Diagnosis` also snapshots `code` and `description` at authoring time
+rather than reading them through the relation, and the relation itself is
+`onDelete: SetNull`. So an import **cannot** orphan an existing
+`Diagnosis.codeConceptId`, cannot silently rewrite recorded text, and cannot
+make a code disappear. There is no integrity damage at this point to detect.
+
+**Decision:**
+- **Notify the reference owners; reconcile nothing.** `CodingReferenceConsumer`
+  (`coding-reference`) fans a PHI-neutral "the reference set changed" notice out
+  to the distinct active users whose roles include `coding.manage` — the people
+  who own the reference, not every clinician — carrying the inserted/total
+  counts. That is the only true consequence of an import today, so it is the
+  only thing the consumer claims to do.
+- **The audience is resolved from real `Role`/`UserRole` rows**, not from the
+  import's actor. Notifying the actor would be a receipt for an action they just
+  took; the set that *selects* codes is the one whose world moved.
+- **A deterministic notification id per (event, recipient)** so a replay between
+  the notification write and the `ProcessedEvent` write collapses into
+  `createForUser`'s upsert instead of double-notifying.
+- **A future deactivation endpoint is a different decision.** If a concept is
+  ever deactivated rather than overwritten, that *would* orphan codes and would
+  need a real reconciliation pass. `docs/limitations.md` records that it does
+  not exist yet, so the gap is visible before someone relies on it.
+
+**Consequences:** importing a coding reference is no longer invisible, and the
+cost is one notification row per reference owner. The consumer is idempotent
+under replay and does no PHI-bearing work: the template is allowlisted to
+`codingSystemId`/`inserted`/`total` and passes the existing neutral-body check.
+The "diagnoses referencing removed codes" problem is *not* solved — it is
+correctly not a problem yet, and the deactivation path is named as the thing
+that would create it.
+
 ## ADR-045 — Off-system notification delivery: opt-out before send, real addresses, and a retry ladder
 
 **Status:** accepted (Patch P6)

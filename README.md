@@ -61,7 +61,7 @@ coverage and a green quality gate.
   notification delivery — with env-driven cadences and a kill-switch. Every duty
   is an idempotent, batched sweep that can also be driven without Redis
   (ADR-044).
-- **Decision records** (ADR-001…045) and an honest **limitations** catalog live
+- **Decision records** (ADR-001…046) and an honest **limitations** catalog live
   in `docs/`. A **CI workflow** (`.github/workflows/ci.yml`) runs the full gate
   (lint, typecheck, boundaries, unit, build) plus containerized e2e on every push
   to `main`.
@@ -188,9 +188,9 @@ npm run test:e2e
 | Lint | `npm run lint` |
 | Typecheck | `npm run typecheck` |
 | Module boundaries | `npm run boundaries` |
-| Unit tests | `npm test` (483 tests · 63 suites) |
+| Unit tests | `npm test` (491 tests · 64 suites) |
 | Build | `npm run build` |
-| E2E (Testcontainers) | `npm run test:e2e` (232 tests · 20 suites) |
+| E2E (Testcontainers) | `npm run test:e2e` (234 tests · 20 suites) |
 
 E2E spins up fresh Postgres + Redis via Testcontainers, applies migrations
 idempotently, and exercises the API end to end — including real RLS isolation,
@@ -201,7 +201,7 @@ concurrency, and role-separation checks. Reuse external infra with
 
 - **`PROGRESS.md`** — phase-by-phase delivery record against the product brief.
 - **`docs/decisions.md`** — accepted architecture/engineering decision records
-  (ADR-001…045, newest first).
+  (ADR-001…046, newest first).
 - **`docs/limitations.md`** — honest catalog of stubs, deferrals, and caveats.
 - **`docs/roadmap.md`** — tracked backlog of deferred production items.
 - **`docs/diagrams/`** — architecture/sequence diagrams (Mermaid).

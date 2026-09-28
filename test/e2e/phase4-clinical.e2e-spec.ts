@@ -308,6 +308,97 @@ describe('phase4 clinical core', () => {
     expect(res.json().error.code).toBe(ErrorCodes.RESOURCE_NOT_FOUND);
   });
 
+  // --- 3b. coding-import consumer (patch P7) --------------------------------
+  //
+  // The test principal carries permissions as headers, but the consumer resolves
+  // its audience from real UserRole/Role rows, so this grants the permission
+  // through the database the way production seeding would.
+
+  it('notifies coding.manage holders when a coding reference is imported', async () => {
+    const sc = prisma.unscoped();
+    const role = await sc.role.create({
+      data: {
+        id: newId(),
+        organizationId: orgA,
+        name: 'Coding steward',
+        key: 'CODING_STEWARD',
+        permissions: ['coding.manage'],
+      },
+    });
+    await sc.userRole.create({
+      data: { id: newId(), organizationId: orgA, userId: provider, roleId: role.id },
+    });
+
+    const system = await post('/coding-systems', clinician, { key: 'SNOMED', name: 'SNOMED CT' });
+    expect(system.statusCode).toBe(201);
+    const systemId = system.json().data.codingSystem.id;
+
+    const imported = await post(`/coding-systems/${systemId}/import`, clinician, {
+      concepts: [{ code: '1234567', display: 'Test concept' }],
+    });
+    expect(imported.statusCode).toBe(201);
+
+    // Drain the outbox so the coding consumer runs.
+    let guard = 0;
+    while ((await publisher.publishReadyEvents(100)) > 0 && guard < 20) guard += 1;
+
+    const notification = await sc.notification.findFirst({
+      where: {
+        organizationId: orgA,
+        recipientUserId: provider,
+        templateKey: 'coding.reference_updated',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(notification).not.toBeNull();
+    expect(notification?.status).toBe('SENT');
+    expect(notification?.subject).toBe('A clinical coding reference was updated');
+    expect(notification?.body).toContain(systemId);
+    // PHI-neutral: the template is fed counts and the system id, never a concept.
+    expect(notification?.body).not.toContain('Test concept');
+  });
+
+  it('does not notify a user whose roles do not hold coding.manage', async () => {
+    const sc = prisma.unscoped();
+    const outsider = newId();
+    await sc.user.create({
+      data: {
+        id: outsider,
+        organizationId: orgA,
+        email: 'phase4.outsider@test.local',
+        firstName: 'No',
+        lastName: 'Coding',
+        status: 'ACTIVE',
+      },
+    });
+    const readOnly = await sc.role.create({
+      data: {
+        id: newId(),
+        organizationId: orgA,
+        name: 'Coding reader',
+        key: 'CODING_READER',
+        permissions: ['coding.read'],
+      },
+    });
+    await sc.userRole.create({
+      data: { id: newId(), organizationId: orgA, userId: outsider, roleId: readOnly.id },
+    });
+
+    const system = await post('/coding-systems', clinician, { key: 'LOINC', name: 'LOINC' });
+    const systemId = system.json().data.codingSystem.id;
+    await post(`/coding-systems/${systemId}/import`, clinician, {
+      concepts: [{ code: '11111-1', display: 'Another concept' }],
+    });
+
+    let guard = 0;
+    while ((await publisher.publishReadyEvents(100)) > 0 && guard < 20) guard += 1;
+
+    const leaked = await sc.notification.findFirst({
+      where: { organizationId: orgA, recipientUserId: outsider, templateKey: 'coding.reference_updated' },
+    });
+    expect(leaked).toBeNull();
+  });
+
   // --- 4. follow-ups, referrals, tasks --------------------------------------
 
   const scheduleAndCompleteFollowUp = async (patientId: string) => {

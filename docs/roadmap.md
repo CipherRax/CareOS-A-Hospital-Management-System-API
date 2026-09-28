@@ -5,9 +5,9 @@ and `docs/limitations.md`. Anything marked `[stub]` there is named in code and
 explicitly not implemented yet. Ordered by priority — this is what remains
 after the brief's phases 0–13 shipped.
 
-## Backend patch — in flight (Public directory, emergency requests, session bootstrap, display devices, scheduler, notification delivery)
+## Backend patch — in flight (Public directory, emergency requests, session bootstrap, display devices, scheduler, notification delivery, coding-import consumer)
 
-Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–045.
+Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–046.
 
 - [x] **P1 — Session & devices.** Expand `GET /auth/me` (org + feature flags,
   branches, session, break-glass, security staging, patient link, prefs),
@@ -44,9 +44,21 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–045.
   resolved off the recipient record, a retry ladder (`nextAttemptAt` +
   backoff) driven by a new `notification-delivery` duty on the P5 scheduler,
   and `providerRef` recorded from the receiver. Fan-out off-system is opt-in per
-  deployment (`NOTIFICATION_OFFSITE_CHANNELS`, default empty). What is *not*
+  deployment   (`NOTIFICATION_OFFSITE_CHANNELS`, default empty). What is *not*
   done: SMTP/SMPP clients and a real mail/SMS/push provider (the adapter is a
   transport a relay sits behind), push device tokens, and exactly-once delivery.
+- [x] **P7 — Coding-import consumer.** `Reference.CodingSystemImported` was
+  published and dropped by the dispatcher (it acks an event with no subscriber).
+  `coding-reference` now fans a PHI-neutral "reference set changed" notice out to
+  the distinct active users whose roles hold `coding.manage`, with the
+  inserted/total counts and a deterministic per-(event, recipient) id so replays
+  cannot double-notify (ADR-046). It reconciles nothing on purpose: the import
+  path only ever sets `isActive: true` and never deletes, and `Diagnosis`
+  snapshots `code`/`description` at authoring time, so an import cannot orphan a
+  `codeConceptId`. What is *not* done: a concept **deactivation** endpoint —
+  once one exists, coded diagnoses can reference an inactive concept and a real
+  reconciliation pass is required. `Storage.DocumentUploaded` stays unconsumed
+  until the document content-security work lands.
 
 ## High priority
 
@@ -64,9 +76,10 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–045.
 - [ ] **Async + streamed report exports.** Move export out of the request path
   (kick task object + outbox event, poll/status) and stream large payloads
   instead of building the whole artifact in memory.
-- [ ] **Consumers for `Storage.DocumentUploaded` and
-  `Reference.CodingSystemImported`.** These events currently have no
-  downstream processor.
+- [ ] **Consumers for `Storage.DocumentUploaded`.** No downstream processor yet;
+  the roadmap pairs it with document content security (virus/PHI scan), which
+  subscribes to the event. `Reference.CodingSystemImported` is done (P7,
+  ADR-046) — see the P7 section above.
 - [ ] **Content security on documents.** Virus/PHI scan at `complete` (or on the
   `Storage.DocumentUploaded` event).
 - [ ] **Emergency intake-request metrics.** Acknowledgement, escalation, and

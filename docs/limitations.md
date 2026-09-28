@@ -16,10 +16,17 @@ working code with a caveat.
   backoff/DEAD handling still applies (`MAX_OUTBOX_ATTEMPTS` 8, exponential).
   Under `NODE_ENV=test` the job is not registered, so e2e calls
   `publishReadyEvents` synchronously to keep specs deterministic.
-- **`Storage.DocumentUploaded` and `Reference.CodingSystemImported` events have
-  no consumer yet.** `[stub]` The timeline consumer subscribes to
-  `Clinical.*` types only; documents/coding-reference rows wait for their
-  downstream processors (later phase).
+- **`Reference.CodingSystemImported` has a consumer; `Storage.DocumentUploaded`
+  still does not (P7).** `coding-reference` fans a "reference set changed"
+  notice out to the users whose roles hold `coding.manage` and reconciles
+  nothing — deliberately. The import path only ever sets `isActive: true` and
+  never deletes, and `Diagnosis` snapshots `code`/`description` at authoring
+  time, so an import cannot orphan a `codeConceptId` or change recorded text
+  (ADR-046). The gap that *would* matter is a concept **deactivation**
+  endpoint, which does not exist: once one does, existing coded diagnoses can
+  reference an inactive concept and a real reconciliation pass is required.
+  `Storage.DocumentUploaded` remains unconsumed until the document content
+  security work lands.
 - **Emergency access flow** — `TenantScope.emergency` exists as a marker but
   nothing sets it (by design; a later phase).
 - **Metrics/OTel** — `METRICS_ENABLED`/`OTEL_*` envs exist but telemetry
