@@ -4,6 +4,7 @@ import type { OutboxConsumerContext } from '../../../src/events/outbox-consumer/
 import { defaultProviders } from '../../../src/integrations/notifications/notifications.provider';
 import type { NotificationProvider } from '../../../src/integrations/notifications/notifications.provider';
 import type { PrismaService } from '../../../src/database/prisma.service';
+import { testEnv } from '../../support/test-env';
 import {
   NotificationConsumer,
   notificationIdForEvent,
@@ -25,6 +26,8 @@ function notificationRow(overrides: Partial<Notification> = {}): Notification {
     status: 'PENDING',
     attemptCount: 0,
     errorCode: null,
+    providerRef: null,
+    nextAttemptAt: new Date('2026-01-01T00:00:00.000Z'),
     readAt: null,
     sentAt: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -32,68 +35,116 @@ function notificationRow(overrides: Partial<Notification> = {}): Notification {
   };
 }
 
-function prismaWithUpdate(row: Notification, update: jest.Mock) {
-  return {
+interface TenantMocks {
+  update: jest.Mock;
+  preferences: jest.Mock;
+  user: jest.Mock;
+  patient: jest.Mock;
+}
+
+function prismaWith(row: Notification, overrides: Partial<TenantMocks> = {}) {
+  const mocks: TenantMocks = {
+    update: jest.fn(async (args: { data: Partial<Notification> }) => ({ ...row, ...args.data })),
+    preferences: jest.fn().mockResolvedValue([]),
+    user: jest.fn().mockResolvedValue({ email: 'user-1@example.org', phone: '+254700000001' }),
+    patient: jest.fn().mockResolvedValue(null),
+    ...overrides,
+  };
+  const prisma = {
     tenantFor: jest.fn(() => ({
-      notification: {
-        update: jest.fn(async (args: { data: Partial<Notification> }) => {
-          update(args);
-          return { ...row, ...args.data };
-        }),
-      },
+      notification: { update: mocks.update },
+      notificationPreference: { findMany: mocks.preferences },
+      user: { findUnique: mocks.user },
+      patient: { findUnique: mocks.patient },
     })),
   } as unknown as PrismaService;
+  return { prisma, mocks };
+}
+
+function makeService(row: Notification, providerMap: ReturnType<typeof defaultProviders>, overrides: Partial<TenantMocks> = {}) {
+  const { prisma, mocks } = prismaWith(row, overrides);
+  return {
+    service: new NotificationDeliveryService(prisma, providerMap, testEnv()),
+    mocks,
+  };
 }
 
 describe('notification consumer and delivery', () => {
   it('marks a delivery as sent with no-op providers', async () => {
     const row = notificationRow();
-    const update = jest.fn();
-    const service = new NotificationDeliveryService(
-      prismaWithUpdate(row, update),
-      defaultProviders(),
-    );
+    const { service, mocks } = makeService(row, defaultProviders(testEnv()));
 
     const delivered = await service.send(row);
 
     expect(delivered.status).toBe('SENT');
     expect(delivered.sentAt).toBeInstanceOf(Date);
-    expect(update).toHaveBeenCalledWith({
+    expect(mocks.update).toHaveBeenCalledWith({
       where: { id: row.id, organizationId: row.organizationId },
       data: {
         status: 'SENT',
         attemptCount: 1,
         errorCode: null,
+        providerRef: null,
         sentAt: expect.any(Date),
       },
     });
   });
 
-  it('marks a provider failure without exposing provider details', async () => {
+  it('persists the provider-side ref so a delivery can be correlated', async () => {
     const row = notificationRow();
-    const update = jest.fn();
+    const provider: NotificationProvider = {
+      channel: 'PUSH',
+      enabled: true,
+      send: jest.fn().mockResolvedValue({ delivered: true, ref: 'mail-42' }),
+    };
+    const { service, mocks } = makeService(row, new Map([['PUSH', provider]]));
+
+    await service.send(row);
+
+    expect(mocks.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ providerRef: 'mail-42' }),
+      }),
+    );
+  });
+
+  it('keeps a transient provider failure retryable without exposing provider details', async () => {
+    const row = notificationRow();
     const failingProvider: NotificationProvider = {
       channel: 'PUSH',
+      enabled: true,
       send: jest.fn().mockRejectedValue(new Error('provider secret diagnostic')),
     };
-    const service = new NotificationDeliveryService(
-      prismaWithUpdate(row, update),
-      new Map([['PUSH', failingProvider]]),
-    );
+    const { service, mocks } = makeService(row, new Map([['PUSH', failingProvider]]));
 
     const delivered = await service.send(row);
 
-    expect(delivered.status).toBe('FAILED');
+    expect(delivered.status).toBe('PENDING');
     expect(delivered.attemptCount).toBe(1);
     expect(delivered.errorCode).toBe('DELIVERY_FAILED');
-    expect(update).toHaveBeenCalledWith({
+    expect(mocks.update).toHaveBeenCalledWith({
       where: { id: row.id, organizationId: row.organizationId },
       data: {
-        status: 'FAILED',
+        status: 'PENDING',
         attemptCount: 1,
         errorCode: 'DELIVERY_FAILED',
+        nextAttemptAt: expect.any(Date),
       },
     });
+  });
+
+  it('leaves a terminal row untouched so a retry cannot resurrect a send', async () => {
+    const row = notificationRow({ status: 'SENT', sentAt: new Date(), attemptCount: 1 });
+    const provider: NotificationProvider = {
+      channel: 'PUSH',
+      enabled: true,
+      send: jest.fn(),
+    };
+    const { service, mocks } = makeService(row, new Map([['PUSH', provider]]));
+
+    await expect(service.send(row)).resolves.toBe(row);
+    expect(provider.send).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 
   it('pins one notification id to each outbox event', async () => {
@@ -105,6 +156,7 @@ describe('notification consumer and delivery', () => {
     const consumer = new NotificationConsumer(
       { createForUser } as unknown as NotificationService,
       { send } as unknown as NotificationDeliveryService,
+      testEnv(),
     );
     const context = {
       row: {

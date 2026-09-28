@@ -140,6 +140,30 @@ export const envSchema = z.object({
   SCHEDULER_SWEEP_BATCH: z.coerce.number().int().positive().default(500),
   // Organizations visited per maintenance-reminder pass.
   SCHEDULER_ORG_BATCH: z.coerce.number().int().positive().default(50),
+  // Off-system notification delivery (patch P6, ADR-045).
+  // Cadence of the notification-delivery sweep: claims PENDING rows whose
+  // nextAttemptAt has passed and attempts one delivery per row.
+  NOTIFICATION_DELIVERY_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
+  // Rows attempted per sweep pass. Deliberately smaller than SCHEDULER_SWEEP_BATCH:
+  // every row is an outbound network call, so one slow channel cannot monopolise
+  // a tick.
+  NOTIFICATION_DELIVERY_BATCH: z.coerce.number().int().positive().default(100),
+  // Attempts before a delivery is FAILED for good. Retries back off from
+  // NOTIFICATION_DELIVERY_RETRY_BASE_MS.
+  NOTIFICATION_DELIVERY_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  NOTIFICATION_DELIVERY_RETRY_BASE_MS: z.coerce.number().int().positive().default(30_000),
+  // Channels (EMAIL, SMS, PUSH) the notification consumer fans out to in
+  // addition to IN_APP. Empty = in-app only, which is the safe default: an
+  // off-system send leaves the system and cannot be unsent.
+  NOTIFICATION_OFFSITE_CHANNELS: z.string().default(''),
+  // Off-system delivery adapter. Unset = the honest structural stub (logged,
+  // counted as delivered, nothing leaves the host). Set = every configured
+  // channel is POSTed as a signed JSON webhook to this URL.
+  NOTIFICATION_WEBHOOK_URL: z.string().default(''),
+  // HMAC-SHA256 key for the webhook body signature. Empty = unsigned payload
+  // (the receiver can still parse it, but cannot verify the sender).
+  NOTIFICATION_WEBHOOK_SECRET: z.string().default(''),
+  NOTIFICATION_WEBHOOK_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -171,5 +195,7 @@ export function envSummary(env: Env): Record<string, unknown> {
     emergencyRetentionDays: env.EMERGENCY_RETENTION_DAYS,
     schedulerEnabled: env.SCHEDULER_ENABLED,
     outboxDrainIntervalMs: env.OUTBOX_DRAIN_INTERVAL_MS,
+    notificationChannels: env.NOTIFICATION_OFFSITE_CHANNELS || 'IN_APP only',
+    notificationWebhook: env.NOTIFICATION_WEBHOOK_URL ? 'configured' : 'stubbed',
   };
 }

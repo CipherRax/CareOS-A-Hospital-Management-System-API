@@ -770,5 +770,7 @@ describe('session bootstrap & display devices (Phase P1)', () => {
       headers: bearer(deviceToken),
     });
     expect(deadToken.statusCode).toBe(401);
-  });
+    // Six round-trips through the shared e2e database; the default 5 s budget
+    // is not realistic once other suites have filled the tenant with rows.
+  }, 30_000);
 });

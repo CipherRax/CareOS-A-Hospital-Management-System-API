@@ -2,6 +2,7 @@ import { SchedulerWorker } from '../../../src/modules/scheduler/scheduler.worker
 import {
   IDEMPOTENCY_SWEEP_JOB,
   MAINTENANCE_REMINDER_JOB,
+  NOTIFICATION_DELIVERY_JOB,
   OUTBOX_DRAIN_JOB,
   REPORT_EXPIRY_JOB,
 } from '../../../src/modules/scheduler/scheduler.service';
@@ -18,6 +19,13 @@ function makeWorker(env: Record<string, unknown> = {}) {
     }),
     sweepIdempotencyRecords: jest.fn().mockResolvedValue({ deleted: 0 }),
     expireReportExports: jest.fn().mockResolvedValue({ expired: 0 }),
+    deliverDueNotifications: jest.fn().mockResolvedValue({
+      attempted: 0,
+      sent: 0,
+      suppressed: 0,
+      retrying: 0,
+      failed: 0,
+    }),
   };
   const worker = new SchedulerWorker(scheduler as never, queue as never, {
     NODE_ENV: 'production',
@@ -26,6 +34,7 @@ function makeWorker(env: Record<string, unknown> = {}) {
     MAINTENANCE_REMINDER_INTERVAL_MS: 900_000,
     IDEMPOTENCY_SWEEP_INTERVAL_MS: 3_600_000,
     REPORT_EXPIRY_INTERVAL_MS: 300_000,
+    NOTIFICATION_DELIVERY_INTERVAL_MS: 15_000,
     ...env,
   } as never);
   return { worker, queue, scheduler };
@@ -38,7 +47,7 @@ describe('SchedulerWorker', () => {
 
       await worker.onApplicationBootstrap();
 
-      expect(queue.add).toHaveBeenCalledTimes(4);
+      expect(queue.add).toHaveBeenCalledTimes(5);
       const calls = queue.add.mock.calls.map((call) => call as [string, unknown, Record<string, unknown>]);
       for (const [name, , opts] of calls) {
         expect(typeof name).toBe('string');
@@ -51,6 +60,10 @@ describe('SchedulerWorker', () => {
       expect(byName.get(MAINTENANCE_REMINDER_JOB)?.repeat).toEqual({ every: 900_000 });
       expect(byName.get(IDEMPOTENCY_SWEEP_JOB)?.repeat).toEqual({ every: 3_600_000 });
       expect(byName.get(REPORT_EXPIRY_JOB)?.repeat).toEqual({ every: 300_000 });
+      expect(byName.get(NOTIFICATION_DELIVERY_JOB)?.repeat).toEqual({ every: 15_000 });
+      expect(byName.get(NOTIFICATION_DELIVERY_JOB)?.jobId).toBe(
+        'careos-scheduler-notification-delivery',
+      );
     });
 
     it('registers nothing under NODE_ENV=test so e2e stays deterministic', async () => {
@@ -72,7 +85,7 @@ describe('SchedulerWorker', () => {
       queue.add.mockRejectedValueOnce(new Error('redis unavailable'));
 
       await expect(worker.onApplicationBootstrap()).resolves.toBeUndefined();
-      expect(queue.add).toHaveBeenCalledTimes(4);
+      expect(queue.add).toHaveBeenCalledTimes(5);
     });
   });
 
@@ -84,11 +97,13 @@ describe('SchedulerWorker', () => {
       await worker.process({ name: MAINTENANCE_REMINDER_JOB } as never);
       await worker.process({ name: IDEMPOTENCY_SWEEP_JOB } as never);
       await worker.process({ name: REPORT_EXPIRY_JOB } as never);
+      await worker.process({ name: NOTIFICATION_DELIVERY_JOB } as never);
 
       expect(scheduler.drainOutbox).toHaveBeenCalledTimes(1);
       expect(scheduler.queueMaintenanceReminders).toHaveBeenCalledTimes(1);
       expect(scheduler.sweepIdempotencyRecords).toHaveBeenCalledTimes(1);
       expect(scheduler.expireReportExports).toHaveBeenCalledTimes(1);
+      expect(scheduler.deliverDueNotifications).toHaveBeenCalledTimes(1);
     });
 
     it('ignores an unknown job name instead of running the wrong duty', async () => {

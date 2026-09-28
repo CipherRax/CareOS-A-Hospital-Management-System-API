@@ -3,6 +3,79 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-045 — Off-system notification delivery: opt-out before send, real addresses, and a retry ladder
+
+**Status:** accepted (Patch P6)
+
+**Context:** the notification seam was four structural no-ops. `SmtpProvider`,
+`SmsProvider` and `PushProvider` logged a line and returned `{ delivered: true }`,
+so nothing left the host, nothing could fail, and the "delivery" was
+unfalsifiable. Worse, the path around them was wrong in three ways that only a
+real adapter would have exposed. (1) `NotificationPreference` rows were written
+by `PUT /notifications/preferences` and listed by `GET /notifications/preferences`,
+but **never read at send time** — a recipient who opted out of a channel still
+got it. (2) `to` was `recipientUserId ?? recipientPatientId`, a bare id no mail
+relay or SMS gateway can act on. (3) `NotificationDeliveryService.send` made one
+inline attempt from the outbox consumer, and any failure was a terminal `FAILED`
+after a single try — no retry, no backoff, and a provider outage lost the message.
+The provider map was also built inline in the feature module behind the repo's
+only string DI token.
+
+**Decision:**
+- **Opt-out is decided at send, before anything leaves the system.** The delivery
+  service reads the recipient's `NotificationPreference` rows for
+  `(channel, templateKey)` and suppresses to the new terminal `SUPPRESSED`
+  status with `errorCode = RECIPIENT_OPTED_OUT`. Resolution is opt-out by
+  default, and the template's own category beats a `*` catch-all row, so a
+  blanket opt-out can be re-enabled for one template. `SUPPRESSED` is
+  deliberately a separate status from `FAILED`: a deliberate non-send is not a
+  delivery failure, must not be counted as one, and must never be retried.
+  A channel with no address on file is suppressed the same way
+  (`RECIPIENT_ADDRESS_MISSING`) — a missing phone will still be missing on the
+  fourth attempt.
+- **Real addresses.** `EMAIL` resolves `User.email`/`Patient.email` and `SMS`
+  resolves `.phone`; `IN_APP` and `PUSH` address by recipient id (the row *is*
+  the in-app delivery, and a push provider resolves its own device token).
+- **A real adapter, selected by env.** `NOTIFICATION_WEBHOOK_URL` switches
+  `EMAIL`/`SMS`/`PUSH` from the stub to `WebhookNotificationProvider`, which
+  POSTs the rendered notification as JSON with `x-careos-signature`
+  (HMAC-SHA256 over the exact bytes sent) and `x-careos-idempotency-key`. One
+  adapter serves all three channels because the receiving system — mail relay,
+  SMS gateway, push service — is what holds the channel credentials; the
+  platform never needs per-provider secrets to prove the path is real. A 2xx is
+  the only success signal and its id (header or small JSON body) is persisted as
+  `providerRef`. Wiring moved to `NotificationsIntegrationModule` behind a
+  `Symbol` token, matching the M-PESA seam.
+- **Retry ladder, driven by the P5 scheduler.** A transient failure (transport,
+  timeout, 5xx) leaves the row `PENDING` with `nextAttemptAt` pushed out by
+  `NOTIFICATION_DELIVERY_RETRY_BASE_MS * 2 ** attempt`, and the new
+  `notification-delivery` duty (15 s, batch 100) claims rows on
+  `status = 'PENDING' AND nextAttemptAt <= now` (riding a new
+  `(status, nextAttemptAt)` index). Only `NOTIFICATION_DELIVERY_MAX_ATTEMPTS`
+  (5) or a permanent cause — a 4xx, no provider configured, no recipient —
+  produces `FAILED`. Error codes stay a small stable set so dashboards can
+  group them without leaking provider internals; that includes keeping
+  `PROVIDER_NOT_CONFIGURED` (terminal) distinct from `PROVIDER_UNAVAILABLE`
+  (retryable), a collision the e2e suite caught.
+- **Fan-out is opt-in per deployment.** The consumer still always produces
+  `IN_APP`, and adds the channels in `NOTIFICATION_OFFSITE_CHANNELS` (default
+  empty) with a per-channel notification id. Default stays in-app only because
+  a send that leaves the system cannot be unsent and a recipient cannot consent
+  to a channel they never asked to join.
+
+**Consequences:** a recipient's opt-out is now enforced where it matters, a
+provider outage retries instead of dropping the message, and a real receiver can
+be pointed at the platform without changing code. The cost is honest: delivery is
+at-least-once (a retry after a timeout may re-send an already-accepted payload,
+which is what the idempotency key is for), the sweep is a select-then-attempt
+with no locked claim — deliberately not locking across a network call, so two
+overlapping ticks can double-send a row — and the webhook adapter is a transport,
+not a mail client: a real deployment still needs a receiving relay, and SMS/PUSH
+addressing stays the receiver's job. Notification bodies remain PHI-neutral by
+construction (ADR-034), which is what makes sending them off-system acceptable
+at all. Nothing is registered under `NODE_ENV=test`, so e2e drives the duty
+directly — against a real in-process webhook receiver, not a mock.
+
 ## ADR-044 — Time-based duties are BullMQ repeatable jobs with idempotent, batched sweeps
 
 **Status:** accepted (Patch P5)

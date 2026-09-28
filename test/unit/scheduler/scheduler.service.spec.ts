@@ -1,10 +1,12 @@
 import {
   IDEMPOTENCY_SWEEP_JOB,
   MAINTENANCE_REMINDER_JOB,
+  NOTIFICATION_DELIVERY_JOB,
   OUTBOX_DRAIN_JOB,
   REPORT_EXPIRY_JOB,
   SchedulerService,
 } from '../../../src/modules/scheduler/scheduler.service';
+import type { Notification } from '@prisma/client';
 
 interface Mocks {
   idempotencyRecord: {
@@ -16,6 +18,7 @@ interface Mocks {
     updateMany: jest.Mock;
   };
   organization: { findMany: jest.Mock };
+  notification: { findMany: jest.Mock };
 }
 
 function makeMocks(): Mocks {
@@ -29,6 +32,7 @@ function makeMocks(): Mocks {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     organization: { findMany: jest.fn().mockResolvedValue([]) },
+    notification: { findMany: jest.fn().mockResolvedValue([]) },
   };
 }
 
@@ -36,17 +40,20 @@ function makeService(mocks: Mocks, env: Record<string, unknown> = {}) {
   const prisma = { unscoped: jest.fn(() => mocks) };
   const maintenance = { queueReminders: jest.fn().mockResolvedValue({ queued: 0, skipped: 0 }) };
   const publisher = { publishReadyEvents: jest.fn().mockResolvedValue(0) };
+  const notifications = { send: jest.fn().mockResolvedValue({ status: 'SENT' }) };
   const service = new SchedulerService(
     prisma as never,
     maintenance as never,
     publisher as never,
+    notifications as never,
     {
       SCHEDULER_SWEEP_BATCH: 500,
       SCHEDULER_ORG_BATCH: 2,
+      NOTIFICATION_DELIVERY_BATCH: 25,
       ...env,
     } as never,
   );
-  return { service, prisma, maintenance, publisher, mocks };
+  return { service, prisma, maintenance, publisher, notifications, mocks };
 }
 
 describe('SchedulerService', () => {
@@ -247,9 +254,99 @@ describe('SchedulerService', () => {
     });
   });
 
+  describe('deliverDueNotifications', () => {
+    function pendingRow(id: string): Notification {
+      return { id, status: 'PENDING' } as Notification;
+    }
+
+    it('claims only PENDING rows whose nextAttemptAt has passed, in bounded pages', async () => {
+      const mocks = makeMocks();
+      mocks.notification.findMany.mockResolvedValue([pendingRow('notif-1')]);
+      const { service, notifications } = makeService(mocks);
+      const now = new Date('2026-10-02T00:00:00.000Z');
+
+      await expect(service.deliverDueNotifications(now)).resolves.toEqual({
+        attempted: 1,
+        sent: 1,
+        suppressed: 0,
+        retrying: 0,
+        failed: 0,
+      });
+
+      expect(mocks.notification.findMany).toHaveBeenCalledWith({
+        where: { status: 'PENDING', nextAttemptAt: { lte: now } },
+        orderBy: { nextAttemptAt: 'asc' },
+        take: 25,
+      });
+      expect(notifications.send).toHaveBeenCalledWith({ id: 'notif-1', status: 'PENDING' });
+    });
+
+    it('classifies every terminal outcome the delivery service reports', async () => {
+      const mocks = makeMocks();
+      mocks.notification.findMany.mockResolvedValue([
+        pendingRow('sent'),
+        pendingRow('suppressed'),
+        pendingRow('retrying'),
+        pendingRow('failed'),
+      ]);
+      const { service, notifications } = makeService(mocks);
+      notifications.send
+        .mockResolvedValueOnce({ status: 'SENT' })
+        .mockResolvedValueOnce({ status: 'SUPPRESSED' })
+        .mockResolvedValueOnce({ status: 'PENDING' })
+        .mockResolvedValueOnce({ status: 'FAILED' });
+
+      await expect(service.deliverDueNotifications()).resolves.toEqual({
+        attempted: 4,
+        sent: 1,
+        suppressed: 1,
+        retrying: 1,
+        failed: 1,
+      });
+    });
+
+    it('isolates a throwing delivery so the rest of the pass still runs', async () => {
+      const mocks = makeMocks();
+      mocks.notification.findMany.mockResolvedValue([pendingRow('boom'), pendingRow('ok')]);
+      const { service, notifications } = makeService(mocks);
+      notifications.send
+        .mockRejectedValueOnce(new Error('tenant quarantined'))
+        .mockResolvedValueOnce({ status: 'SENT' });
+
+      await expect(service.deliverDueNotifications()).resolves.toEqual({
+        attempted: 2,
+        sent: 1,
+        suppressed: 0,
+        retrying: 0,
+        failed: 1,
+      });
+    });
+
+    it('does nothing when no delivery is due', async () => {
+      const { service, notifications } = makeService(makeMocks());
+
+      await expect(service.deliverDueNotifications()).resolves.toEqual({
+        attempted: 0,
+        sent: 0,
+        suppressed: 0,
+        retrying: 0,
+        failed: 0,
+      });
+      expect(notifications.send).not.toHaveBeenCalled();
+    });
+  });
+
   describe('duty names', () => {
     it('exposes one distinct name per time-based duty', () => {
-      expect(new Set([OUTBOX_DRAIN_JOB, MAINTENANCE_REMINDER_JOB, IDEMPOTENCY_SWEEP_JOB, REPORT_EXPIRY_JOB]).size).toBe(4);
+      expect(
+        new Set([
+          OUTBOX_DRAIN_JOB,
+          MAINTENANCE_REMINDER_JOB,
+          IDEMPOTENCY_SWEEP_JOB,
+          REPORT_EXPIRY_JOB,
+          NOTIFICATION_DELIVERY_JOB,
+        ]).size,
+      ).toBe(5);
     });
   });
 });

@@ -1,14 +1,22 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import type { NotificationChannel } from '@prisma/client';
+import { ENV, type Env } from '../../config/config.module';
 import { EventTypes } from '../../events/catalog';
 import type {
   OutboxConsumer,
   OutboxConsumerContext,
 } from '../../events/outbox-consumer/outbox-consumer.types';
+import { parseOffsiteChannels } from '../../integrations/notifications/notifications.provider';
 import { NotificationDeliveryService } from './notifications-delivery.service';
 import { NotificationService } from './notifications.service';
 
-export function notificationIdForEvent(eventId: string): string {
-  return `notif-${eventId}`;
+export function notificationIdForEvent(
+  eventId: string,
+  channel: NotificationChannel = 'IN_APP',
+): string {
+  // IN_APP keeps the historical id so existing rows and the event→notification
+  // mapping stay stable; off-system channels get a per-channel suffix.
+  return channel === 'IN_APP' ? `notif-${eventId}` : `notif-${eventId}-${channel.toLowerCase()}`;
 }
 
 @Injectable()
@@ -23,7 +31,18 @@ export class NotificationConsumer implements OutboxConsumer {
   constructor(
     private readonly notifications: NotificationService,
     private readonly delivery: NotificationDeliveryService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
+
+  /**
+   * Channels one event fans out to. IN_APP is always produced (it is the
+   * in-product record); the off-system channels are opt-in per deployment
+   * because a send that leaves the system cannot be unsent, and a recipient
+   * cannot be asked for consent for a channel they never asked to join.
+   */
+  channels(): NotificationChannel[] {
+    return ['IN_APP', ...parseOffsiteChannels(this.env.NOTIFICATION_OFFSITE_CHANNELS)];
+  }
 
   async handle(ctx: OutboxConsumerContext): Promise<void> {
     const actorId = ctx.row.actorId;
@@ -51,15 +70,17 @@ export class NotificationConsumer implements OutboxConsumer {
       return;
     }
 
-    const notification = await this.notifications.createForUser({
-      id: notificationIdForEvent(ctx.row.id),
-      userId: actorId,
-      channel: 'IN_APP',
-      templateKey,
-      variables,
-      organizationId: ctx.organizationId,
-    });
-    await this.delivery.send(notification);
+    for (const channel of this.channels()) {
+      const notification = await this.notifications.createForUser({
+        id: notificationIdForEvent(ctx.row.id, channel),
+        userId: actorId,
+        channel,
+        templateKey,
+        variables,
+        organizationId: ctx.organizationId,
+      });
+      await this.delivery.send(notification);
+    }
   }
 }
 

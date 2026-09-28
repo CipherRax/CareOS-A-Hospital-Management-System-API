@@ -3834,6 +3834,10 @@ enum NotificationChannel {
 enum NotificationStatus {
   PENDING
   SENT
+  // Deliberately not sent and never retried: the recipient opted out of this
+  // channel/category, or no address exists for it. Kept separate from FAILED so
+  // "we chose not to" is never counted as a delivery failure.
+  SUPPRESSED
   FAILED
 }
 
@@ -3850,6 +3854,12 @@ model Notification {
   status             NotificationStatus  @default(PENDING)
   attemptCount       Int                 @default(0)
   errorCode          String?
+  // Provider-side id returned by a confirmed send (delivery correlation, ADR-045).
+  providerRef        String?
+  // PENDING rows are due at this instant; a failed attempt pushes it out along
+  // the backoff ladder, and the notification-delivery sweep claims rows with
+  // `nextAttemptAt <= now()`. Only meaningful while status = 'PENDING'.
+  nextAttemptAt      DateTime            @default(now())
   readAt             DateTime? // IN_APP acknowledgement.
   sentAt             DateTime?
   createdAt          DateTime            @default(now())
@@ -3861,6 +3871,8 @@ model Notification {
   @@index([organizationId, recipientUserId, createdAt])
   @@index([organizationId, recipientPatientId, createdAt])
   @@index([organizationId, status, createdAt])
+  // Sweep index for the notification-delivery duty (ADR-045).
+  @@index([status, nextAttemptAt])
   @@map("notifications")
 }
 

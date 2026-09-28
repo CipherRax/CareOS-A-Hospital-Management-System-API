@@ -5,6 +5,7 @@ import { ENV, type Env } from '../../config/config.module';
 import {
   IDEMPOTENCY_SWEEP_JOB,
   MAINTENANCE_REMINDER_JOB,
+  NOTIFICATION_DELIVERY_JOB,
   OUTBOX_DRAIN_JOB,
   REPORT_EXPIRY_JOB,
   SCHEDULER_QUEUE,
@@ -68,6 +69,11 @@ export class SchedulerWorker extends WorkerHost implements OnApplicationBootstra
         every: this.env.REPORT_EXPIRY_INTERVAL_MS,
         jobId: 'careos-scheduler-report-expiry',
       },
+      {
+        name: NOTIFICATION_DELIVERY_JOB,
+        every: this.env.NOTIFICATION_DELIVERY_INTERVAL_MS,
+        jobId: 'careos-scheduler-notification-delivery',
+      },
     ];
   }
 
@@ -126,6 +132,13 @@ export class SchedulerWorker extends WorkerHost implements OnApplicationBootstra
         if (result.expired > 0) {
           this.logger.log({ expired: result.expired }, 'report exports expired');
         }
+        return;
+      }
+      case NOTIFICATION_DELIVERY_JOB: {
+        const result = await this.scheduler.deliverDueNotifications();
+        this.logger.log(
+          `notification delivery: ${result.sent} sent, ${result.suppressed} suppressed, ${result.retrying} retrying, ${result.failed} failed of ${result.attempted} due`,
+        );
         return;
       }
       default:

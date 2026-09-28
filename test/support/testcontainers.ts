@@ -6,6 +6,7 @@ import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer } from '@testcontainers/redis';
 import type { StartedRedisContainer } from '@testcontainers/redis';
 import S3rver from 's3rver';
+import { startWebhookRecorder, type WebhookRecorder } from './webhook-recorder';
 
 export const E2E_ENV_FILE = join(__dirname, '..', '.e2e.env.json');
 
@@ -20,11 +21,16 @@ const REDIS_IMAGE = process.env.E2E_REDIS_IMAGE ?? 'redis:7-alpine';
 export const S3RVER_ACCESS_KEY = 'S3RVER';
 export const S3RVER_SECRET_KEY = 'S3RVER';
 
+/** HMAC key the e2e webhook recorder verifies deliveries with. */
+export const WEBHOOK_SECRET = 'e2e-webhook-secret';
+
 export interface E2EDependencies {
   postgres: StartedPostgreSqlContainer | null;
   redis: StartedRedisContainer | null;
   /** In-process S3 server handle. Runs in the jest globalSetup process. */
   s3rver: { close(): Promise<unknown> } | null;
+  /** In-process receiver for the off-system notification webhook. */
+  webhook: WebhookRecorder | null;
 }
 
 function writeEnvFile(env: Record<string, string | number>): void {
@@ -43,22 +49,26 @@ function writeEnvFile(env: Record<string, string | number>): void {
  */
 export async function startDependencies(): Promise<E2EDependencies> {
   const s3rver = await startS3rver();
+  const webhook = await startWebhookRecorder();
 
   const externalDatabaseUrl = process.env.E2E_DATABASE_URL;
   if (externalDatabaseUrl) {
     writeEnvFile(
-      withS3Env(
-        {
-          DATABASE_URL: externalDatabaseUrl,
-          DATABASE_DIRECT_URL: externalDatabaseUrl,
-          REDIS_HOST: process.env.E2E_REDIS_HOST ?? 'localhost',
-          REDIS_PORT: process.env.E2E_REDIS_PORT ?? '6379',
-          REDIS_DB: process.env.E2E_REDIS_DB ?? '0',
-        },
-        s3rver,
+      withWebhookEnv(
+        withS3Env(
+          {
+            DATABASE_URL: externalDatabaseUrl,
+            DATABASE_DIRECT_URL: externalDatabaseUrl,
+            REDIS_HOST: process.env.E2E_REDIS_HOST ?? 'localhost',
+            REDIS_PORT: process.env.E2E_REDIS_PORT ?? '6379',
+            REDIS_DB: process.env.E2E_REDIS_DB ?? '0',
+          },
+          s3rver,
+        ),
+        webhook,
       ),
     );
-    return { postgres: null, redis: null, s3rver };
+    return { postgres: null, redis: null, s3rver, webhook };
   }
 
   const postgres = await new PostgreSqlContainer(POSTGRES_IMAGE)
@@ -98,24 +108,28 @@ export async function startDependencies(): Promise<E2EDependencies> {
   }
 
   writeEnvFile(
-    withS3Env(
-      {
-        DATABASE_URL: databaseUrl,
-        DATABASE_DIRECT_URL: directUrl,
-        REDIS_HOST: redis.getHost(),
-        REDIS_PORT: redis.getPort(),
-        REDIS_DB: '0',
-      },
-      s3rver,
+    withWebhookEnv(
+      withS3Env(
+        {
+          DATABASE_URL: databaseUrl,
+          DATABASE_DIRECT_URL: directUrl,
+          REDIS_HOST: redis.getHost(),
+          REDIS_PORT: redis.getPort(),
+          REDIS_DB: '0',
+        },
+        s3rver,
+      ),
+      webhook,
     ),
   );
 
-  return { postgres, redis, s3rver };
+  return { postgres, redis, s3rver, webhook };
 }
 
 export async function stopDependencies(deps: E2EDependencies): Promise<void> {
   await Promise.all([deps.postgres?.stop(), deps.redis?.stop()]);
   await deps.s3rver?.close();
+  await deps.webhook?.close();
 }
 
 export function loadE2EEnv(): Record<string, string> {
@@ -145,7 +159,27 @@ async function startS3rver(): Promise<{ close(): Promise<unknown>; port: number 
   return { close: () => server.close(), port: addr.port };
 }
 
-function withS3Env(env: Record<string, string | number>, s3: { port: number }): Record<string, string | number> {
+/**
+ * Points the off-system notification adapter at the in-process recorder, so the
+ * e2e suite exercises the real webhook path (signature, status handling,
+ * receiver ref) instead of the structural stub. Fan-out stays off, so nothing
+ * else in the run leaves the host.
+ */
+function withWebhookEnv(
+  env: Record<string, string | number>,
+  webhook: WebhookRecorder,
+): Record<string, string | number> {
+  return {
+    ...env,
+    NOTIFICATION_WEBHOOK_URL: webhook.url,
+    NOTIFICATION_WEBHOOK_SECRET: WEBHOOK_SECRET,
+  };
+}
+
+function withS3Env(
+  env: Record<string, string | number>,
+  s3: { port: number },
+): Record<string, string | number> {
   return {
     ...env,
     S3_ENDPOINT: `http://127.0.0.1:${s3.port}`,

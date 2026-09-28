@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 442/442 unit (61 suites) |
+| `npm test`   | 483/483 unit (63 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 222/222 (19 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 232/232 (20 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -1365,8 +1365,89 @@ best-effort — a worker down means no drain/reminders/expiry during that window
 (nothing is lost permanently; the backlog drains when it returns) — and there is
 no leader election, distributed lock, or per-tenant quota; the reminder rotation
 is per-process, so a fleet may revisit some orgs sooner than others (harmless, the
-scan is idempotent); reminder *delivery* is still a stub (no push/email/SMS
-adapter, `markReminderSent` only flips a column).
+scan is idempotent); reminder *delivery* is still a stub — P6 added a real
+off-system adapter, but `markReminderSent` only flips a column and the adapter
+only reaches a human once a relay is configured behind it (ADR-045).
+
+### P6 — Notification delivery (COMPLETE)
+
+Turns the roadmap's next medium item into a real delivery path: the four
+structural no-op providers become one env-selected, signed adapter, and the
+policy around a send (opt-out, address, retry) is enforced where the message
+actually leaves.
+
+- **Opt-out enforced at send (ADR-045).** `NotificationPreference` rows were
+  written and listed but never read at send time, so a recipient who opted out
+  of a channel still received it. `NotificationDeliveryService.send` now reads
+  the recipient's preferences for `(channel, templateKey)` *before* anything
+  leaves the system and lands the row in a new terminal `SUPPRESSED` status with
+  `RECIPIENT_OPTED_OUT` (opt-out by default; the template's own category beats a
+  `*` catch-all, so a blanket opt-out can be re-enabled for one template).
+  `SUPPRESSED` is deliberately not `FAILED`: a deliberate non-send is not a
+  delivery failure, must not be counted as one, and must never be retried. A
+  channel with no address on file is suppressed the same way
+  (`RECIPIENT_ADDRESS_MISSING`) — a missing phone is still missing on the
+  fourth attempt.
+- **A real off-system adapter.** `NOTIFICATION_WEBHOOK_URL` switches
+  `EMAIL`/`SMS`/`PUSH` from the stub to `WebhookNotificationProvider`, which
+  POSTs the rendered notification as JSON with `x-careos-signature`
+  (HMAC-SHA256 over the exact bytes sent) and `x-careos-idempotency-key`. One
+  adapter serves all three channels because the relay — mail, SMS or push — is
+  what holds the channel credentials. A 2xx is the only success signal, and the
+  receiver's id (header or small JSON body) is persisted as the new
+  `providerRef`. With the variable unset nothing leaves the host, so the
+  structural stub is still available and still runs the full policy path.
+  Wiring moved to `NotificationsIntegrationModule` behind a `Symbol` token,
+  matching the M-PESA seam; the string token the notifications feature used was
+  the only one in the repo.
+- **Real addresses.** `to` was `recipientUserId ?? recipientPatientId`, a bare id
+  no relay can act on. `EMAIL` resolves `User.email`/`Patient.email`, `SMS`
+  resolves `.phone`, and `IN_APP`/`PUSH` address by recipient id (the row *is*
+  the in-app delivery; a push provider resolves its own device token).
+- **A retry ladder, driven by the P5 scheduler.** One inline attempt from the
+  outbox consumer used to make any provider failure terminal after a single try,
+  so an outage lost the message. A transient failure (transport, timeout, 5xx)
+  now leaves the row `PENDING` with `nextAttemptAt` pushed out by
+  `NOTIFICATION_DELIVERY_RETRY_BASE_MS * 2 ** attempt`, and a new
+  `notification-delivery` duty (15 s, `NOTIFICATION_DELIVERY_BATCH` 100) claims
+  `status = 'PENDING' AND nextAttemptAt <= now` on a new
+  `(status, nextAttemptAt)` index. Only `NOTIFICATION_DELIVERY_MAX_ATTEMPTS` (5)
+  or a permanent cause — a 4xx, no provider configured, no recipient — produces
+  `FAILED`. Error codes are a small stable set that dashboards can group without
+  leaking provider internals; that includes keeping `PROVIDER_NOT_CONFIGURED`
+  (terminal) distinct from `PROVIDER_UNAVAILABLE` (retryable), a collision the
+  e2e suite caught.
+- **Fan-out is opt-in per deployment.** The consumer still always produces
+  `IN_APP`; `NOTIFICATION_OFFSITE_CHANNELS` (default empty) adds more channels
+  with per-channel notification ids. Default stays in-app only because a send
+  that leaves the system cannot be unsent and a recipient cannot consent to a
+  channel they never asked to join.
+- **Schema:** migration `20261002140000_phase_p6_notification_delivery` adds the
+  `SUPPRESSED` status, `nextAttemptAt` (backfilled from `createdAt` so rows the
+  old path never delivered get one pass), `providerRef`, and the sweep index.
+- **Tests:** +41 unit (63 suites / 483): the webhook adapter (signature over
+  the raw body, idempotency header, 2xx/4xx/5xx/transport classification, no
+  address or payload in logs), provider selection from env, opt-out resolution
+  (default, exact-beats-wildcard, blanket), address resolution per channel, the
+  retry ladder (exponential backoff, exhaustion, permanent 4xx, unconfirmed
+  provider, no provider configured), the delivery duty (bounded claim, outcome
+  classification, per-row isolation), and channel fan-out. E2E +10 (20 suites /
+  232) in a new `test/e2e/notification-delivery.e2e-spec.ts` that points
+  `NOTIFICATION_WEBHOOK_URL` at an in-process receiver started in the e2e global
+  setup (like the s3rver S3 stub), so the acceptance tests drive the *real*
+  signed POST and the real retry ladder: opt-out suppresses with zero receiver
+  hits, a delivery lands with a verified HMAC and a persisted `ref`, a 503
+  retries and then recovers, a 422 fails immediately, and the attempt budget
+  terminates a row for good.
+
+**Open notes (see `docs/limitations.md`):** delivery is at-least-once — the duty
+claims without a locked claim on purpose (locking across a network call would
+stall the queue behind one slow endpoint), so two overlapping ticks can both
+attempt a row, which the idempotency key exists for; the adapter is a transport,
+not an SMTP/SMPP client, so a real deployment still needs a relay; PUSH is
+addressed by recipient id because no device token is stored; bodies remain
+PHI-neutral by construction (ADR-034), which is what makes sending them
+off-system acceptable at all.
 
 ## Notes
 
@@ -1379,12 +1460,18 @@ adapter, `markReminderSent` only flips a column).
   work was committed earlier under the label "Phase 2" and is documented here as
   Phase 3; scheduling (the brief's Phase 3) is documented here as Phase 4 to
   keep git history unchanged; git history is unchanged.
-- The e2e suite reaches 222 tests across 19 suites (identity, patients,
+- The e2e suite reaches 232 tests across 20 suites (identity, patients,
   documents, rls, tenant-pipeline, app-boot, phase-3 scheduling, the phase-4
   clinical spec, the phase-5 inventory/pharmacy spec, the phase-6 billing
   spec, the phase-7 laboratory/radiology spec, the phase-8
   inpatient/emergency spec, the phase-10 communication spec, the phase-11
   financial/ledger/M-PESA spec, the phase-12 operations spec, the phase-13
   analytics/reports spec, the public-directory spec, and the emergency-intake
-  spec, and the scheduler spec; file names keep the old labels to avoid churn while the sections here
-  track the brief's phases).
+  spec, the scheduler spec, and the notification-delivery spec; file names keep
+  the old labels to avoid churn while the sections here track the brief's
+  phases).
+- The e2e database is shared across suites and reused between runs, so any suite
+  that asserts on a *global* sweep must first clear what it owns: the
+  notification-delivery suite fails over stale `PENDING` rows at the start of
+  each test, because the duty claims the oldest due rows across all tenants and
+  a leftover backlog would starve the row under test.

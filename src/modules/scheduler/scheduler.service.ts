@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ENV, type Env } from '../../config/config.module';
 import { OutboxPublisherService } from '../../database/outbox-publisher.service';
 import { PrismaService } from '../../database/prisma.service';
+import { NotificationDeliveryService } from '../notifications/notifications-delivery.service';
 import { MaintenanceService } from '../operations/maintenance.service';
 
 /** Queue carrying every time-based duty (ADR-044). */
@@ -10,6 +11,7 @@ export const OUTBOX_DRAIN_JOB = 'outbox-drain';
 export const MAINTENANCE_REMINDER_JOB = 'maintenance-reminders';
 export const IDEMPOTENCY_SWEEP_JOB = 'idempotency-sweep';
 export const REPORT_EXPIRY_JOB = 'report-expiry';
+export const NOTIFICATION_DELIVERY_JOB = 'notification-delivery';
 
 /**
  * Row cap for one outbox claim, matching the batch the retired `worker.ts`
@@ -40,6 +42,16 @@ export interface MaintenanceReminderResult {
   failed: number;
 }
 
+export interface NotificationDeliveryResult {
+  attempted: number;
+  sent: number;
+  suppressed: number;
+  /** Failed but still inside the retry ladder — `nextAttemptAt` was pushed out. */
+  retrying: number;
+  /** Failed terminally (permanent cause, or max attempts exhausted). */
+  failed: number;
+}
+
 /**
  * Time-based duties (patch P5, ADR-044).
  *
@@ -49,10 +61,11 @@ export interface MaintenanceReminderResult {
  * runbook (`npx tsx scripts/sweep.ts` style invocations) without Redis.
  *
  * All of them are cross-tenant by necessity (outbox delivery, expiring
- * idempotency records, per-org reminders), so they read/write through
- * `prisma.unscoped()` deliberately and re-enter the tenant layer per org via
- * `MaintenanceService.queueReminders({ organizationId })`, which opens a properly
- * tenant-scoped, RLS-tied transaction.
+ * idempotency records, per-org reminders, notification delivery), so they
+ * read/write through `prisma.unscoped()` deliberately and re-enter the tenant
+ * layer per row/org via `MaintenanceService.queueReminders({ organizationId })`
+ * and `NotificationDeliveryService.send(row)`, which open properly
+ * tenant-scoped, RLS-tied transactions.
  */
 @Injectable()
 export class SchedulerService {
@@ -72,6 +85,7 @@ export class SchedulerService {
     private readonly prisma: PrismaService,
     private readonly maintenance: MaintenanceService,
     private readonly publisher: OutboxPublisherService,
+    private readonly notifications: NotificationDeliveryService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -132,6 +146,57 @@ export class SchedulerService {
       data: { status: 'EXPIRED' },
     });
     return { expired: expired.count };
+  }
+
+  /**
+   * Attempt every notification delivery that is due (patch P6, ADR-045).
+   *
+   * `NotificationDeliveryService.send` is the *only* thing that writes delivery
+   * state, so this duty is just a bounded driver of it: claim the PENDING rows
+   * whose `nextAttemptAt` has passed (rides the `(status, nextAttemptAt)` index)
+   * and attempt each one, oldest first.
+   *
+   * The claim is select-then-attempt rather than a locked claim, so a tick
+   * overlapping another process can double-send a row. That is acceptable and
+   * explicit: delivery is at-least-once, every provider call carries the
+   * notification id as an idempotency key, and the bodies are PHI-neutral by
+   * construction — the alternative (holding locks across a network call) would
+   * stall the whole queue behind one slow endpoint. Rows are individually
+   * isolated: a throw from one delivery never stops the pass.
+   */
+  async deliverDueNotifications(now = new Date()): Promise<NotificationDeliveryResult> {
+    const db = this.prisma.unscoped();
+    const due = await db.notification.findMany({
+      where: { status: 'PENDING', nextAttemptAt: { lte: now } },
+      orderBy: { nextAttemptAt: 'asc' },
+      take: this.env.NOTIFICATION_DELIVERY_BATCH,
+    });
+
+    const result: NotificationDeliveryResult = {
+      attempted: 0,
+      sent: 0,
+      suppressed: 0,
+      retrying: 0,
+      failed: 0,
+    };
+    for (const row of due) {
+      result.attempted += 1;
+      try {
+        const delivered = await this.notifications.send(row);
+        if (delivered.status === 'SENT') result.sent += 1;
+        else if (delivered.status === 'SUPPRESSED') result.suppressed += 1;
+        else if (delivered.status === 'FAILED') result.failed += 1;
+        else result.retrying += 1;
+      } catch (err) {
+        result.failed += 1;
+        this.logger.error(
+          `notification delivery threw for ${row.id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    return result;
   }
 
   /**

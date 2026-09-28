@@ -2,7 +2,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 export const NotificationChannelSchema = z.enum(['IN_APP', 'SMS', 'EMAIL', 'PUSH']);
-export const NotificationStatusSchema = z.enum(['PENDING', 'SENT', 'FAILED']);
+export const NotificationStatusSchema = z.enum(['PENDING', 'SENT', 'SUPPRESSED', 'FAILED']);
 
 const TemplateKeySchema = z
   .string()

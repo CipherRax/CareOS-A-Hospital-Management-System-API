@@ -5,9 +5,9 @@ and `docs/limitations.md`. Anything marked `[stub]` there is named in code and
 explicitly not implemented yet. Ordered by priority — this is what remains
 after the brief's phases 0–13 shipped.
 
-## Backend patch — in flight (Public directory, emergency requests, session bootstrap, display devices, scheduler)
+## Backend patch — in flight (Public directory, emergency requests, session bootstrap, display devices, scheduler, notification delivery)
 
-Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–044.
+Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–045.
 
 - [x] **P1 — Session & devices.** Expand `GET /auth/me` (org + feature flags,
   branches, session, break-glass, security staging, patient link, prefs),
@@ -38,6 +38,15 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–044.
   BullMQ so they can be driven without Redis. What is *not* done: leader
   election/distributed locking, per-tenant quotas, and cron-pattern schedules
   (all documented in `docs/limitations.md`).
+- [x] **P6 — Notification delivery.** `EMAIL`/`SMS`/`PUSH` become real sends
+  behind an env-selected, HMAC-signed webhook adapter (ADR-045), with opt-out
+  enforced at send time into a terminal `SUPPRESSED` status, real addresses
+  resolved off the recipient record, a retry ladder (`nextAttemptAt` +
+  backoff) driven by a new `notification-delivery` duty on the P5 scheduler,
+  and `providerRef` recorded from the receiver. Fan-out off-system is opt-in per
+  deployment (`NOTIFICATION_OFFSITE_CHANNELS`, default empty). What is *not*
+  done: SMTP/SMPP clients and a real mail/SMS/push provider (the adapter is a
+  transport a relay sits behind), push device tokens, and exactly-once delivery.
 
 ## High priority
 
@@ -49,12 +58,6 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–044.
 
 ## Medium priority
 
-- [ ] **Notification delivery adapters.** Push/email/SMS providers
-  (`src/integrations/notifications`) are structural no-ops; in-app rows are the
-  only real channel today. Implement at least one off-system adapter +
-  opt-out/preference enforcement on send. The P5 scheduler now materialises
-  maintenance reminders on a cadence, so this item is what turns those rows
-  into messages a human actually receives.
 - [ ] **PDF production rendering.** Replace the minimal `renderTextPdf` / no-op
   `PdfRenderer` with a renderer that supports charts, images, and Unicode for
   both `/document-jobs/pdf` and report exports.

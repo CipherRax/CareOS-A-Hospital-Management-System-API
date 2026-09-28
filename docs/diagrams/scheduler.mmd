@@ -17,14 +17,19 @@ flowchart TB
   SVC --> D2["maintenance-reminders · 15m<br/>per org, UUIDv7 rotation cursor<br/>queueReminders({org, actorId:null})"]
   SVC --> D3["idempotency-sweep · 1h<br/>delete expiresAt <= now<br/>(batched; frees stuck IN_PROGRESS)"]
   SVC --> D4["report-expiry · 5m<br/>READY + expiresAt <= now -> EXPIRED<br/>rides (status, expiresAt) index"]
+  SVC --> D5["notification-delivery · 15s<br/>PENDING + nextAttemptAt <= now<br/>one attempt per row (ADR-045)"]
 
   D1 --> DB[("PostgreSQL")]
   D2 --> DB
   D3 --> DB
   D4 --> DB
+  D5 --> DB
+
+  D5 --> ND["NotificationDeliveryService.send<br/>opt-out? suppress<br/>address? resolve<br/>retry ladder -> nextAttemptAt"]
+  ND --> P["Provider per channel<br/>signed webhook, or structural stub"]
 
   D1 --> CON["Outbox consumers<br/>timeline / pharmacy / notifications /<br/>ledger / rollups / public listing"]
   CON --> DB
 
   classDef duty fill:#eef,stroke:#557;
-  class D1,D2,D3,D4 duty;
+  class D1,D2,D3,D4,D5 duty;

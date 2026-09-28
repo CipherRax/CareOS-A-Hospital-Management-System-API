@@ -45,11 +45,17 @@ working code with a caveat.
 - **Patient portal auth keeps the Phase 1 role surface.** A self-scoped
   patient uses the same test-principal header seam as staff (`x-careos-test-patient-id`);
   real patient-facing JWT auth is a later phase.
-- **Notification delivery adapters are structural no-ops.** `[stub]` The
-  provider layer (`src/integrations/notifications`) exposes push/email/SMS
-  contracts but each adapter records intent only; in-app rows are the only real
-  channel. Preferences/opt-outs are stored and applied, but nothing is actually
-  sent off-system.
+- **Off-system notification delivery is a transport, not a mail/SMS/push
+  client.** `NOTIFICATION_WEBHOOK_URL` turns `EMAIL`/`SMS`/`PUSH` from the
+  structural stub into a real, HMAC-signed JSON POST with an idempotency key,
+  and opt-outs are now enforced at send time (`SUPPRESSED`, never retried) —
+  but the platform does not speak SMTP or SMPP: a deployment must point the URL
+  at a mail relay, SMS gateway or push service that holds the channel
+  credentials and does the actual sending. With the variable unset nothing
+  leaves the host, and `NOTIFICATION_OFFSITE_CHANNELS` stays empty by default,
+  so the consumer produces in-app rows only. Delivery is at-least-once, and
+  PUSH is addressed by recipient id (the receiver resolves the device token)
+  rather than by a stored push token.
 - **PDF rendering is a stub.** `[stub]` `POST /document-jobs/pdf` validates
   permissions, merges the document map and audits `pdf.rendered`, but the
   `PdfRenderer` provider returns a placeholder payload — no real PDF bytes are
@@ -76,24 +82,31 @@ working code with a caveat.
   default) share one idempotent scan of PLANNED/IN_PROGRESS records inside a 72h
   forward / 24h past window (unique `organizationId+maintenanceId`), so a
   scheduled pass and a manual one can never double-create. What is still stubbed
-  is the *last mile*: no push/email/SMS adapter is wired (the adapters in
-  `src/integrations/notifications` are structural no-ops) and
-  `markReminderSent` only flips a status column.
+  is the *last mile*: `markReminderSent` only flips a status column, so a
+  "sent" reminder records an attempt, not a confirmed hand-off — and the
+  off-system adapter only reaches a receiver once `NOTIFICATION_WEBHOOK_URL`
+  points at a real relay (ADR-045).
 - **The scheduler is a BullMQ timer, not a distributed cron (ADR-044).** One
   repeatable job per duty, registered by every process and deduped by a stable
   `jobId`, so a fleet schedules each duty once and the queue hands ticks to one
   consumer. Caveats that follow from that choice: a tick is *at-least-once* and
-  best-effort — a worker down for a while means no drain/reminders/expiry during
-  that window (nothing is missed permanently: the next tick picks up the
-  backlog), there is no distributed lock or leader election, and a repeatable
-  job's interval is not a per-tenant quota. Each duty is idempotent and batched
-  (`SCHEDULER_SWEEP_BATCH`), so a big backlog drains over several ticks rather
-  than one long pass; the reminder sweep rotates organizations with a per-process
-  UUIDv7 cursor, so a multi-process fleet may revisit some orgs sooner than
-  others (harmless, the scan is idempotent). `SCHEDULER_ENABLED=false`
-  registers no duty at all — the operator kill-switch for a worker-less deploy.
-  Report exports are expired by the `report-expiry` duty now, but generation is
-  still synchronous and relies on the same read-side `expiresAt` check.
+  best-effort — a worker down for a while means no drain/reminders/expiry/
+  delivery during that window (nothing is missed permanently: the next tick
+  picks up the backlog), there is no distributed lock or leader election, and a
+  repeatable job's interval is not a per-tenant quota. Each duty is idempotent
+  and batched (`SCHEDULER_SWEEP_BATCH`, and `NOTIFICATION_DELIVERY_BATCH` for
+  the delivery duty, which holds a network call per row), so a big backlog
+  drains over several ticks rather than one long pass; the reminder sweep
+  rotates organizations with a per-process UUIDv7 cursor, so a multi-process
+  fleet may revisit some orgs sooner than others (harmless, the scan is
+  idempotent). The notification-delivery duty is the one pass that does not
+  re-assert a guard on write — it claims `PENDING` rows without locking and
+  then calls the provider, so two overlapping ticks can both attempt a row
+  (at-least-once, deduped receiver-side by the idempotency key; see ADR-045).
+  `SCHEDULER_ENABLED=false` registers no duty at all — the operator kill-switch
+  for a worker-less deploy. Report exports are expired by the `report-expiry`
+  duty now, but generation is still synchronous and relies on the same
+  read-side `expiresAt` check.
 - **Report exports are synchronous and stored, not streamed.** `[stub]` An
   export is built inside the request (in-memory serialize) and persisted as a
   `ReportExport` row — there is no outbox/kick task object, no async
