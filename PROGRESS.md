@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 491/491 unit (64 suites) |
+| `npm test`   | 513/513 unit (65 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 234/234 (20 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 243/243 (20 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -1492,6 +1492,77 @@ who selects codes from it.
 - **Deliberately still open:** `Storage.DocumentUploaded` has no consumer. Its
   roadmap item is paired with document content security, which subscribes to the
   event; building a throwaway consumer for it now would only be replaced.
+
+## Phase P8 — Document content security (COMPLETE)
+
+The second "event with no downstream processor" gap, and the one where the
+missing consumer was a security hole rather than a missing convenience. P7
+documented that `Storage.DocumentUploaded` had no subscriber; the reason it had
+none is that subscribing to it means reading document bytes, and nothing in the
+codebase had ever done that. `complete` verified only that the key existed and
+matched the declared size, so a renamed executable, a real malware sample, or a
+national ID in a plain-text record all uploaded and were then served to anyone
+holding `documents.read`.
+
+- **The download gate is the enforcement point, not the scanner.** A document is
+  servable only on `CLEAN` or `FLAGGED`. `PENDING` and `ERROR` refuse with 409
+  (the document exists and the caller may see it, but we do not know what is in
+  it); `INFECTED` and `REJECTED` refuse with 422. The rejected alternative was
+  scanning synchronously in `complete` and gating there, which turns an AV
+  outage into a user-visible upload failure and couples upload latency to
+  scanner latency. Because the gate sits on the read path, the scan can live in
+  the outbox and a slow engine costs only delay.
+- **`PENDING` is a real, unservable state**, and a newly completed document is
+  not downloadable until the consumer rules on it. Serving `UPLOADED` rows and
+  racing the scan would have made scanning advisory.
+- **`FLAGGED` is deliberately downloadable.** A high-sensitivity pattern match
+  is a signal for a human reviewer, not a verdict on the file. Silently
+  withholding a clinical document because it contains an email address is a
+  worse failure than showing it to a clinician already authorised to read it.
+- **`DocumentScanConsumer` (`document-scan`) subscribes to the event** and runs
+  in the outbox dispatcher, off the request path. It reads the object through a
+  new `ObjectStorageService.stream`, which accumulates at most
+  `DOCUMENT_SCAN_MAX_BYTES` (10 MiB default) so memory is a function of the cap
+  rather than of an attacker-chosen upload size. The row records which engine
+  ran, how many bytes it read, and whether it was truncated.
+- **The default engine is a heuristic and is labelled one.** With no
+  `DOCUMENT_SCAN_CLAMAV_HOST`, `HeuristicDocumentScanner` runs in-process: it
+  refuses anything carrying an executable magic number *regardless of the
+  declared type* (the renamed-payload case), checks declared-type magic bytes,
+  catches EICAR, and flags high-sensitivity patterns. It is a real check — the
+  default deployment genuinely refuses a `.pdf` that is a PE binary — but it is
+  not antivirus, and `scanEngine: heuristic` keeps any report from implying
+  otherwise. ClamAV is spoken over `INSTREAM` on a raw socket (no new
+  dependency) and chained *after* the heuristic, so type confusion is enforced
+  either way and an AV outage cannot downgrade a known rejection: the chain
+  returns the first real finding, and surfaces `ERROR` when nothing definitive
+  was found, because a failed scan must never be reported as a pass.
+- **No content reaches durable state.** `scanDetail` holds a rule or signature
+  *name*; matched bytes would put patient data in an audit-visible column. The
+  e2e suite asserts the EICAR sample and the matched national ID are absent
+  from the serialised row, and the consumer logs the verdict and rule name only.
+  `scanFingerprint` is a 16-char digest of the inspected prefix — enough to
+  correlate a re-scan, nothing more.
+- **Historical rows are left `PENDING`, not backfilled to `CLEAN`.** Asserting
+  an unexamined 2021 scan report was clean is the exact failure this phase
+  exists to prevent. `POST /documents/:id/rescan` (documents.create) resets to
+  `PENDING` and republishes the same event, so there is one scan path rather
+  than two, and covers both legacy rows and an `ERROR` verdict. An `ERROR` is
+  recorded rather than thrown: a re-raised throw would make the outbox duty
+  retry the same broken engine on a loop.
+- **Tests:** +22 unit (`test/unit/integrations/document-scanner.spec.ts`) for the
+  heuristic's four judgements, the truncated case, fingerprint stability, the
+  chain's finding-over-outage and outage-is-not-clean semantics, and ClamAV
+  returning `ERROR` (not `CLEAN`) when unreachable or timed out. E2E +9 in
+  `test/e2e/documents.e2e-spec.ts` — EICAR quarantined, PE-as-PDF refused,
+  magic mismatch refused, national ID flagged *and still downloadable*, an
+  oversized upload marked `scanTruncated`, re-scan re-gating then clearing, the
+  permission and workflow guards, and a deleted document not being resurrected
+  by a late scan. The pre-existing download lifecycle test was updated: it now
+  asserts the 409 while `PENDING` and only downloads after the outbox drain.
+- **Deliberately still open:** real malware detection needs a configured ClamAV;
+  coverage above the byte cap is a prefix only; and there is no automatic retry
+  of an `ERROR` verdict, by design. All three are in `docs/limitations.md`.
 
 ## Notes
 

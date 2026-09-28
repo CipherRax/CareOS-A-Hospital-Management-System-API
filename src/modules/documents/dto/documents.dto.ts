@@ -3,6 +3,19 @@ import { z } from 'zod';
 
 export const DocumentStatus = z.enum(['PENDING_UPLOAD', 'UPLOADED', 'DELETED']);
 
+/**
+ * Content-security verdict (ADR-047). Orthogonal to `DocumentStatus`: a row can
+ * be `UPLOADED` and separately `PENDING`, `CLEAN`, or `INFECTED`.
+ */
+export const DocumentScanStatus = z.enum([
+  'PENDING',
+  'CLEAN',
+  'INFECTED',
+  'REJECTED',
+  'FLAGGED',
+  'ERROR',
+]);
+
 export const FileName = z
   .string()
   .min(1)
@@ -31,6 +44,13 @@ export const DocumentResponseSchema = z.object({
   checksumSha256: z.string().nullable(),
   status: DocumentStatus,
   metadata: z.record(z.string(), z.unknown()).nullable(),
+  scanStatus: DocumentScanStatus,
+  scannedAt: z.string().datetime().nullable(),
+  scanEngine: z.string().nullable(),
+  scanDetail: z.string().nullable(),
+  scannedBytes: z.number().int().nullable(),
+  scanTruncated: z.boolean(),
+  downloadable: z.boolean(),
   uploadedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),

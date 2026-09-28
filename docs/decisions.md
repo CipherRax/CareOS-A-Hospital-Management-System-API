@@ -3,6 +3,73 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-047 — A document is not downloadable until its bytes have a verdict, and the scan runs off the request path
+
+**Status:** accepted (Patch P8)
+
+**Context:** `DocumentsService.complete` asked object storage only whether the
+key existed and matched the declared size. Nothing in the codebase had ever read
+a document's bytes. A renamed executable, a real malware sample, or a national
+ID number in a plain-text record all passed upload and were then served to anyone
+holding `documents.read`. The roadmap and `docs/limitations.md` both pointed at
+`Storage.DocumentUploaded` as the place to fix it; the event was published and
+dropped like `Reference.CodingSystemImported` was in P7.
+
+**Decision:** four parts, each chosen against a plausible alternative.
+
+1. **The download gate is the enforcement point, not the scanner.** A document
+   is servable only on `CLEAN` or `FLAGGED`; `PENDING`, `ERROR`, `INFECTED`,
+   and `REJECTED` all refuse. The rejected alternative was scanning
+   synchronously inside `complete` and gating there, which makes an AV outage a
+   user-visible upload failure and couples upload latency to scanner latency.
+   Because the gate lives on the read path, scanning can move to the outbox and a
+   slow engine costs nothing but delay.
+
+2. **`PENDING` is a real, unservable state.** A newly completed document is not
+   downloadable until the consumer rules on it. The alternative — serving
+   `UPLOADED` rows and racing the scan — would have made scanning advisory, which
+   is the vulnerability with extra steps.
+
+3. **`FLAGGED` is downloadable.** A high-sensitivity pattern match is a signal
+   for a human reviewer, not a verdict on the file. Silently withholding a
+   clinical document because it contains an email address is a worse failure
+   than showing it to a clinician who is already authorised to read it. Only
+   `INFECTED` and `REJECTED` are treated as refusals.
+
+4. **The default engine is a heuristic, and says so.** With no
+   `DOCUMENT_SCAN_CLAMAV_HOST`, `HeuristicDocumentScanner` runs in-process: it
+   refuses anything with an executable magic number regardless of declared type,
+   checks declared-type magic bytes, catches EICAR, and flags high-sensitivity
+   patterns. This is a real check — the renamed-payload case is genuinely caught
+   in the default deployment — but it is not antivirus, and `scanEngine` records
+   `heuristic` so no report can imply otherwise. ClamAV is wired over the
+   `INSTREAM` protocol without adding a client dependency, and the chain is
+   heuristic-then-ClamAV: type confusion is enforced either way, and an AV
+   outage cannot downgrade a known rejection to a pass. A chain that returned the
+   last engine's result would have done exactly that.
+
+**Two constraints carried through the code rather than papered over:**
+
+- **Bounded reads.** `ObjectStorageService.stream` accumulates at most
+  `DOCUMENT_SCAN_MAX_BYTES`, so memory is a function of the cap rather than of
+  an attacker-chosen upload size. A scan that read a prefix records
+  `scanTruncated: true`; a truncated `CLEAN` is *not* relabelled into another
+  verdict, because that would make `scanDetail` contradict what the verdict
+  means.
+- **No content in durable state.** `scanDetail` holds a rule or signature
+  *name* only. Matched bytes would put patient data into an audit-visible
+  column, so the e2e suite asserts the EICAR sample and the matched national ID
+  are absent from the serialised row. `scanFingerprint` is a 16-char digest of
+  the inspected prefix, enough to correlate a re-scan and nothing more.
+
+**Consequences:** a document is briefly unservable between `complete` and the
+scan, which is the intended behaviour but is a visible state change for clients
+and required updating the existing download acceptance test. Historical rows
+were deliberately left `PENDING` rather than backfilled to `CLEAN`; they clear via
+`POST /documents/:id/rescan`, which is also the operator path for an `ERROR`
+verdict. A failed scan records state instead of throwing, because a re-raised
+throw would make the outbox duty retry the same broken engine on a loop.
+
 ## ADR-046 — A coding-reference import notifies the reference owners; it reconciles nothing, because it cannot break anything
 
 **Status:** accepted (Patch P7)

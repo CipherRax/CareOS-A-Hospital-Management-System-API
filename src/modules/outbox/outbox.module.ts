@@ -16,6 +16,8 @@ import { DirectoryModule } from '../directory/directory.module';
 import { PublicListingConsumer } from '../directory/directory.consumer';
 import { CodingModule } from '../coding/coding.module';
 import { CodingReferenceConsumer } from '../coding/coding.consumer';
+import { DocumentsModule } from '../documents/documents.module';
+import { DocumentScanConsumer } from '../documents/document-scan.consumer';
 
 /**
  * Composition root for the transactional outbox.
@@ -36,6 +38,7 @@ import { CodingReferenceConsumer } from '../coding/coding.consumer';
     InsightsModule,
     DirectoryModule,
     CodingModule,
+    DocumentsModule,
   ],
   providers: [
     {
@@ -48,6 +51,7 @@ import { CodingReferenceConsumer } from '../coding/coding.consumer';
         rollups: RollupTouchConsumer,
         publicListing: PublicListingConsumer,
         coding: CodingReferenceConsumer,
+        documentScan: DocumentScanConsumer,
       ): OutboxConsumer[] => [
         timeline,
         pharmacyTasks,
@@ -56,6 +60,7 @@ import { CodingReferenceConsumer } from '../coding/coding.consumer';
         rollups,
         publicListing,
         coding,
+        documentScan,
       ],
       inject: [
         TimelineProjectionConsumer,
@@ -65,6 +70,7 @@ import { CodingReferenceConsumer } from '../coding/coding.consumer';
         RollupTouchConsumer,
         PublicListingConsumer,
         CodingReferenceConsumer,
+        DocumentScanConsumer,
       ],
     },
     ConsumerOutboxDispatcher,

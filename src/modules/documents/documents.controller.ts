@@ -46,6 +46,26 @@ export class DocumentsController {
     return this.documents.complete(id);
   }
 
+  @Post(':id/rescan')
+  @ApiEndpoint({
+    summary: 'Re-queue the content scan for an uploaded document',
+    description:
+      'Resets the document to PENDING and republishes Storage.DocumentUploaded, making it ' +
+      'unservable for the duration. Covers rows uploaded before any scanner existed and ' +
+      'scans that failed with an engine outage. The document becomes downloadable again ' +
+      'only on a CLEAN or FLAGGED verdict.',
+    operationId: 'documentsRescan',
+    permissions: [PERMISSION_GROUPS.documents.create],
+    responseType: DocumentResponseDto,
+    errors: [
+      { status: 404, description: 'Document not found' },
+      { status: 409, description: 'Wrong workflow state (not uploaded)' },
+    ],
+  })
+  rescan(@Param('id') id: string) {
+    return this.documents.rescan(id);
+  }
+
   @Get()
   @ApiEndpoint({
     summary: 'List documents (filter by status, paginated)',
@@ -72,9 +92,16 @@ export class DocumentsController {
   @Get(':id/download')
   @ApiEndpoint({
     summary: 'Get a presigned GET URL to download the file directly',
+    description:
+      'Refused until the content scan has cleared the document: 409 while the verdict is ' +
+      'PENDING or ERROR, 422 when it is INFECTED or REJECTED. FLAGGED is downloadable.',
     operationId: 'documentsDownload',
     permissions: [PERMISSION_GROUPS.documents.read],
     responseType: DownloadResponseDto,
+    errors: [
+      { status: 409, description: 'Document not uploaded, or content scan has not cleared it' },
+      { status: 422, description: 'Document refused by the content scan (infected/rejected)' },
+    ],
   })
   download(@Param('id') id: string) {
     return this.documents.downloadUrl(id);

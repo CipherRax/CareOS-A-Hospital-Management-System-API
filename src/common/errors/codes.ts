@@ -109,6 +109,14 @@ export const ErrorCodes = {
   FILE_TOO_LARGE: 'FILE_TOO_LARGE',
   S3_UNAVAILABLE: 'S3_UNAVAILABLE',
 
+  // document content security (brief §6.10, patch P8, ADR-047)
+  // The bytes have not cleared inspection yet (PENDING, or a failed scan). 409
+  // rather than 404: the document exists and the caller may see it, but serving
+  // a presigned GET would hand out an unscanned file.
+  DOCUMENT_NOT_CLEARED: 'DOCUMENT_NOT_CLEARED',
+  // Refused by the content scan. 422: the upload is valid, the content is not.
+  DOCUMENT_CONTENT_REJECTED: 'DOCUMENT_CONTENT_REJECTED',
+
   // public facility directory (brief §6.14, patch P2)
   PUBLIC_LISTING_NOT_PUBLISHED: 'PUBLIC_LISTING_NOT_PUBLISHED',
   INVALID_COORDINATES: 'INVALID_COORDINATES',
@@ -214,6 +222,8 @@ export const ERROR_CODE_HTTP: Record<ErrorCode, ErrorCodeMeta> = {
   [ErrorCodes.FILE_TYPE_REJECTED]: { httpStatus: 415 },
   [ErrorCodes.FILE_TOO_LARGE]: { httpStatus: 413 },
   [ErrorCodes.S3_UNAVAILABLE]: { httpStatus: 503 },
+  [ErrorCodes.DOCUMENT_NOT_CLEARED]: { httpStatus: 409 },
+  [ErrorCodes.DOCUMENT_CONTENT_REJECTED]: { httpStatus: 422 },
 
   [ErrorCodes.PUBLIC_LISTING_NOT_PUBLISHED]: { httpStatus: 404 },
   [ErrorCodes.INVALID_COORDINATES]: { httpStatus: 422 },

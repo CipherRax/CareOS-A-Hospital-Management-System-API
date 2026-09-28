@@ -58,7 +58,7 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–046.
   `codeConceptId`. What is *not* done: a concept **deactivation** endpoint —
   once one exists, coded diagnoses can reference an inactive concept and a real
   reconciliation pass is required. `Storage.DocumentUploaded` stays unconsumed
-  until the document content-security work lands.
+  until the document content-security work lands (P8, ADR-047).
 
 ## High priority
 
@@ -76,12 +76,22 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–046.
 - [ ] **Async + streamed report exports.** Move export out of the request path
   (kick task object + outbox event, poll/status) and stream large payloads
   instead of building the whole artifact in memory.
-- [ ] **Consumers for `Storage.DocumentUploaded`.** No downstream processor yet;
-  the roadmap pairs it with document content security (virus/PHI scan), which
-  subscribes to the event. `Reference.CodingSystemImported` is done (P7,
-  ADR-046) — see the P7 section above.
-- [ ] **Content security on documents.** Virus/PHI scan at `complete` (or on the
-  `Storage.DocumentUploaded` event).
+- [x] **Consumers for `Storage.DocumentUploaded`.** `document-scan` subscribes to
+  the event, reads the object under a byte cap, and records a verdict (P8,
+  ADR-047). It runs off the request path in the outbox dispatcher, so a slow or
+  unavailable engine cannot fail an upload. `Reference.CodingSystemImported` is
+  done (P7, ADR-046).
+- [x] **Content security on documents.** A document is not downloadable until
+  its bytes carry a verdict: `CLEAN`/`FLAGGED` serve, `PENDING`/`ERROR`/
+  `INFECTED`/`REJECTED` refuse (409 while unknown, 422 when refused). The
+  scanner seam has an in-process heuristic by default — executable magic
+  numbers, declared-type magic bytes, EICAR, and high-sensitivity pattern
+  flagging — plus optional ClamAV over `INSTREAM`, chained heuristic-first so an
+  AV outage cannot downgrade a known rejection. `scanDetail` records a rule name
+  only, never matched bytes. What is *not* done: real malware detection without
+  a ClamAV host configured, whole-file coverage above the byte cap
+  (`scanTruncated` records this rather than hiding it), and auto-retry of an
+  `ERROR` verdict — an operator re-scans via `POST /documents/:id/rescan`.
 - [ ] **Emergency intake-request metrics.** Acknowledgement, escalation, and
   dispatch-latency metrics arrive with the public emergency-intake flow; the
   analytics snapshot currently covers arrivals/triage only.

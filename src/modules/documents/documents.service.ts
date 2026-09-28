@@ -19,6 +19,12 @@ interface InitiateInput {
   metadata?: Record<string, unknown>;
 }
 
+/** The verdicts that permit a presigned GET. FLAGGED is deliberately included. */
+const SERVABLE: ReadonlySet<Document['scanStatus']> = new Set(['CLEAN', 'FLAGGED']);
+
+/** Scan verdicts that permanently block serving, to keep the error honest. */
+const REFUSED: ReadonlySet<Document['scanStatus']> = new Set(['INFECTED', 'REJECTED']);
+
 /**
  * Documents are metadata rows for files held in S3/MinIO. The API never sees
  * the binary: initiate returns a short-lived presigned PUT URL, the client
@@ -154,6 +160,27 @@ export class DocumentsService {
         silent: true,
       });
     }
+    // The gate that gives the whole phase meaning: `complete` proved the object
+    // exists, not that it is safe. A presigned GET minted before a scan verdict
+    // exists would hand the bytes to the caller and make scanning advisory.
+    // PENDING and ERROR are refusals in the same direction as INFECTED, only
+    // with a different code — one is "refused", the other is "not yet known".
+    if (!SERVABLE.has(doc.scanStatus)) {
+      throw REFUSED.has(doc.scanStatus)
+        ? new AppError({
+            code: ErrorCodes.DOCUMENT_CONTENT_REJECTED,
+            message: 'This document was refused by the content scan and cannot be downloaded.',
+            silent: true,
+          })
+        : new AppError({
+            code: ErrorCodes.DOCUMENT_NOT_CLEARED,
+            message:
+              doc.scanStatus === 'PENDING'
+                ? 'This document is still being scanned; try again shortly.'
+                : 'The content scan did not complete; the document is not downloadable until it is re-scanned.',
+            silent: true,
+          });
+    }
     const { url, expiresIn } = await this.storage.presignGet(doc.storageKey, doc.fileName);
     return { documentId: doc.id, url, expiresIn };
   }
@@ -220,6 +247,127 @@ export class DocumentsService {
     await this.storage.remove(doc.storageKey);
   }
 
+  /**
+   * Persists a scan verdict (ADR-047).
+   *
+   * Called by the `Storage.DocumentUploaded` consumer, not by a controller, so
+   * this does no tenant scoping of its own — the consumer is a system actor and
+   * reaches the row by id. Written with a `many` guard so a duplicate event
+   * (outbox at-least-once, or a re-scan racing a retry) cannot resurrect a
+   * document that has since been deleted.
+   */
+  async recordScan(
+    documentId: string,
+    organizationId: string,
+    result: {
+      verdict: Document['scanStatus'];
+      engine: string;
+      detail?: string;
+      scannedBytes: number;
+      truncated: boolean;
+      fingerprint?: string;
+    },
+  ): Promise<void> {
+    const db = this.prisma.unscoped();
+    const updated = await db.document.updateMany({
+      where: { id: documentId, organizationId, status: { not: 'DELETED' } },
+      data: {
+        scanStatus: result.verdict,
+        scannedAt: new Date(),
+        scanEngine: result.engine,
+        scanDetail: result.detail ?? null,
+        scannedBytes: result.scannedBytes,
+        scanTruncated: result.truncated,
+        scanFingerprint: result.fingerprint ?? null,
+      },
+    });
+    if (updated.count === 0) return;
+
+    // Deliberately no document content in the audit row — only the verdict and
+    // the rule name, so the audit trail of a scan carries no patient data.
+    await db.auditLog.create({
+      data: {
+        id: newId(),
+        organizationId,
+        action: 'documents.scan',
+        resource: 'document',
+        resourceId: documentId,
+        reason: `Content scan ${result.verdict} by ${result.engine}`,
+        newState: {
+          scanStatus: result.verdict,
+          engine: result.engine,
+          detail: result.detail ?? null,
+          scannedBytes: result.scannedBytes,
+          truncated: result.truncated,
+        },
+      },
+    });
+  }
+
+  /**
+   * Re-queues inspection of an already-uploaded document.
+   *
+   * Exists because historical rows were uploaded before any scanner ran and the
+   * migration deliberately left them PENDING rather than claiming they were
+   * clean. It also covers a document whose scan hit `ERROR`: the engine outage
+   * is not the operator's problem to fix by hand-editing rows.
+   *
+   * Resets to PENDING first so the document is unservable for the duration of
+   * the re-scan, then emits the same event `complete` does. That keeps one
+   * scan code path instead of two.
+   */
+  async rescan(id: string) {
+    const organizationId = this.tenantContext.requireOrg();
+    const doc = await this.getEntity(id, organizationId);
+    if (doc.status !== 'UPLOADED') {
+      throw new AppError({
+        code: ErrorCodes.INVALID_WORKFLOW_TRANSITION,
+        message: `Cannot re-scan a document in status ${doc.status}.`,
+        silent: true,
+      });
+    }
+
+    await this.txRunner.run(async (ctx: TxContext) => {
+      await ctx.db.document.update({
+        where: { id: doc.id },
+        data: {
+          scanStatus: 'PENDING',
+          scannedAt: null,
+          scanEngine: null,
+          scanDetail: null,
+          scannedBytes: null,
+          scanTruncated: false,
+          scanFingerprint: null,
+        },
+      });
+      await ctx.db.auditLog.create({
+        data: {
+          id: newId(),
+          organizationId,
+          action: 'documents.rescan',
+          resource: 'document',
+          resourceId: doc.id,
+          reason: `Re-scan requested (was ${doc.scanStatus})`,
+          previousState: { scanStatus: doc.scanStatus },
+          newState: { scanStatus: 'PENDING' },
+        },
+      });
+      ctx.emit({
+        type: EventTypes.DocumentUploaded,
+        aggregateType: 'document',
+        aggregateId: doc.id,
+        payload: {
+          documentId: doc.id,
+          storageKey: doc.storageKey,
+          fileName: doc.fileName,
+          sizeBytes: doc.sizeBytes,
+        },
+      });
+    });
+
+    return { documentId: doc.id, scanStatus: 'PENDING' as const };
+  }
+
   private async getEntity(id: string, organizationId: string): Promise<Document> {
     if (!id) throw AppError.notFound('Document not found');
     const doc = await this.prisma.tenant.document.findFirst({
@@ -239,6 +387,16 @@ function toDocumentResponse(d: Document) {
     checksumSha256: d.checksumSha256,
     status: d.status,
     metadata: d.metadata,
+    // Content-security state, so a client can tell "still scanning" from
+    // "scanned and clean" without attempting a download. `scanDetail` is
+    // surfaced: it is a rule name, never document content.
+    scanStatus: d.scanStatus,
+    scannedAt: d.scannedAt,
+    scanEngine: d.scanEngine,
+    scanDetail: d.scanDetail,
+    scannedBytes: d.scannedBytes,
+    scanTruncated: d.scanTruncated,
+    downloadable: SERVABLE.has(d.scanStatus) && d.status === 'UPLOADED',
     uploadedAt: d.uploadedAt,
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,

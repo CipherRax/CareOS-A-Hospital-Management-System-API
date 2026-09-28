@@ -237,10 +237,28 @@ working code with a caveat.
   open multiple logical connections per transaction, the setting is not
   guaranteed on every connection; the Prisma client extension is the primary
   tenant boundary. Do not rely on RLS alone (ADR-005/ADR-006).
-- **Document bytes are not virus-scanned / not PII-analyzed.** `complete`
-  verifies presence and size against the initiate declaration but not file
-  content. Any content validation must run on the `Storage.DocumentUploaded`
-  outbox event (not yet consumed).
+- **Document scanning is a prefix scan, and the default engine is a heuristic.**
+  P8 (ADR-047) added the scan pipeline and the download gate, but two limits
+  remain and both are recorded on the row rather than hidden. First, only
+  `DOCUMENT_SCAN_MAX_BYTES` (10 MiB default) of each object is inspected;
+  larger uploads record `scanTruncated: true`, so a `CLEAN` verdict means
+  "clean as far as we read" and not "clean". Raising the cap is a deployment
+  decision with a direct memory cost. Second, with no
+  `DOCUMENT_SCAN_CLAMAV_HOST` set, the scanner is the in-process heuristic —
+  it refuses executables, catches type confusion, flags EICAR and
+  high-sensitivity patterns, and is a genuine check rather than a pass-through,
+  but it is **not** an antivirus engine and must not be described as one.
+  Deployments needing malware detection must set `DOCUMENT_SCAN_CLAMAV_HOST`
+  and keep the signature database current; the heuristic still runs first in
+  that configuration.
+- **Documents uploaded before P8 are unservable until re-scanned.** The
+  migration deliberately left historical rows `PENDING` rather than backfilling
+  them to `CLEAN`, because asserting an unexamined 2021 scan report was clean is
+  the exact failure this phase exists to prevent. Call
+  `POST /api/v1/documents/:id/rescan` to clear them. A scan that ends in `ERROR`
+  (storage read failure, ClamAV outage) also needs an operator re-scan; it is
+  recorded rather than retried in a loop, since retrying a broken engine on the
+  outbox duty would not fix it.
 - **Presigned reads are bearer-free.** A valid presigned GET URL is usable by
   anyone holding it until it expires (`S3_SIGNED_URL_TTL_SECONDS`); the API
   enforces `documents.read` to obtain it, but object-level auth is a later

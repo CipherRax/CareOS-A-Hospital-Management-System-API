@@ -29,6 +29,18 @@ export const envSchema = z.object({
   S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('true'),
   S3_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().default(900),
 
+  // Document content security (patch P8, ADR-047).
+  // Hard cap on the prefix handed to a scanner. Memory is bounded by this, not
+  // by object size, so a 2 GB DICOM cannot exhaust the API process. A verdict on
+  // a truncated scan is recorded as such (scanTruncated) rather than implied.
+  DOCUMENT_SCAN_MAX_BYTES: z.coerce.number().int().positive().default(10_485_760),
+  // Unset keeps the in-process heuristic scanner (type confusion, executables,
+  // EICAR, sensitive-content flagging). Set to run ClamAV INSTREAM as well; the
+  // chain is heuristic-then-ClamAV so type confusion holds either way.
+  DOCUMENT_SCAN_CLAMAV_HOST: z.string().trim().optional(),
+  DOCUMENT_SCAN_CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
+  DOCUMENT_SCAN_CLAMAV_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+
   // M-PESA (repo Phase 11). MPESA_PROVIDER selects the adapter ('mock' in
   // dev/test by default; the 'daraja' adapter talks to Safaricom and is an
   // honest non-live stub — see docs/limitations.md).
@@ -197,5 +209,7 @@ export function envSummary(env: Env): Record<string, unknown> {
     outboxDrainIntervalMs: env.OUTBOX_DRAIN_INTERVAL_MS,
     notificationChannels: env.NOTIFICATION_OFFSITE_CHANNELS || 'IN_APP only',
     notificationWebhook: env.NOTIFICATION_WEBHOOK_URL ? 'configured' : 'stubbed',
+    documentScanEngine: env.DOCUMENT_SCAN_CLAMAV_HOST ? 'heuristic+clamav' : 'heuristic',
+    documentScanMaxBytes: env.DOCUMENT_SCAN_MAX_BYTES,
   };
 }

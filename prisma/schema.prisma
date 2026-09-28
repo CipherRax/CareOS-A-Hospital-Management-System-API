@@ -192,9 +192,9 @@ model Organization {
 
   // Public emergency intake (brief §6.15, patch P3).
   emergencyIntakePolicies EmergencyIntakePolicy[] @relation("EmergencyIntakePolicyOrg")
-  emergencyContacts       EmergencyContact[]       @relation("EmergencyContactOrg")
-  emergencyRequests       EmergencyRequest[]       @relation("EmergencyRequestOrg")
-  emergencyRequestEvents  EmergencyRequestEvent[]  @relation("EmergencyEventOrg")
+  emergencyContacts       EmergencyContact[]      @relation("EmergencyContactOrg")
+  emergencyRequests       EmergencyRequest[]      @relation("EmergencyRequestOrg")
+  emergencyRequestEvents  EmergencyRequestEvent[] @relation("EmergencyEventOrg")
 }
 
 // ---------------------------------------------------------------------------
@@ -398,8 +398,8 @@ model Branch {
 
   // Public emergency intake (brief §6.15, patch P3).
   emergencyIntakePolicies EmergencyIntakePolicy[] @relation("EmergencyIntakePolicyBranch")
-  emergencyContacts       EmergencyContact[]       @relation("EmergencyContactBranch")
-  emergencyRequests       EmergencyRequest[]       @relation("EmergencyRequestBranch")
+  emergencyContacts       EmergencyContact[]      @relation("EmergencyContactBranch")
+  emergencyRequests       EmergencyRequest[]      @relation("EmergencyRequestBranch")
 
   expenses Expense[]
   assets   Asset[]
@@ -762,6 +762,23 @@ enum DocumentStatus {
   DELETED
 }
 
+// Content-security verdict for the stored bytes (ADR-047). Orthogonal to
+// DocumentStatus: a row is `UPLOADED` and separately `CLEAN` or `INFECTED`.
+// PENDING is the window between `complete` and the scan, and a document is not
+// downloadable in that window — that gap is the whole point of scanning.
+enum DocumentScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  REJECTED
+  // Inspected, but matched a high-sensitivity content pattern. Downloadable:
+  // flagging is a review signal, and withholding a clinical document silently
+  // is a worse failure than surfacing it.
+  FLAGGED
+  // The scan could not run. Retried by the outbox; never treated as clean.
+  ERROR
+}
+
 model Document {
   id               String         @id
   organizationId   String
@@ -774,6 +791,20 @@ model Document {
   status           DocumentStatus @default(PENDING_UPLOAD)
   metadata         Json?
 
+  // Content security (ADR-047). `scanDetail` holds a rule/signature NAME only —
+  // never matched bytes, which would be patient data in an audit-visible column.
+  scanStatus      DocumentScanStatus @default(PENDING)
+  scannedAt       DateTime?
+  scanEngine      String?
+  scanDetail      String?
+  scannedBytes    Int?
+  // True when the object exceeded DOCUMENT_SCAN_MAX_BYTES and only a prefix was
+  // inspected, so a CLEAN verdict covers less than the whole file.
+  scanTruncated   Boolean            @default(false)
+  // Short digest of the inspected prefix, to correlate a re-scan with the
+  // original without persisting content.
+  scanFingerprint String?
+
   uploadedAt DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
@@ -784,6 +815,8 @@ model Document {
 
   @@unique([organizationId, storageKey])
   @@index([organizationId, status, createdAt])
+  // Unscanned rows needing operator attention, and the scan duty's claim set.
+  @@index([status, scanStatus])
   @@map("documents")
 }
 
@@ -3708,43 +3741,43 @@ model EmergencyContact {
 }
 
 model EmergencyRequest {
-  id                 String                @id
-  organizationId     String
-  branchId           String
-  referenceNumber    String
+  id                String                 @id
+  organizationId    String
+  branchId          String
+  referenceNumber   String
   // sha256 hex of the caller's tracking token; only hashes are persisted.
-  trackingTokenHash  String                @unique
-  status             EmergencyRequestStatus @default(RECEIVED)
+  trackingTokenHash String                 @unique
+  status            EmergencyRequestStatus @default(RECEIVED)
   // 0 = not escalated; N = escalated to contact N (order). Read model
   // convenience over the event history (ADR-040).
-  escalationLevel    Int                   @default(0)
+  escalationLevel   Int                    @default(0)
   // Caller PII — AES-256-GCM encrypted at rest (ADR-041).
-  callerNameEnc      String?
-  callerPhoneEnc     String?
+  callerNameEnc     String?
+  callerPhoneEnc    String?
   // Searchable derivative for duplicate-phone matching (ADR-041): normalized
   // plaintext index, never the raw value.
-  callerPhoneIndex   String?
-  descriptionEnc     String?
+  callerPhoneIndex  String?
+  descriptionEnc    String?
   // Reported location. landmark is encrypted; coordinates are plain doubles
   // (approximate, never a home address).
-  locationLat        Float?
-  locationLng        Float?
-  landmarkEnc        String?
-  staffNoteEnc       String?
-  source             String                @default("PUBLIC")
+  locationLat       Float?
+  locationLng       Float?
+  landmarkEnc       String?
+  staffNoteEnc      String?
+  source            String                 @default("PUBLIC")
 
-  acknowledgedById   String?
-  acknowledgedAt     DateTime?
-  respondedById      String?
-  respondedAt        DateTime?
-  closedById         String?
-  closedAt           DateTime?
-  cancelledById      String?
-  cancelledAt        DateTime?
+  acknowledgedById String?
+  acknowledgedAt   DateTime?
+  respondedById    String?
+  respondedAt      DateTime?
+  closedById       String?
+  closedAt         DateTime?
+  cancelledById    String?
+  cancelledAt      DateTime?
   // P4 hardening: when the retention sweep anonymizes this terminal request,
   // `retainedAt` is stamped so the job is idempotent and the incident history
   // (events) outlives the caller's PII (ADR-043).
-  retainedAt         DateTime?
+  retainedAt       DateTime?
 
   version   Int      @default(0)
   createdAt DateTime @default(now())
@@ -3767,18 +3800,18 @@ model EmergencyRequest {
 // Rows reference the request restrictively so a request cannot delete its own
 // history.
 model EmergencyRequestEvent {
-  id         String                   @id
+  id             String                    @id
   organizationId String
-  requestId  String
-  type       EmergencyRequestEventType
-  level      Int?
-  actor      String // PUBLIC | STAFF | SYSTEM | CALLER.
-  actorId    String?
-  payload    Json?
-  occurredAt DateTime                 @default(now())
+  requestId      String
+  type           EmergencyRequestEventType
+  level          Int?
+  actor          String // PUBLIC | STAFF | SYSTEM | CALLER.
+  actorId        String?
+  payload        Json?
+  occurredAt     DateTime                  @default(now())
 
-  organization Organization @relation("EmergencyEventOrg", fields: [organizationId], references: [id], onDelete: Restrict)
-  request     EmergencyRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  organization Organization     @relation("EmergencyEventOrg", fields: [organizationId], references: [id], onDelete: Restrict)
+  request      EmergencyRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
 
   @@index([requestId, occurredAt])
   @@index([organizationId, type, occurredAt])
@@ -4574,9 +4607,9 @@ enum PublicVerificationStatus {
 }
 
 model PublicFacilityListing {
-  id   String @id
-  slug String @unique
-  name String
+  id          String  @id
+  slug        String  @unique
+  name        String
   summary     String?
   description String?
   address     String?
@@ -4585,7 +4618,7 @@ model PublicFacilityListing {
   phone       String?
   email       String?
   website     String?
-  timezone    String @default("Africa/Nairobi")
+  timezone    String  @default("Africa/Nairobi")
 
   hours         Json?
   departments   Json?
@@ -4594,20 +4627,20 @@ model PublicFacilityListing {
   services      Json?
   feeNote       Json?
 
-  open24h              Boolean @default(false)
-  emergency24h         Boolean @default(false)
-  ambulanceAvailable   Boolean @default(false)
+  open24h                Boolean @default(false)
+  emergency24h           Boolean @default(false)
+  ambulanceAvailable     Boolean @default(false)
   emergencyIntakeEnabled Boolean @default(false)
-  acceptsOnlineBooking Boolean @default(false)
-  emergencyIntakeIndex Int?
+  acceptsOnlineBooking   Boolean @default(false)
+  emergencyIntakeIndex   Int?
 
   locationLat Float?
   locationLng Float?
 
-  status             PublicListingStatus      @default(DRAFT)
-  verificationStatus PublicVerificationStatus @default(UNVERIFIED)
-  lastConfirmedAt    DateTime?
-  partner            Boolean @default(true)
+  status               PublicListingStatus      @default(DRAFT)
+  verificationStatus   PublicVerificationStatus @default(UNVERIFIED)
+  lastConfirmedAt      DateTime?
+  partner              Boolean                  @default(true)
   sourceOrganizationId String?
   sourceBranchId       String?
   importedSourceId     String?
@@ -4622,24 +4655,26 @@ model PublicFacilityListing {
   @@map("public_facility_listings")
 }
 
-/** Source row the directory importer ingests (facility-directory CSV feed). */
+/**
+ * Source row the directory importer ingests (facility-directory CSV feed).
+ */
 model ImportedFacility {
-  id       String @id
-  sourceId String @unique
-  name     String
-  address  String?
-  county   String?
-  town     String?
-  phone    String?
-  email    String?
-  website  String?
-  hours        Json?
-  locationLat  Float?
-  locationLng  Float?
-  provider     String @default("csv")
-  licence      String?
-  partner      Boolean @default(false)
-  raw          Json?
+  id          String  @id
+  sourceId    String  @unique
+  name        String
+  address     String?
+  county      String?
+  town        String?
+  phone       String?
+  email       String?
+  website     String?
+  hours       Json?
+  locationLat Float?
+  locationLng Float?
+  provider    String  @default("csv")
+  licence     String?
+  partner     Boolean @default(false)
+  raw         Json?
 
   importedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -4666,7 +4701,7 @@ enum OnboardingInquiryStatus {
  * a location: finder/requester coordinates are not persisted anywhere).
  */
 model OnboardingInquiry {
-  id     String @id
+  id     String                  @id
   kind   OnboardingInquiryKind   @default(FACILITY_SUGGESTION)
   status OnboardingInquiryStatus @default(PENDING)
 
@@ -4680,7 +4715,7 @@ model OnboardingInquiry {
   notes        String?
 
   reviewedAt DateTime?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   @@index([status, createdAt])
   @@map("onboarding_inquiries")

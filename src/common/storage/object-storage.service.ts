@@ -5,6 +5,7 @@ import {
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
+  type GetObjectCommandOutput,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { ENV, type Env } from '../../config/config.module';
@@ -21,6 +22,14 @@ export interface ObjectHead {
   exists: boolean;
   sizeBytes?: number;
   contentType?: string;
+}
+
+export interface ObjectStream {
+  /** Chunk size requested from S3; bounds per-chunk memory. */
+  chunkBytes: number;
+  /** Total bytes the caller asked for. The stream stops early at this cap. */
+  limitBytes: number;
+  chunks: AsyncGenerator<Buffer>;
 }
 
 /**
@@ -130,5 +139,71 @@ export class ObjectStorageService {
   async remove(key: string): Promise<void> {
     const client = this.requireClient();
     await client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+  }
+
+  /**
+   * Streams an object back in chunks, stopping at `limitBytes`.
+   *
+   * This is the one path that brings bytes into the API, and it exists for the
+   * document scanner (ADR-047). It is deliberately *not* a `getBuffer`: a
+   * hospital upload can be hundreds of megabytes, so the cap plus chunked
+   * ranges bound memory to the chunk size regardless of object size. Everything
+   * else in this service stays presigned so the binary never transits Nest.
+   */
+  async stream(key: string, limitBytes: number, chunkBytes = 64 * 1024): Promise<ObjectStream> {
+    const client = this.requireClient();
+    const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
+    let res: GetObjectCommandOutput;
+    try {
+      res = await client.send(command);
+    } catch (err) {
+      const name = (err as { name?: string })?.name;
+      if (name === 'NotFound' || name === 'NoSuchKey') {
+        throw AppError.notFound('Stored object not found');
+      }
+      throw new AppError({
+        code: ErrorCodes.S3_UNAVAILABLE,
+        message: 'Object storage is unavailable.',
+        cause: err,
+      });
+    }
+
+    // The SDK types `Body` as a union that includes Blob/string, but the Node
+    // handler always returns a stream. Narrow it for real instead of asserting:
+    // an unreadable body must fail the scan, not surface as a hang.
+    const body = res.Body as unknown;
+    if (
+      body === null ||
+      body === undefined ||
+      typeof (body as AsyncIterable<unknown>)[Symbol.asyncIterator] !== 'function'
+    ) {
+      throw new AppError({
+        code: ErrorCodes.S3_UNAVAILABLE,
+        message: 'Object storage returned an unreadable body.',
+      });
+    }
+
+    async function* bounded(
+      source: AsyncIterable<Uint8Array>,
+      limit: number,
+    ): AsyncGenerator<Buffer> {
+      let seen = 0;
+      for await (const part of source) {
+        const buf = Buffer.from(part);
+        if (seen + buf.length >= limit) {
+          const slice = buf.subarray(0, Math.max(0, limit - seen));
+          if (slice.length > 0) yield slice;
+          return;
+        }
+        seen += buf.length;
+        yield buf;
+      }
+    }
+
+    return {
+      chunkBytes,
+      limitBytes,
+      chunks: bounded(body as AsyncIterable<Uint8Array>, limitBytes),
+    };
   }
 }
