@@ -6,8 +6,22 @@ import type { MetricsQueryDto } from './dto/insights.dto';
 import { RollupsService } from './rollups.service';
 import { type RollupCounters, averageOf, rateOf } from './domain/rollup-cells';
 import { resolveWindow, round2 } from './domain/window';
+import {
+  intakeRequestMetrics,
+  outstanding,
+  type IntakeRequestSample,
+} from './domain/intake-metrics';
+import { parseLevelSeconds } from '../emergency-intake/domain/escalation';
 
 const OPEN_BALANCES: InvoiceStatus[] = ['ISSUED', 'PARTIALLY_PAID'];
+
+/**
+ * Request states that are genuinely still in flight. Mirrors `OPEN_STATUSES` in
+ * `domain/intake-metrics.ts`, restated here because the outstanding query is a
+ * database `IN` filter and a finished request (closed, cancelled, or swept to
+ * retained by the P4 retention job) must not be reported as outstanding.
+ */
+const OPEN_REQUEST_STATUSES = ['RECEIVED', 'ACKNOWLEDGED', 'RESPONDING', 'ESCALATED'] as const;
 
 /**
  * Org metrics (brief Phase 11 §7.2–§7.8). The time series and the summary read
@@ -208,6 +222,8 @@ export class MetricsService {
       perHour.set(hour, (perHour.get(hour) ?? 0) + 1);
     }
 
+    const intakeRequests = await this.intakeRequestSnapshots(from, to, branchId, emergency.length);
+
     const completed = providers[0]?._count ?? 0;
     const booked = (providers[1] ?? 0) > 0;
     const utilization = booked ? round2((completed / (providers[1] ?? 1)) * 100) : null;
@@ -258,9 +274,89 @@ export class MetricsService {
         perBranch: [...perBranch.entries()].map(([branchId, count]) => ({ branchId, count })),
         perHour: [...perHour.entries()].map(([hour, count]) => ({ hour, count })).sort((a, b) => a.hour.localeCompare(b.hour)),
         label:
-          'Emergency department intake from EmergencyVisit timestamps (arrivedAt → triagedAt). Intake-request metrics (acknowledgement/escalation) arrive with the public emergency-intake flow.',
+          'Emergency department walk-in intake from EmergencyVisit timestamps (arrivedAt → triagedAt). Anonymous public emergency requests are a separate population and are reported under emergencyRequests — mixing the two would mix two different denominators.',
       },
+      ...intakeRequests,
       revenue,
+    };
+  }
+
+  /**
+   * Anonymous public emergency-request metrics (brief §7.2, patch P9).
+   *
+   * Two reads, deliberately not one. The windowed aggregate answers "how did we
+   * do over this period"; the outstanding block answers "what is wrong right
+   * now". A windowed average cannot express the second question, and a service
+   * with excellent historical acknowledgement latency and one request stuck
+   * unacknowledged tonight is still an emergency.
+   *
+   * The window is keyed on `createdAt` (when the caller asked for help) rather
+   * than on any terminal timestamp, so a request received inside the window and
+   * answered outside it is still counted as received — which is the only
+   * reading that keeps a long-open request from vanishing.
+   */
+  private async intakeRequestSnapshots(from: Date, to: Date, branchId: string | undefined, walkInArrivals: number) {
+    const organizationId = this.tenantContext.requireOrg();
+    const db = this.prisma.tenantFor(organizationId);
+    const branchFilter = branchId ? { branchId } : {};
+
+    const [requests, open, policies] = await Promise.all([
+      db.emergencyRequest.findMany({
+        where: { organizationId, createdAt: { gte: from, lte: to }, ...branchFilter },
+        select: {
+          branchId: true,
+          createdAt: true,
+          acknowledgedAt: true,
+          respondedAt: true,
+          closedAt: true,
+          cancelledAt: true,
+          escalationLevel: true,
+        },
+      }),
+      // Outstanding is not windowed: "open now" is the present tense.
+      db.emergencyRequest.findMany({
+        where: { organizationId, status: { in: [...OPEN_REQUEST_STATUSES] }, ...branchFilter },
+        select: { branchId: true, status: true, createdAt: true, acknowledgedAt: true, respondedAt: true },
+      }),
+      db.emergencyIntakePolicy.findMany({
+        where: { organizationId, ...branchFilter },
+        select: { branchId: true, levelSeconds: true },
+      }),
+    ]);
+
+    // The first escalation level is the branch's own acknowledgement SLA, so
+    // "past SLA" is measured against what the branch configured rather than a
+    // constant invented here. Falls back to the shared default chain.
+    const firstLevelSeconds = new Map<string, number>();
+    for (const policy of policies) {
+      const [first] = parseLevelSeconds(policy.levelSeconds);
+      if (first !== undefined) firstLevelSeconds.set(policy.branchId, first);
+    }
+
+    const windowed = intakeRequestMetrics(requests as IntakeRequestSample[], rateOf);
+    const now = new Date();
+    const live = outstanding(
+      open.map((row) => ({
+        status: row.status,
+        createdAt: row.createdAt,
+        acknowledgedAt: row.acknowledgedAt,
+        respondedAt: row.respondedAt,
+        firstLevelSeconds: firstLevelSeconds.get(row.branchId) ?? null,
+      })),
+      now,
+    );
+
+    return {
+      emergencyRequests: {
+        ...windowed,
+        ...live,
+        walkInArrivalsInWindow: walkInArrivals,
+        label:
+          'Anonymous public emergency requests keyed on createdAt (when the caller asked for help). ' +
+          'Latencies are percentiles, not means: one request left unacknowledged is the reason this metric exists, ' +
+          'and a mean would absorb it. Cancelled requests are excluded from dispatch latency — nothing went wrong on those — ' +
+          'but still counted in the rates. The outstanding counters are point-in-time, not windowed.',
+      },
     };
   }
 }

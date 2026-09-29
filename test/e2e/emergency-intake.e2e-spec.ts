@@ -261,7 +261,11 @@ describe('public emergency intake (patch P3)', () => {
     const token = data.request.trackingToken as string;
 
     const row = await sc().emergencyRequest.findFirst({
-      where: { source: 'PUBLIC' },
+      // Scoped to this org: the e2e database is shared, and an unscoped
+      // `source: 'PUBLIC'` lookup races any other suite that seeds a public
+      // request (phase13 analytics seeds EmergencyRequest rows for its metrics
+      // tests) and can return someone else's row.
+      where: { organizationId, source: 'PUBLIC' },
       select: { trackingTokenHash: true, callerPhoneIndex: true, callerPhoneEnc: true, callerNameEnc: true, status: true },
     });
     expect(row).toBeTruthy();

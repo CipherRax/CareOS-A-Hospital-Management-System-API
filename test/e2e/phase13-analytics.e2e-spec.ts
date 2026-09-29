@@ -305,6 +305,137 @@ describe('phase13 analytics & reports', () => {
     expect(res.statusCode).toBe(403);
   });
 
+  it('reports emergency intake-request acknowledgement, escalation and dispatch latency', async () => {
+    // P9. Seeded directly because the point here is the metric's shape and
+    // arithmetic over varied request states, not the public intake flow (which
+    // emergency-intake.e2e-spec.ts already drives end to end).
+    const sc = prisma.unscoped();
+    const dt = (s: string): Date => new Date(s);
+    // 2-minute first escalation level, so "past SLA" is measurable.
+    await sc.emergencyIntakePolicy.create({
+      data: { id: newId(), organizationId: org, branchId: branch, enabled: true, levelSeconds: [120, 300, 900] },
+    });
+
+    let seq = 0;
+    const base = { organizationId: org, branchId: branch };
+    // referenceNumber/trackingTokenHash are unique per request, so each row gets
+    // its own; the values are synthetic and carry no caller PII.
+    const row = (over: Record<string, Date | string | number>): Prisma.EmergencyRequestCreateManyInput => {
+      seq += 1;
+      return {
+        id: newId(),
+        ...base,
+        referenceNumber: `EMR-2026-${String(seq).padStart(6, '0')}`,
+        trackingTokenHash: `hash-${seq}`,
+        status: 'RECEIVED',
+        escalationLevel: 0,
+        ...over,
+      };
+    };
+
+    await sc.emergencyRequest.createMany({
+      data: [
+        // Two prompt acknowledgements (1 and 3 minutes) and one that took 40.
+        row({ createdAt: dt('2026-09-10T10:00:00Z'), acknowledgedAt: dt('2026-09-10T10:01:00Z'), status: 'ACKNOWLEDGED' }),
+        row({ createdAt: dt('2026-09-10T11:00:00Z'), acknowledgedAt: dt('2026-09-10T11:03:00Z'), status: 'ACKNOWLEDGED' }),
+        row({ createdAt: dt('2026-09-10T12:00:00Z'), acknowledgedAt: dt('2026-09-10T12:40:00Z'), status: 'ACKNOWLEDGED' }),
+        // Acknowledged then dispatched: 12 minutes end to end, 9 of them after the ack.
+        row({
+          createdAt: dt('2026-09-11T09:00:00Z'),
+          acknowledgedAt: dt('2026-09-11T09:03:00Z'),
+          respondedAt: dt('2026-09-11T09:12:00Z'),
+          status: 'RESPONDING',
+        }),
+        // Escalated twice, never acknowledged.
+        row({ createdAt: dt('2026-09-11T14:00:00Z'), escalationLevel: 2, status: 'ESCALATED' }),
+        // Cancelled by the caller; help was not needed.
+        row({ createdAt: dt('2026-09-12T08:00:00Z'), cancelledAt: dt('2026-09-12T08:00:20Z'), status: 'CANCELLED' }),
+        // Closed after a response.
+        row({
+          createdAt: dt('2026-09-12T09:00:00Z'),
+          acknowledgedAt: dt('2026-09-12T09:02:00Z'),
+          respondedAt: dt('2026-09-12T09:05:00Z'),
+          closedAt: dt('2026-09-12T11:00:00Z'),
+          status: 'CLOSED',
+        }),
+        // Still open and unacknowledged, old enough to be past the 2-minute SLA.
+        row({ createdAt: dt('2026-09-12T10:00:00Z'), status: 'RECEIVED' }),
+      ],
+    });
+
+    const res = await get(`/analytics/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, perms);
+    expect(res.statusCode).toBe(200);
+    const m = res.json().data.snapshots.emergencyRequests;
+
+    // The window is keyed on createdAt, so all eight are in scope.
+    expect(m.received).toBe(8);
+    expect(m.acknowledged).toBe(5);
+    expect(m.dispatched).toBe(2);
+    expect(m.cancelled).toBe(1);
+    expect(m.closed).toBe(1);
+    expect(m.escalated).toBe(1);
+    expect(m.acknowledgementRate).toBe(62.5);
+
+    // Acknowledgement latencies are 1, 3, 40, 2, 3 minutes.
+    expect(m.timeToAcknowledge.samples).toBe(5);
+    expect(m.timeToAcknowledge.p50Minutes).toBe(3);
+    // The 40-minute outlier is the reason max is published: a mean of 9.8
+    // minutes would have hidden it entirely.
+    expect(m.timeToAcknowledge.maxMinutes).toBe(40);
+
+    // Dispatch latency is over dispatched requests only: 12 and 5 minutes.
+    // Nearest-rank p50 on an even-sized sample is the lower middle value, so this
+    // is 5 rather than the 8.5 an interpolating percentile would report. The
+    // choice is deliberate: a percentile should only ever name a latency that
+    // actually occurred.
+    expect(m.timeToDispatch.samples).toBe(2);
+    expect(m.timeToDispatch.p50Minutes).toBe(5);
+    expect(m.timeToDispatch.maxMinutes).toBe(12);
+    // The ack→respond leg excludes the wait for someone to pick up the phone:
+    // 9 minutes (12 − 3) and 3 minutes (5 − 2), so p50 is the lower of the two.
+    expect(m.ackToDispatch.samples).toBe(2);
+    expect(m.ackToDispatch.p50Minutes).toBe(3);
+    expect(m.ackToDispatch.maxMinutes).toBe(9);
+
+    expect(m.byEscalationLevel).toEqual([{ level: 2, count: 1 }]);
+    expect(m.byBranch).toEqual([{ branchId: branch, received: 8, escalated: 1 }]);
+
+    // Point-in-time, and note that the ESCALATED-never-acknowledged row counts
+    // as unacknowledged: a request that escalated past every level without
+    // anyone picking it up is the single most urgent thing in this system, so it
+    // must not be hidden inside the "escalated" bucket.
+    expect(m.unacknowledgedNow).toBe(2);
+    // Both unacknowledged rows are far past the 2-minute first escalation level.
+    expect(m.unacknowledgedPastSlaNow).toBe(2);
+    expect(m.awaitingDispatchNow).toBe(3);
+    // Open = everything except the cancelled and closed rows.
+    expect(m.openNow).toBe(6);
+    // The walk-in population stays separate rather than sharing a denominator.
+    expect(typeof m.walkInArrivalsInWindow).toBe('number');
+    expect(typeof m.label).toBe('string');
+  });
+
+  it('reports empty emergency request metrics as nulls, not zeros', async () => {
+    // A tenant with intake disabled must not look like it answered instantly.
+    const freshOrg = newId();
+    const freshBranch = newId();
+    const sc = prisma.unscoped();
+    await sc.organization.create({ data: { id: freshOrg, name: 'No Intake Org' } });
+    await sc.branch.create({ data: { id: freshBranch, organizationId: freshOrg, name: 'Solo', code: 'NONE' } });
+
+    const res = await app.inject({
+      method: 'GET',
+      headers: principalHeaders({ organizationId: freshOrg, userId: user, permissions: perms }),
+      url: url(`/analytics/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+    });
+    expect(res.statusCode).toBe(200);
+    const m = res.json().data.snapshots.emergencyRequests;
+    expect(m.received).toBe(0);
+    expect(m.acknowledgementRate).toBeNull();
+    expect(m.timeToDispatch.p50Minutes).toBeNull();
+    expect(m.openNow).toBe(0);
+  });
+
   // ─── Bottleneck + capacity + forecasts + experience + staff ──────────────
 
   it('ranks bottleneck stages with descriptive averages', async () => {

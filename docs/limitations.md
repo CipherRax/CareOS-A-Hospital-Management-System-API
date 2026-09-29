@@ -414,6 +414,24 @@ working code with a caveat.
   by-priority/by-disposition tallies; on a busy department this is a full-day
   scan rather than pre-aggregated counters. A materialized per-hour rollup is a
   later phase.
+- **Intake-request metrics are query-time, and small windows are coarse.**
+  P9 added acknowledgement/escalation/dispatch-latency metrics for anonymous
+  public emergency requests, read from `EmergencyRequest` rows at query time
+  rather than from the daily rollup projection — the rollup has no
+  request-latency counters, and a request that sat unacknowledged for six hours
+  must not be averaged away by a daily recompute. Two consequences: latency
+  percentiles use nearest-rank, so a p90 on a handful of samples will not reach
+  a lone outlier (`max` is published for exactly that reason) and a p50 on an
+  even-sized sample is the lower middle value, not the mean of the two middles;
+  and `unacknowledgedPastSlaNow` needs a branch `EmergencyIntakePolicy` to mean
+  anything — a branch with no policy is excluded from that count rather than
+  measured against an invented threshold.
+- **Walk-in ED arrivals and public emergency requests are separate
+  populations.** `snapshots.emergencyIntake` reports `EmergencyVisit`
+  (arrivedAt → triagedAt); `snapshots.emergencyRequests` reports anonymous
+  `EmergencyRequest` (createdAt → acknowledgedAt → respondedAt). They are
+  reported side by side and never summed, because a rate over the combined set
+  would divide by a denominator that matches neither question.
 - **Emergency dispositions are single-fire by workflow, and discharge notes are
   free-text only.** A referred/discharged/admitted visit rejects all further
   actions (`EMERGENCY_VISIT_CLOSED`); there is no reopen. `discharge`/`refer`

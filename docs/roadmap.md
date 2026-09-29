@@ -92,9 +92,17 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–046.
   a ClamAV host configured, whole-file coverage above the byte cap
   (`scanTruncated` records this rather than hiding it), and auto-retry of an
   `ERROR` verdict — an operator re-scans via `POST /documents/:id/rescan`.
-- [ ] **Emergency intake-request metrics.** Acknowledgement, escalation, and
-  dispatch-latency metrics arrive with the public emergency-intake flow; the
-  analytics snapshot currently covers arrivals/triage only.
+- [x] **Emergency intake-request metrics.** `snapshots.emergencyRequests`
+  reports the anonymous public flow: acknowledgement and escalation counts and
+  rates, and dispatch latency split into receive→dispatch and
+  acknowledge→dispatch, each as p50/p90/max rather than a mean. Alongside the
+  windowed block, point-in-time counters report what is outstanding *now*
+  (open, unacknowledged, awaiting dispatch, unacknowledged past the branch's
+  configured first escalation level). What is *not* done: no rollup, so the read
+  is query-time over `EmergencyRequest`; percentiles are coarse on small windows
+  (nearest-rank, so p90 misses a lone outlier and `max` is published for that);
+  and there is no alerting or paging on a late acknowledgement — the metric is
+  pull-only, and wiring it to the notification system is a separate decision.
 - [ ] **Provider directory + onboarding.** `Provider`/`ProviderSchedule` back
   tenant scheduling data but there is no provider-facing directory or onboarding
   surface yet.

@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 513/513 unit (65 suites) |
+| `npm test`   | 539/539 unit (66 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 243/243 (20 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 245/245 (20 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -1563,6 +1563,70 @@ holding `documents.read`.
 - **Deliberately still open:** real malware detection needs a configured ClamAV;
   coverage above the byte cap is a prefix only; and there is no automatic retry
   of an `ERROR` verdict, by design. All three are in `docs/limitations.md`.
+
+## Phase P9 — Emergency intake-request metrics (COMPLETE)
+
+The analytics snapshot measured emergency department walk-ins (`EmergencyVisit`:
+arrivedAt → triagedAt) and nothing about the anonymous public flow, which is a
+different population with a different denominator. The roadmap had flagged the
+missing acknowledgement, escalation, and dispatch-latency metrics as arriving
+"with the public emergency-intake flow" — the flow landed in P3, the metrics
+never did.
+
+- **A new `snapshots.emergencyRequests` block, not a wider `emergencyIntake`.**
+  Combining `EmergencyRequest` and `EmergencyVisit` counts would let a rate be
+  divided by a denominator matching neither question. They sit side by side, and
+  the `emergencyIntake` label now says so explicitly.
+- **Percentiles, not means, and `max` beside them.** A mean is the wrong summary
+  for emergency response: one request left unacknowledged for forty minutes
+  moves a five-request average by eight minutes while being the entire reason
+  the metric exists. Every latency is reported as `samples` + p50 + p90 + max.
+  Nearest-rank rather than interpolated, so a percentile only ever names a
+  latency that actually occurred — which also means a small window gives a
+  coarse answer, documented in `docs/limitations.md` and pinned by a test rather
+  than left to be discovered.
+- **Dispatch latency is split into two legs.** `timeToDispatch` (receive →
+  responder dispatched) and `ackToDispatch` (acknowledge → responder dispatched).
+  A request acknowledged in four minutes and dispatched in six was held up by
+  the phone, not the ambulance, and one combined number cannot tell an operator
+  which. `samples` is published next to each distribution because a
+  never-responded request contributes no sample and must not read as zero.
+- **A point-in-time block the window cannot replace.** `unacknowledgedNow`,
+  `awaitingDispatchNow`, `unacknowledgedPastSlaNow`, and `openNow` describe the
+  present, not the period. A service with excellent historical latency and one
+  request stuck unacknowledged tonight is still an emergency, and no windowed
+  average can express that. The SLA comparison reads the branch's own configured
+  first escalation level via `parseLevelSeconds` — the same function the
+  escalation worker uses, so metric and behaviour cannot drift — and a branch
+  with no policy is excluded from the past-SLA count rather than measured
+  against an invented threshold.
+- **An escalated-but-unacknowledged request counts as unacknowledged.** This is
+  the most safety-critical row in the system and the easiest to hide: filing it
+  under "escalated" would make it look accounted for. It is counted in
+  `unacknowledgedNow` and, when it has aged past the branch's first level, in
+  `unacknowledgedPastSlaNow`. Cancelled, closed, and P4-retained rows are
+  excluded from every outstanding counter.
+- **The window is keyed on `createdAt`.** A request received inside the window
+  and answered outside it is still counted as received, which is the only
+  reading under which a long-open request cannot vanish from the numbers.
+- **Timestamps are validated, not trusted.** An inverted pair (clock skew, or a
+  bad backfill) is dropped rather than folded in: one negative sample would drag
+  a mean toward zero and make response time look *better* than reality, which is
+  the dangerous direction to be wrong in. It is still counted in the funnel.
+- **Tests:** +26 unit (`test/unit/insights/intake-metrics.spec.ts`) over the
+  pure math — nearest-rank percentile behaviour including the two traps (p90
+  missing a lone outlier at small n, p50 being the lower middle on even n),
+  the empty-window null shape, the inverted-timestamp drop, the ack/dispatch leg
+  split, deterministic branch and escalation breakdowns, and every outstanding
+  branch including the SLA boundary and a branch with no policy. E2E +2 in
+  `test/e2e/phase13-analytics.e2e-spec.ts`: eight seeded requests across every
+  state proving the funnel, the 40-minute tail surviving as `max` where a mean
+  would have hidden it, the point-in-time counters, and an intake-disabled tenant
+  reporting nulls rather than zeros.
+- **Deliberately still open:** no rollup (the read is query-time over
+  `EmergencyRequest`), and no alerting — a late acknowledgement is visible in the
+  API but does not page anyone. Wiring this to the notification system is a
+  separate decision with its own noise-floor trade-off.
 
 ## Notes
 
