@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 539/539 unit (66 suites) |
+| `npm test`   | 645/645 unit (70 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 245/245 (20 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 246/246 (20 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -1627,6 +1627,74 @@ never did.
   `EmergencyRequest`), and no alerting — a late acknowledgement is visible in the
   API but does not page anyone. Wiring this to the notification system is a
   separate decision with its own noise-floor trade-off.
+
+## Phase P10 — Production PDF rendering (COMPLETE)
+
+Replaced the dependency-free `renderTextPdf` — text and lines only, no charts,
+images, or Unicode — with a real renderer in `src/jobs/pdf`, used by both
+`/document-jobs/pdf` and report exports.
+
+Done:
+
+- **Renderer** (`pdf-renderer.ts`, `pdf-document.ts`): A4 pages, running header
+  with title/metadata, footers with page numbers and a confidentiality line,
+  A4 break-correct pagination that repeats table headers, and sections for
+  headings, key/value pairs, paragraphs, tables, bar and line charts, and
+  images. Colour and weight are carried on document elements rather than in
+  the renderer, so a caller can restyle without touching layout.
+- **Unicode that fails loudly.** PDFKit silently drops characters the current
+  font cannot encode. The renderer parses the cmap (formats 4 and 12) from the
+  font it is about to embed, checks every string per style, and throws
+  `MissingGlyphError` naming the offending code points and the element being
+  drawn. A configured `PDF_FONT_*` path that cannot be read is a hard error
+  rather than a silent substitution. Bundled DejaVu Sans covers Latin, Greek,
+  Cyrillic and common symbols; CJK requires a configured face (ADR-048).
+- **Charts** (`pdf-charts.ts`): bar and line geometry with padded, ordered axis
+  bounds, a zero line that stays on the plot for all-positive and all-negative
+  data, gridlines, and category labels. Non-finite values and points beyond an
+  explicit `maxPoints` cap are dropped and *disclosed* in the document — a
+  chart quietly showing 60 of 400 points is worse than no chart. A `barChart`
+  with no cap is a programming error, not a default.
+- **Images** (`pdf-images.ts`): PNG/JPEG validated by container magic, declared
+  dimensions, and a 8 MiB / 6000 px cap *before* any decode, fitted without
+  upscaling. SVG is rejected rather than approximated.
+- **Real reports** (`domain/report-document.ts`): exports are now derived
+  documents — the window in the header, scalar summary values as key/values,
+  a numeric record such as a count-per-category breakdown as a bar chart, and
+  a column set inferred from the data (numeric columns right-aligned, missing
+  cells dashed, cancelled rows dimmed) with a 500-row default cap sitting beside
+  its disclosure text. Removed `rowsToPdfLines`.
+- **Bounded surface.** `/document-jobs/pdf` accepts text plus a table capped at
+  12 columns / 300 rows / 200 lines. Charts and images are deliberately not
+  accepted over HTTP — an unvalidated upload endpoint with no current caller —
+  while server-built documents use them directly.
+- **Tests:** +106 unit across `test/unit/jobs/` (renderer, charts, fonts,
+  images) and `test/unit/insights/report-document.spec.ts`; +1 e2e asserting the
+  table caps actually reject over-limit requests, and the two PDF e2e paths now
+  assert a real document (`%PDF-` header, `%%EOF`, embedded `FontFile2`,
+  `ToUnicode` CMap) instead of a byte count, via `test/support/pdf.ts`.
+
+Fixed along the way, each found by a test rather than by inspection:
+
+- **Flow text inherited a stray cursor and ran off the page.** PDFKit leaves
+  `doc.x`/`doc.y` at an absolutely-placed call. A chart category label is
+  centred on its point, and with one or two points the label box extends past
+  the left margin, so the disclosure that followed began at `x = -124` and was
+  clipped off the page. Flow text is now anchored to the margin and label boxes
+  are clamped inside it. This would have silently clipped content in every
+  report containing a chart.
+- **`sizeBytes` was reporting the base64 length**, overstating every PDF by
+  about a third, because the artifact is stored base64-encoded in a `String`
+  column. It now reports the decoded file size. The storage format itself is
+  left to P11, which moves this off the request path.
+- **`test/e2e/documents.e2e-spec.ts` was on Jest's 5s default** while driving
+  a real S3 server and spawning the scanner, so it timed out on legitimate work
+  under a full parallel run. It now uses the same 120s as every other e2e spec.
+
+**Deliberately still open:** generation is synchronous and the artifact is held
+in memory, so a very large report is built entirely inside the request; PDF
+artifacts are still base64 in a `String` column. That transport is P11. Image
+and chart *input* remains server-side only.
 
 ## Notes
 

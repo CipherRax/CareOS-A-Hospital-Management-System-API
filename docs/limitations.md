@@ -117,11 +117,29 @@ working code with a caveat.
 - **Report exports are synchronous and stored, not streamed.** `[stub]` An
   export is built inside the request (in-memory serialize) and persisted as a
   `ReportExport` row — there is no outbox/kick task object, no async
-  callback, and no chunked streaming of very large reports. The PDF produced by
-  `renderTextPdf` is a dependency-free minimal PDF (text + line layout, no
-  charts/images/Unicode fonts). PDF artifacts are real bytes with
-  `application/pdf` (unlike the Phase 10 `PdfRenderer` stub) but are purpose-
-  built for text tables.
+  callback, and no chunked streaming of very large reports. The PDF itself is
+  produced by the production renderer (`src/jobs/pdf`, P10): embedded Unicode
+  fonts, real tables with repeated headers, bar/line charts, pagination, and
+  PNG/JPEG images. The remaining gap is only the *transport* — the artifact is
+  held in memory, and a PDF is stored base64-encoded in a `String` column, so
+  the row is ~33% larger than the file. `sizeBytes` reports the decoded file
+  size, not the encoded length. P11 moves generation off the request path.
+- **PDF glyph coverage is only as good as the configured font.** `[by design]`
+  The renderer embeds DejaVu Sans, which has no CJK coverage. Rather than emit
+  a document with silently dropped characters, it parses the embedded font's
+  own cmap and throws `MissingGlyphError` naming the offending characters, so
+  the failure surfaces at generation time instead of in front of a clinician.
+  Deployments that need CJK must supply a face via `PDF_FONT_REGULAR` /
+  `PDF_FONT_BOLD` / `PDF_FONT_ITALIC` / `PDF_FONT_BOLD_ITALIC` /
+  `PDF_FONT_MONO`. A configured path that cannot be read is a hard error, not
+  a silent substitution.
+- **PDF image input is not reachable over HTTP.** `[by design]` The renderer
+  supports embedding PNG/JPEG (≤8 MiB, ≤6000 px, no upscaling, rejected before
+  any decode), but `/document-jobs/pdf` accepts only text and a bounded table.
+  Exposing arbitrary uploads on that endpoint would add an unvalidated file
+  ingestion surface for no current caller; server-built documents can use it
+  directly. Charts are likewise generated server-side rather than accepted
+  from a client.
 - **`DailyRollup` recomputes are full per-day reads, so multi-day churn is
   expensive.** Each touched event recomputes the whole org-day across every
   scope (source-table scans per recompute). A single day receiving thousands of

@@ -3,6 +3,65 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-048 — A PDF that cannot be drawn must fail loudly, and the renderer owns its own input bounds
+
+**Status:** accepted (Patch P10)
+
+**Context:** `/document-jobs/pdf` and report exports were served by a
+dependency-free `renderTextPdf` that emitted a hand-rolled PDF: text and lines
+only, no charts, images, or Unicode, and a document that opened but was not a
+document anyone could index, archive, or read on a machine without the same
+fonts. Replacing it with a real library raised two questions the obvious answer
+gets wrong.
+
+PDFKit silently drops any character the current font cannot encode — no warning,
+no error, the glyph just is not in the output. That is the worst possible
+failure for a clinical document: an operator sees a complete, plausible export
+that silently dropped, say, a patient's name, and nothing in the system records
+that it happened. Silently substituting a different face is nearly as bad: a
+deployment configured with a licensed font that goes missing would quietly start
+emitting documents in DejaVu, and the change would not surface until an audit.
+
+**Decision:**
+
+1. *Refuse characters the font cannot draw.* Before drawing any string, the
+   renderer checks it against a cmap parsed from the font file it is about to
+   embed, and throws `MissingGlyphError` naming the offending code points and
+   the element being drawn. Coverage is per style, so a caption set in a
+   different face is checked against that face. CJK fails on the bundled DejaVu
+   and succeeds once a CJK-capable face is configured via `PDF_FONT_*`.
+2. *A configured font path that cannot be read is a hard error.* Not a
+   fallback. `PDF_FONT_REGULAR` existing at all is a statement of intent, and
+   silently ignoring it is how a hospital ends up serving the wrong typeface.
+3. *Validate every input before the library sees it.* Images are checked for
+   size (≤8 MiB), declared dimensions (≤6000 px), and container magic before
+   any decode, and are never upscaled. Chart input is coerced to finite numbers,
+   points beyond a cap are dropped, and a `barChart` without a `maxPoints` cap is
+   a programming error rather than a default — the alternative is a caller
+   that forgets and silently renders 10,000 bars. Report rows carry a default
+   cap of 500 beside the disclosure text, so the number that governs truncation
+   and the sentence that announces it cannot drift apart.
+4. *State the omissions.* Any value that could not be drawn, and any point
+   dropped by a cap or an invalid value, is disclosed in the document itself. A
+   chart that quietly shows 60 of 400 data points is worse than no chart.
+5. *Keep images and charts off the request-facing surface.* The renderer
+   supports both, and report exports use them, but `/document-jobs/pdf` accepts
+   only text and a table bounded at 12 columns / 300 rows / 200 lines. Image
+   input on a public endpoint is an unvalidated file-ingestion surface with no
+   current caller; the bounded table is where the actual need is.
+
+**Consequences:** a font gap now fails the export and names itself instead of
+producing a quietly wrong document, which is the trade we want for artifacts a
+clinician may act on. Deployments needing CJK must ship a font file and set
+`PDF_FONT_*`; the bundled face is a safe default for the Latin-script case, not
+a universal one. Coverage parsing is only as current as the font it parses, so
+it is deliberately a narrow, well-tested reader of cmap formats 4 and 12 rather
+than a general font library. Images and charts are a server-side capability:
+adding them to the HTTP surface later is a deliberate decision with its own
+validation and authorization story, not a side effect of this patch. PDF
+generation is still synchronous and the artifact is still base64 in a `String`
+column — P11 covers that transport, and will record the decision when it lands.
+
 ## ADR-047 — A document is not downloadable until its bytes have a verdict, and the scan runs off the request path
 
 **Status:** accepted (Patch P8)

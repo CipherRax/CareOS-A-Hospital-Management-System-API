@@ -5,6 +5,7 @@ import { PrismaService } from '../../src/database/prisma.service';
 import { OutboxPublisherService } from '../../src/database/outbox-publisher.service';
 import { ErrorCodes } from '../../src/common/errors/codes';
 import { newId } from '../../src/common/lib/uuidv7';
+import { expectRenderedPdf } from '../support/pdf';
 
 /**
  * Brief Phase 9 (communication & documents). Acceptance coverage:
@@ -778,6 +779,23 @@ await bookAppointment(patientA, '2026-09-28T12:00:00.000Z');
     expect(body.contentType).toBe('application/pdf');
     expect(body.byteLength).toBeGreaterThan(200);
     expect(body.pdf.type).toBe('Buffer');
+    // A byte count alone would pass for a truncated buffer; check it is a real,
+    // self-contained document.
+    expectRenderedPdf(body.pdf);
+
+    const table = await post('/document-jobs/pdf', comm, {
+      kind: 'invoice',
+      resourceId: 'adm-2026-0001',
+      title: 'Invoice KSh 1,500.00 — naïve façade',
+      lines: ['Thank you for your care.'],
+      columns: [{ header: 'Item' }, { header: 'Amount', align: 'right' }],
+      rows: [
+        ['Consultation', 1500],
+        ['Labs', 0],
+      ],
+    });
+    expect(table.statusCode).toBe(200);
+    expectRenderedPdf(table.json().data.pdf);
 
     const audit = await prisma.unscoped().auditLog.findFirst({
       where: { organizationId: orgA, action: 'pdf.rendered', resourceId: 'adm-2026-0001' },
@@ -793,5 +811,41 @@ await bookAppointment(patientA, '2026-09-28T12:00:00.000Z');
       lines: ['x'],
     });
     expect(bad.statusCode).toBe(400);
+  });
+
+  it('bounds the table a client can ask the server to lay out', async () => {
+    // The renderer will happily draw a 10,000-row table; the request body is
+    // the only place that cost is bounded, so the limits have to be enforced
+    // here rather than inside the renderer.
+    const row = ['a', 'b'];
+    const tooManyRows = await post('/document-jobs/pdf', comm, {
+      kind: 'invoice',
+      resourceId: 'r1',
+      title: 'Huge',
+      lines: [],
+      columns: [{ header: 'A' }, { header: 'B' }],
+      rows: Array.from({ length: 301 }, () => row),
+    });
+    expect(tooManyRows.statusCode).toBe(400);
+
+    const tooManyColumns = await post('/document-jobs/pdf', comm, {
+      kind: 'invoice',
+      resourceId: 'r1',
+      title: 'Wide',
+      lines: [],
+      columns: Array.from({ length: 13 }, (_, i) => ({ header: `C${i}` })),
+      rows: [Array.from({ length: 13 }, () => 'x')],
+    });
+    expect(tooManyColumns.statusCode).toBe(400);
+
+    const atTheLimit = await post('/document-jobs/pdf', comm, {
+      kind: 'invoice',
+      resourceId: 'r1',
+      title: 'At the limit',
+      lines: [],
+      columns: Array.from({ length: 12 }, (_, i) => ({ header: `C${i}` })),
+      rows: [Array.from({ length: 12 }, () => 'x')],
+    });
+    expect(atTheLimit.statusCode).toBe(200);
   });
 });

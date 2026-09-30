@@ -70,9 +70,14 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–046.
 
 ## Medium priority
 
-- [ ] **PDF production rendering.** Replace the minimal `renderTextPdf` / no-op
-  `PdfRenderer` with a renderer that supports charts, images, and Unicode for
-  both `/document-jobs/pdf` and report exports.
+- [x] **PDF production rendering.** `src/jobs/pdf` renders paginated documents
+  with embedded Unicode fonts, real tables, bar/line charts, and PNG/JPEG
+  images, used by both `/document-jobs/pdf` and report exports. Font coverage
+  is verified against the embedded font's own cmap, so a character the font
+  cannot draw fails loudly instead of being dropped. Charts disclose any points
+  they omit. Image input is not exposed over HTTP: it is available to
+  server-built documents, and the request-facing endpoints stay bounded
+  (≤12 columns, ≤300 rows, ≤200 lines).
 - [ ] **Async + streamed report exports.** Move export out of the request path
   (kick task object + outbox event, poll/status) and stream large payloads
   instead of building the whole artifact in memory.

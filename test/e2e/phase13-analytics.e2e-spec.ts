@@ -5,6 +5,7 @@ import { PrismaService } from '../../src/database/prisma.service';
 import { Prisma } from '@prisma/client';
 import { ErrorCodes } from '../../src/common/errors/codes';
 import { newId } from '../../src/common/lib/uuidv7';
+import { expectRenderedPdf } from '../support/pdf';
 
 /**
  * Brief Phase 11 — analytics & reports (repo Phase 13). Acceptance:
@@ -543,6 +544,17 @@ describe('phase13 analytics & reports', () => {
     const pdfExport = pdf.json().data;
     expect(pdfExport.contentType).toBe('application/pdf');
     expect(pdfExport.sizeBytes).toBeGreaterThan(0);
+
+    // The PDF path was previously only ever checked for a non-zero size, which
+    // would pass for any buffer at all. Download it and verify it is a real,
+    // self-contained document.
+    const pdfDownload = await get(`/reports/exports/${pdfExport.id}/download`, perms);
+    expect(pdfDownload.statusCode).toBe(200);
+    expect(pdfDownload.json().data.contentType).toBe('application/pdf');
+    const pdfBytes = expectRenderedPdf(pdfDownload.json().data.artifact);
+    // The export is carried base64-encoded, so this also pins `sizeBytes` to
+    // the real file length rather than the ~33% larger encoding.
+    expect(pdfBytes.length).toBe(pdfExport.sizeBytes);
 
     const download = await get(`/reports/exports/${jsonExport.id}/download`, perms);
     expect(download.statusCode).toBe(200);

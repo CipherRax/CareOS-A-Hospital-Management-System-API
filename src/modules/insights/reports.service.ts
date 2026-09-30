@@ -5,7 +5,7 @@ import { TenantContext } from '../../database/tenant-context';
 import { AppError } from '../../common/errors/app-error';
 import { ErrorCodes } from '../../common/errors/codes';
 import { pageOf } from '../../common/pagination/pagination';
-import { renderTextPdf } from '../../jobs/pdf/pdf-renderer';
+import { renderPdf } from '../../jobs/pdf/pdf-renderer';
 import { newId } from '../../common/lib/uuidv7';
 import type {
   ExportReportDto,
@@ -18,9 +18,9 @@ import {
   fileExtensionOf,
   rowsToCsv,
   rowsToJson,
-  rowsToPdfLines,
   type ReportPayload,
 } from './domain/report-builder';
+import { reportToPdfDocument } from './domain/report-document';
 import { resolveWindow } from './domain/window';
 
 interface ReportWindow {
@@ -55,7 +55,7 @@ export class ReportsService {
     const window: ReportWindow = { from, to, branchId: dto.branchId };
 
     const payload = await this.build(dto.reportType, window);
-    const artifactText = this.serialize(payload, dto.format);
+    const artifactText = await this.serialize(payload, dto.format, window);
     const now = new Date();
     const record = await db.reportExport.create({
       data: {
@@ -71,7 +71,7 @@ export class ReportsService {
         status: 'READY',
         contentType: contentTypeOf(dto.format),
         artifact: artifactText,
-        sizeBytes: Buffer.byteLength(artifactText),
+        sizeBytes: ReportsService.sizeOf(artifactText, dto.format),
         expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
       },
     });
@@ -168,19 +168,44 @@ export class ReportsService {
     };
   }
 
-  private serialize(payload: ReportPayload, format: ReportFormat): string {
+  private async serialize(
+    payload: ReportPayload,
+    format: ReportFormat,
+    window: ReportWindow,
+  ): Promise<string> {
     switch (format) {
-      case 'PDF':
-        return renderTextPdf({
-          title: payload.title,
-          lines: rowsToPdfLines(payload),
-          meta: payload.meta,
-        }).toString('base64');
+      case 'PDF': {
+        // Layout is the renderer's job; this only describes the document. Note
+        // that renders are not byte-reproducible today: the payload carries a
+        // `generatedAt` of its own, so two exports of the same window differ.
+        // That matters only if artifact hashing is wanted, and it is not yet.
+        const pdf = await renderPdf(
+          reportToPdfDocument(payload, {
+            from: window.from,
+            to: window.to,
+            ...(window.branchId ? { branchLabel: window.branchId } : {}),
+            confidentiality: 'Confidential — patient information. Handle per hospital policy.',
+            createdAt: new Date(),
+          }),
+        );
+        return pdf.toString('base64');
+      }
       case 'CSV':
         return rowsToCsv(payload.rows);
       default:
         return rowsToJson(payload.rows, payload.summary);
     }
+  }
+
+  /**
+   * The stored artifact is always text, and a PDF is held base64-encoded
+   * because it is binary. `sizeBytes` must still describe the file the client
+   * would receive, not the encoding used to carry it: reporting the base64
+   * length would overstate every PDF by about a third, and a caller deciding
+   * what to download would be working from a number that is simply wrong.
+   */
+  private static sizeOf(artifact: string, format: ReportFormat): number {
+    return format === 'PDF' ? Buffer.byteLength(artifact, 'base64') : Buffer.byteLength(artifact);
   }
 
   private async build(type: ReportType, window: ReportWindow): Promise<ReportPayload> {

@@ -14,6 +14,12 @@ import { newId } from '../../src/common/lib/uuidv7';
  * outbox event are verified too.
  */
 describe('documents & object storage (Phase 2)', () => {
+  // These tests drive a real S3 server and, in the Phase 8 block, spawn the
+  // scanner. That is genuinely slower than an in-process handler call, so the
+  // 5s default is not a real bound for them — under a full parallel run they
+  // were timing out on work they legitimately do, not on a hang.
+  jest.setTimeout(120_000);
+
   let app: NestFastifyApplication;
   let prisma: PrismaService;
   let publisher: OutboxPublisherService;

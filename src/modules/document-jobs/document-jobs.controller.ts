@@ -10,7 +10,7 @@ export class DocumentJobsController {
 
   @Post('pdf')
   @ApiEndpoint({
-    summary: 'Render a minimal PDF document job',
+    summary: 'Render a paginated PDF document (Unicode text and a bounded table)',
     operationId: 'documentJobsRenderPdf',
     permissions: [PERMISSION_GROUPS.notifications.manage],
     errors: [

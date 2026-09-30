@@ -3,9 +3,7 @@ import {
   fileExtensionOf,
   rowsToCsv,
   rowsToJson,
-  rowsToPdfLines,
 } from '../../../src/modules/insights/domain/report-builder';
-import type { ReportPayload } from '../../../src/modules/insights/domain/report-builder';
 
 describe('rowsToCsv', () => {
   it('emits headers from the first row', () => {
@@ -41,22 +39,5 @@ describe('contentTypeOf / fileExtensionOf', () => {
   it('derives file extensions', () => {
     expect(fileExtensionOf('PDF')).toBe('pdf');
     expect(fileExtensionOf('JSON')).toBe('json');
-  });
-});
-
-describe('rowsToPdfLines', () => {
-  const payload: ReportPayload = {
-    title: 'Operations report',
-    meta: { from: '2026-09-01', to: '2026-09-30' },
-    summary: { visits: 120 },
-    rows: Array.from({ length: 60 }, (_, i) => ({ index: i + 1, value: i * 2 })),
-  };
-
-  it('renders a header, summary and truncated rows', () => {
-    const lines = rowsToPdfLines(payload);
-    expect(lines[0]).toBe('Report: Operations report');
-    expect(lines).toContain('  visits: 120');
-    expect(lines.filter((l) => /^\s+\d+\. /.test(l))).toHaveLength(50);
-    expect(lines).toContain('  ... and 10 more rows');
   });
 });
