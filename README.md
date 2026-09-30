@@ -188,9 +188,9 @@ npm run test:e2e
 | Lint | `npm run lint` |
 | Typecheck | `npm run typecheck` |
 | Module boundaries | `npm run boundaries` |
-| Unit tests | `npm test` (645 tests · 70 suites) |
+| Unit tests | `npm test` (677 tests · 72 suites) |
 | Build | `npm run build` |
-| E2E (Testcontainers) | `npm run test:e2e` (246 tests · 20 suites) |
+| E2E (Testcontainers) | `npm run test:e2e` (248 tests · 20 suites) |
 
 E2E spins up fresh Postgres + Redis via Testcontainers, applies migrations
 idempotently, and exercises the API end to end — including real RLS isolation,

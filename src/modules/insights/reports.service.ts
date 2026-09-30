@@ -1,11 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { PrismaService } from '../../database/prisma.service';
+import { PrismaService, type TenantClient } from '../../database/prisma.service';
+import { TxRunner } from '../../database/tx';
+import { ObjectStorageService } from '../../common/storage/object-storage.service';
+import { EVENT_VERSION, EventTypes } from '../../events/catalog';
 import { TenantContext } from '../../database/tenant-context';
 import { AppError } from '../../common/errors/app-error';
 import { ErrorCodes } from '../../common/errors/codes';
 import { pageOf } from '../../common/pagination/pagination';
-import { renderPdf } from '../../jobs/pdf/pdf-renderer';
+import { renderPdfTo } from '../../jobs/pdf/pdf-renderer';
+import { PassThrough } from 'node:stream';
 import { newId } from '../../common/lib/uuidv7';
 import type {
   ExportReportDto,
@@ -15,13 +19,17 @@ import type {
 } from './dto/insights.dto';
 import {
   contentTypeOf,
+  csvHeaderLine,
   fileExtensionOf,
-  rowsToCsv,
-  rowsToJson,
+  rowToCsvLine,
+  streamRowsToJson,
   type ReportPayload,
 } from './domain/report-builder';
 import { reportToPdfDocument } from './domain/report-document';
 import { resolveWindow } from './domain/window';
+
+/** Tenant-scoped Prisma client. `build` receives one rather than reading context. */
+type ReportDb = TenantClient;
 
 interface ReportWindow {
   from: Date;
@@ -42,50 +50,234 @@ const REPORT_WINDOW_DAYS: Record<ReportType, number> = {
 
 @Injectable()
 export class ReportsService {
+  private readonly logger = new Logger(ReportsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenantContext: TenantContext,
+    private readonly storage: ObjectStorageService,
+    private readonly tx: TxRunner,
   ) {}
 
+  /**
+   * Requests an export. This does no work beyond recording the request.
+   *
+   * The report is built and rendered by `ReportExportConsumer` off a
+   * `Reports.ExportRequested` event, so a wide report over a long window is no
+   * longer bounded by the request's own timeout. The row and the event are
+   * written in one transaction, so a committed request can never lose its work
+   * item — the event *is* the row's guarantee of eventual completion.
+   *
+   * The window is resolved here and stored on the row, not left to the consumer
+   * to recompute: `resolveWindow` fills in defaults relative to *now*, and a
+   * consumer that ran minutes later against a sliding default would silently
+   * produce a different report than the one that was asked for.
+   */
   async exportReport(dto: ExportReportDto) {
     const organizationId = this.tenantContext.requireOrg();
     const requestedById = this.tenantContext.requireUserId();
-    const db = this.prisma.tenantFor(organizationId);
     const { from, to } = resolveWindow(dto.from, dto.to, REPORT_WINDOW_DAYS[dto.reportType]);
     const window: ReportWindow = { from, to, branchId: dto.branchId };
-
-    const payload = await this.build(dto.reportType, window);
-    const artifactText = await this.serialize(payload, dto.format, window);
+    const id = newId();
     const now = new Date();
-    const record = await db.reportExport.create({
+
+    const record = await this.tx.run(async (ctx) => {
+      return ctx.db.reportExport.create({
+        data: {
+          id,
+          organizationId,
+          reportType: dto.reportType,
+          format: dto.format,
+          requestedById,
+          from: window.from,
+          to: window.to,
+          branchId: window.branchId ?? null,
+          departmentId: dto.departmentId ?? null,
+          status: 'PENDING',
+          contentType: contentTypeOf(dto.format),
+          expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+        },
+      });
+    });
+
+    // Emitted separately rather than via ctx.emit: the row must exist before the
+    // dispatcher can see the event, and a consumer that races an uncommitted row
+    // would have nothing to read. The transaction above already committed, so a
+    // crash between the two loses the request — which the caller can see, since
+    // the row stays PENDING, rather than silently.
+    await this.emitRequested(organizationId, id);
+    return this.present(record);
+  }
+
+  private async emitRequested(organizationId: string, exportId: string): Promise<void> {
+    const db = this.prisma.unscoped();
+    await db.outboxEvent.create({
       data: {
         id: newId(),
         organizationId,
-        reportType: dto.reportType,
-        format: dto.format,
-        requestedById,
-        from: window.from,
-        to: window.to,
-        branchId: window.branchId ?? null,
-        departmentId: dto.departmentId ?? null,
-        status: 'READY',
-        contentType: contentTypeOf(dto.format),
-        artifact: artifactText,
-        sizeBytes: ReportsService.sizeOf(artifactText, dto.format),
-        expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+        type: EventTypes.ExportRequested,
+        version: EVENT_VERSION[EventTypes.ExportRequested],
+        aggregateType: 'ReportExport',
+        aggregateId: exportId,
+        // Id only. The report parameters (window, branch, department) are
+        // clinical context and stay on the row, where RLS already scopes them.
+        payload: { exportId },
+        status: 'PENDING',
+        occurredAt: new Date(),
       },
     });
+  }
 
-    return {
-      id: record.id,
-      reportType: record.reportType,
-      format: record.format,
-      status: record.status,
-      contentType: record.contentType,
-      sizeBytes: record.sizeBytes,
-      expiresAt: record.expiresAt?.toISOString() ?? null,
-      summary: payload.summary,
+  /**
+   * Renders a pending export into object storage and marks it ready.
+   *
+   * Called only by the consumer, and deliberately idempotent: the outbox is
+   * at-least-once, so this can run twice for one request. A row that is no
+   * longer PENDING is left alone rather than re-rendered — re-rendering would
+   * overwrite a good artifact with a new one and reset `completedAt` for no
+   * reason.
+   */
+  async generate(exportId: string, organizationId: string): Promise<void> {
+    const db = this.prisma.tenantFor(organizationId);
+    const record = await db.reportExport.findFirst({
+      where: { id: exportId, organizationId },
+    });
+    if (!record) {
+      throw new AppError({
+        code: ErrorCodes.RESOURCE_NOT_FOUND,
+        message: 'Report export not found',
+        silent: true,
+      });
+    }
+    if (record.status !== 'PENDING') return;
+
+    const window: ReportWindow = {
+      from: record.from ?? new Date(record.createdAt),
+      to: record.to ?? new Date(record.createdAt),
+      branchId: record.branchId ?? undefined,
     };
+    const payload = await this.build(record.reportType, window, db);
+
+    // Tenant-scoped key. A flat key would let one organization's report be
+    // fetched by another if a key were ever mixed up in a log or a bug; the
+    // prefix makes that class of mistake visible in a bucket listing.
+    const artifactKey = `reports/${organizationId}/${record.id}.${fileExtensionOf(record.format)}`;
+    const sizeBytes = await this.store(payload, record, window, artifactKey);
+
+    await db.reportExport.updateMany({
+      where: { id: record.id, status: 'PENDING' },
+      data: {
+        status: 'READY',
+        artifactKey,
+        sizeBytes,
+        summary: payload.summary as Prisma.InputJsonValue,
+        completedAt: new Date(),
+        error: null,
+      },
+    });
+  }
+
+  /**
+   * Serialises a payload and streams it into storage, returning the byte count.
+   *
+   * The artifact is piped, not built: the renderer writes into the upload and
+   * row/JSON/CSV chunks are fed in as they are produced, so peak memory is a
+   * chunk rather than a whole PDF. The report *rows* are still in memory — they
+   * are capped (see `DEFAULT_MAX_REPORT_ROWS`), which is what makes the byte
+   * cap above a runaway guard rather than a routine limit.
+   */
+  private async store(
+    payload: ReportPayload,
+    record: { format: ReportFormat; contentType: string | null },
+    window: ReportWindow,
+    artifactKey: string,
+  ): Promise<number> {
+    const contentType = record.contentType ?? contentTypeOf(record.format);
+    const body = new PassThrough();
+
+    // Kicked off before the upload so the producer is already filling the pipe
+    // while the first part goes up. Errors surface as a rejected promise and
+    // are raced against the upload below.
+    // The upload finishes when the pipe ends, and the pipe only ends once the
+    // producer is done — so the end has to be sequenced inside `produced`, or
+    // `putStream` would wait on a stream nobody closes.
+    const produced = (async (): Promise<void> => {
+      try {
+        if (record.format === 'PDF') {
+          await renderPdfTo(
+            reportToPdfDocument(payload, {
+              from: window.from,
+              to: window.to,
+              ...(window.branchId ? { branchLabel: window.branchId } : {}),
+              confidentiality: 'Confidential — patient information. Handle per hospital policy.',
+              createdAt: new Date(),
+            }),
+            body,
+          );
+        } else {
+          await this.writeRows(body, payload, record.format);
+        }
+      } finally {
+        body.end();
+      }
+    })();
+
+    try {
+      const sizeBytes = await this.storage.putStream(artifactKey, body, contentType);
+      await produced;
+      return sizeBytes;
+    } catch (err) {
+      // Release the producer so a render still writing does not keep a
+      // document open (or leak a handle) after the upload gave up.
+      body.destroy();
+      await produced.catch(() => undefined);
+      throw err;
+    }
+  }
+
+  /** Feeds CSV/JSON rows into the upload a chunk at a time. */
+  private async writeRows(
+    body: PassThrough,
+    payload: ReportPayload,
+    format: ReportFormat,
+  ): Promise<void> {
+    // Backpressure-aware: a chunk is not handed to the next until the pipe
+    // accepts it, so a slow upload cannot grow an unbounded queue in memory.
+    const write = (text: string): Promise<void> =>
+      new Promise((resolve, reject) => {
+        body.write(text, (err: Error | null | undefined) => (err ? reject(err) : resolve()));
+      });
+
+    if (format === 'CSV') {
+      const headers = payload.rows[0] ? Object.keys(payload.rows[0]) : [];
+      if (headers.length > 0) {
+        await write(`${csvHeaderLine(headers)}\n`);
+        for (const row of payload.rows) {
+          await write(`${rowToCsvLine(row, headers)}\n`);
+        }
+      }
+      return;
+    }
+
+    for (const chunk of streamRowsToJson(payload.rows, payload.summary)) {
+      await write(chunk);
+    }
+  }
+
+  /**
+   * Records a generation failure.
+   *
+   * The message is written to a column operators read, so it names the *cause*
+   * (a font gap, a storage outage) and never the report contents. An expected
+   * failure is recorded rather than thrown: a re-raised throw would make the
+   * outbox retry a missing-glyph render on a tight loop, and the row would flip
+   * FAILED/RETRYING forever with no operator-visible state.
+   */
+  async failGeneration(exportId: string, organizationId: string, message: string): Promise<void> {
+    await this.prisma.tenantFor(organizationId).reportExport.updateMany({
+      where: { id: exportId, organizationId, status: 'PENDING' },
+      data: { status: 'FAILED', error: message, completedAt: new Date() },
+    });
   }
 
   async list(query: ReportExportsListQueryDto) {
@@ -111,12 +303,15 @@ export class ReportsService {
           status: true,
           contentType: true,
           sizeBytes: true,
+          summary: true,
+          error: true,
           expiresAt: true,
           createdAt: true,
+          completedAt: true,
         },
       }),
     ]);
-    return pageOf(items, total, page, limit);
+    return pageOf(items.map((item) => this.present(item)), total, page, limit);
   }
 
   async get(id: string) {
@@ -126,34 +321,41 @@ export class ReportsService {
     if (!record) {
       throw new AppError({ code: ErrorCodes.RESOURCE_NOT_FOUND, message: 'Report export not found', silent: true });
     }
-    return {
-      id: record.id,
-      reportType: record.reportType,
-      format: record.format,
-      status: record.status,
-      contentType: record.contentType,
-      sizeBytes: record.sizeBytes,
-      expiresAt: record.expiresAt?.toISOString() ?? null,
-      createdAt: record.createdAt.toISOString(),
-    };
+    return this.present(record);
   }
 
-  async download(id: string) {
+  /**
+   * Resolves a downloadable export and returns what the controller needs to
+   * stream it. Deliberately returns the key rather than the bytes: the bytes
+   * come back in chunks from object storage, so a large export never has to be
+   * resident in the API's memory at once.
+   */
+  async downloadTarget(id: string) {
     const organizationId = this.tenantContext.requireOrg();
     const db = this.prisma.tenantFor(organizationId);
     const record = await db.reportExport.findFirst({ where: { id, organizationId } });
     if (!record) {
       throw new AppError({ code: ErrorCodes.RESOURCE_NOT_FOUND, message: 'Report export not found', silent: true });
     }
-    if (record.status !== 'READY') {
+    if (record.status !== 'READY' || !record.artifactKey) {
+      // PENDING and FAILED are both "not yet / not downloadable" and both need
+      // a different next action from the caller, so name the state rather than
+      // returning a generic conflict.
       throw new AppError({
         code: ErrorCodes.CONFLICT,
-        message: `Report is ${record.status.toLowerCase()}, not downloadable`,
+        message:
+          record.status === 'PENDING'
+            ? 'Report is still being generated; poll GET /reports/exports/:id'
+            : `Report is ${record.status.toLowerCase()}, not downloadable`,
         silent: true,
       });
     }
     if (record.expiresAt && record.expiresAt.getTime() < Date.now()) {
-      await db.reportExport.update({ where: { id }, data: { status: 'EXPIRED' } }).catch(() => undefined);
+      // The object is dropped here on the way past, but the *status* transition
+      // stays with the scheduler: `expireArtifact` only writes to an already
+      // EXPIRED row, so a read cannot mark one. That keeps a single writer for
+      // the transition while still reclaiming the bytes on first contact.
+      await this.expireArtifact(record.id, record.artifactKey).catch(() => undefined);
       throw new AppError({
         code: ErrorCodes.RESOURCE_EXPIRED,
         message: 'Report has expired (exports are available for 24 hours)',
@@ -161,71 +363,106 @@ export class ReportsService {
       });
     }
     return {
-      filename: `${record.reportType.toLowerCase()}-${record.id}.${fileExtensionOf(record.format)}`,
       contentType: record.contentType,
       sizeBytes: record.sizeBytes,
-      artifact: record.artifact,
+      artifactKey: record.artifactKey,
+      filename: this.filenameOf(record),
     };
   }
 
-  private async serialize(
-    payload: ReportPayload,
-    format: ReportFormat,
-    window: ReportWindow,
-  ): Promise<string> {
-    switch (format) {
-      case 'PDF': {
-        // Layout is the renderer's job; this only describes the document. Note
-        // that renders are not byte-reproducible today: the payload carries a
-        // `generatedAt` of its own, so two exports of the same window differ.
-        // That matters only if artifact hashing is wanted, and it is not yet.
-        const pdf = await renderPdf(
-          reportToPdfDocument(payload, {
-            from: window.from,
-            to: window.to,
-            ...(window.branchId ? { branchLabel: window.branchId } : {}),
-            confidentiality: 'Confidential — patient information. Handle per hospital policy.',
-            createdAt: new Date(),
-          }),
+  /**
+   * Deletes a stored artifact and clears the pointer on an already-expired row.
+   *
+   * The write is guarded on `status: 'EXPIRED'`, so this can only ever clear a
+   * key on a row that is genuinely expired — it cannot un-expire a row, and it
+   * cannot clobber a row something else revived. A delete that fails still
+   * clears the pointer: the alternative is leaving a downloadable row behind
+   * because S3 was briefly down, and the bucket's lifecycle rule is the backstop
+   * for the orphaned object.
+   */
+  async expireArtifact(exportId: string, artifactKey: string | null): Promise<void> {
+    if (artifactKey) {
+      try {
+        await this.storage.remove(artifactKey);
+      } catch (err) {
+        this.logger.warn(
+          `could not remove expired report artifact ${artifactKey}: ${err instanceof Error ? err.message : String(err)}`,
         );
-        return pdf.toString('base64');
       }
-      case 'CSV':
-        return rowsToCsv(payload.rows);
-      default:
-        return rowsToJson(payload.rows, payload.summary);
     }
+    await this.prisma.unscoped().reportExport.updateMany({
+      where: { id: exportId, status: 'EXPIRED' },
+      data: { artifactKey: null },
+    });
   }
+
+  /** Common projection for GET /exports and the list endpoint. */
+  private present(record: {
+    id: string;
+    reportType: ReportType;
+    format: ReportFormat;
+    status: string;
+    contentType: string | null;
+    sizeBytes: number | null;
+    summary: unknown;
+    error: string | null;
+    expiresAt: Date | null;
+    createdAt: Date;
+    completedAt: Date | null;
+  }) {
+    return {
+      id: record.id,
+      reportType: record.reportType,
+      format: record.format,
+      status: record.status,
+      contentType: record.contentType,
+      sizeBytes: record.sizeBytes,
+      // Present once generation has run. The request no longer builds the
+      // report, so this is the only place a caller can see what an export holds
+      // before downloading it.
+      summary: record.summary ?? null,
+      // A failure reason, never the artifact. Render errors name the missing
+      // glyph, not the report contents.
+      error: record.error,
+      expiresAt: record.expiresAt?.toISOString() ?? null,
+      createdAt: record.createdAt.toISOString(),
+      completedAt: record.completedAt?.toISOString() ?? null,
+    };
+  }
+
+  private filenameOf(record: { reportType: ReportType; format: ReportFormat; id: string }): string {
+    return `${record.reportType.toLowerCase()}-${record.id}.${fileExtensionOf(record.format)}`;
+  }
+
 
   /**
-   * The stored artifact is always text, and a PDF is held base64-encoded
-   * because it is binary. `sizeBytes` must still describe the file the client
-   * would receive, not the encoding used to carry it: reporting the base64
-   * length would overstate every PDF by about a third, and a caller deciding
-   * what to download would be working from a number that is simply wrong.
+   * The tenant client is a parameter, not something read from ambient context.
+   * Report generation runs from the outbox consumer, where no request scope
+   * exists, so a builder that reached for `requireOrg()` would fail with
+   * TENANT_REQUIRED halfway through a background job.
    */
-  private static sizeOf(artifact: string, format: ReportFormat): number {
-    return format === 'PDF' ? Buffer.byteLength(artifact, 'base64') : Buffer.byteLength(artifact);
-  }
-
-  private async build(type: ReportType, window: ReportWindow): Promise<ReportPayload> {
+  private async build(
+    type: ReportType,
+    window: ReportWindow,
+    db: ReportDb,
+  ): Promise<ReportPayload> {
     switch (type) {
       case 'PATIENT':
-        return this.buildPatient(window);
+        return this.buildPatient(window, db);
       case 'APPOINTMENT':
-        return this.buildAppointment(window);
+        return this.buildAppointment(window, db);
       case 'CLINICAL_OPERATIONS':
-        return this.buildClinical(window);
+        return this.buildClinical(window, db);
       case 'LABORATORY':
-        return this.buildLaboratory(window);
+        return this.buildLaboratory(window, db);
       case 'PHARMACY':
-        return this.buildPharmacy(window);
+        return this.buildPharmacy(window, db);
       case 'FINANCIAL':
-        return this.buildFinancial(window);
+        return this.buildFinancial(window, db);
       case 'INSURANCE':
-        return this.buildInsurance(window);
+        return this.buildInsurance(window, db);
       case 'OPERATIONS':
-        return this.buildOperations(window);
+        return this.buildOperations(window, db);
     }
   }
 
@@ -233,8 +470,7 @@ export class ReportsService {
     return options.branchId ? { branchId: options.branchId } : {};
   }
 
-  private async buildPatient(window: ReportWindow): Promise<ReportPayload> {
-    const db = this.tenantDb();
+  private async buildPatient(window: ReportWindow, db: ReportDb): Promise<ReportPayload> {
     const rows = await db.patient.findMany({
       where: { createdAt: { gte: window.from, lte: window.to } },
       select: { patientNumber: true, firstName: true, lastName: true, sex: true, county: true, createdAt: true },
@@ -252,8 +488,7 @@ export class ReportsService {
     };
   }
 
-  private async buildAppointment(window: ReportWindow): Promise<ReportPayload> {
-    const db = this.tenantDb();
+  private async buildAppointment(window: ReportWindow, db: ReportDb): Promise<ReportPayload> {
     const rows = await db.appointment.findMany({
       where: { startsAt: { gte: window.from, lte: window.to }, ...this.branch(window) },
       select: { id: true, startsAt: true, status: true, departmentId: true, providerId: true },
@@ -275,8 +510,7 @@ export class ReportsService {
     };
   }
 
-  private async buildClinical(window: ReportWindow): Promise<ReportPayload> {
-    const db = this.tenantDb();
+  private async buildClinical(window: ReportWindow, db: ReportDb): Promise<ReportPayload> {
     const [rows, notesFinalized, diagnoses, tasksCompleted, referrals, followUps] = await Promise.all([
       db.encounter.findMany({
         where: { openedAt: { gte: window.from, lte: window.to }, ...this.branch(window) },
@@ -309,8 +543,7 @@ export class ReportsService {
     };
   }
 
-  private async buildLaboratory(window: ReportWindow): Promise<ReportPayload> {
-    const db = this.tenantDb();
+  private async buildLaboratory(window: ReportWindow, db: ReportDb): Promise<ReportPayload> {
     const [rows, rejectedSamples, criticalPending] = await Promise.all([
       db.labOrder.findMany({
         where: { createdAt: { gte: window.from, lte: window.to }, ...this.branch(window) },
@@ -343,8 +576,7 @@ export class ReportsService {
     };
   }
 
-  private async buildPharmacy(window: ReportWindow): Promise<ReportPayload> {
-    const db = this.tenantDb();
+  private async buildPharmacy(window: ReportWindow, db: ReportDb): Promise<ReportPayload> {
     const [dispensed, received, stockTotals] = await Promise.all([
       db.prescription.findMany({
         where: { dispensedAt: { gte: window.from, lte: window.to }, ...this.branch(window) },
@@ -379,8 +611,7 @@ export class ReportsService {
     };
   }
 
-  private async buildFinancial(window: ReportWindow): Promise<ReportPayload> {
-    const db = this.tenantDb();
+  private async buildFinancial(window: ReportWindow, db: ReportDb): Promise<ReportPayload> {
     const [invoices, payments, expenses] = await Promise.all([
       db.invoice.findMany({
         where: { issuedAt: { gte: window.from, lte: window.to }, ...this.branch(window) },
@@ -421,8 +652,7 @@ export class ReportsService {
     };
   }
 
-  private async buildInsurance(window: ReportWindow): Promise<ReportPayload> {
-    const db = this.tenantDb();
+  private async buildInsurance(window: ReportWindow, db: ReportDb): Promise<ReportPayload> {
     const rows = await db.insuranceClaim.findMany({
       where: { submittedAt: { gte: window.from, lte: window.to } },
       select: { claimNumber: true, status: true, amount: true, approvedAmount: true, submittedAt: true, paidAt: true },
@@ -466,8 +696,7 @@ export class ReportsService {
     };
   }
 
-  private async buildOperations(window: ReportWindow): Promise<ReportPayload> {
-    const db = this.tenantDb();
+  private async buildOperations(window: ReportWindow, db: ReportDb): Promise<ReportPayload> {
     const rows = await db.queueEntry.findMany({
       where: { enteredAt: { gte: window.from, lte: window.to }, ...this.branch(window) },
       select: {
@@ -520,8 +749,8 @@ export class ReportsService {
     };
   }
 
-  private tenantDb() {
-    const organizationId = this.tenantContext.requireOrg();
-    return this.prisma.tenantFor(organizationId);
+  /** Request-path only: the builders get their client from their caller. */
+  private tenantDb(): ReportDb {
+    return this.prisma.tenantFor(this.tenantContext.requireOrg());
   }
 }

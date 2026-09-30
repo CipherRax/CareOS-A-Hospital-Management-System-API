@@ -9,6 +9,7 @@ import { MetricsService } from './metrics.service';
 import { PatientExperienceService } from './patient-experience.service';
 import { ReconciliationController } from './reconciliation.controller';
 import { ReconciliationService } from './reconciliation.service';
+import { ReportExportConsumer } from './report-export.consumer';
 import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
 import { RollupTouchConsumer } from './rollups.consumer';
@@ -33,8 +34,11 @@ import { StaffAnalyticsService } from './staff-analytics.service';
     StaffAnalyticsService,
     DashboardsService,
     ReportsService,
+    ReportExportConsumer,
     ReconciliationService,
   ],
-  exports: [RollupsService, RollupTouchConsumer, ForecastsService],
+  // ReportsService is exported so the scheduler's export-expiry duty can remove
+  // a stored artifact without the duty reaching into this module's tables.
+  exports: [RollupsService, RollupTouchConsumer, ForecastsService, ReportsService, ReportExportConsumer],
 })
 export class InsightsModule {}

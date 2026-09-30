@@ -4550,10 +4550,13 @@ enum ReportExportStatus {
   EXPIRED
 }
 
-// A generated report artifact with an expiry. Artifacts are stored as text
-// (JSON text, CSV text, or base64 of the rendered PDF text); generation runs
-// on request (no background worker — see limitations). Implemented report
-// labels every forecast/estimate before it leaves the API.
+// A generated report artifact with an expiry. Generation is asynchronous: the
+// row is created PENDING with a `Reports.ExportRequested` outbox event, and a
+// consumer renders the artifact into object storage. The bytes live in S3
+// rather than in a column because an export is a multi-megabyte patient-data
+// file — it does not belong in a row, and it cannot be streamed from one.
+// `artifactKey` is the object key; the object is deleted when the row expires.
+// Implemented report labels every forecast/estimate before it leaves the API.
 model ReportExport {
   id             String             @id
   organizationId String
@@ -4566,11 +4569,18 @@ model ReportExport {
   branchId     String?
   departmentId String?
 
-  artifact      String?
-  sizeBytes     Int?
-  contentType   String?
-  error         String?
-  expiresAt     DateTime?
+  // Object key in the configured bucket. Null until generation succeeds, and
+  // null again once the expiry duty has removed the object.
+  artifactKey  String?
+  sizeBytes    Int?
+  contentType  String?
+  // The report's summary, captured at generation time. Recorded so a caller can
+  // see what an export contains without downloading (and re-rendering) it.
+  summary      Json?
+  error        String?
+  expiresAt    DateTime?
+  // When generation reached a terminal state, for "how long did this take?"
+  completedAt  DateTime?
   // Non-FK pointer (soft link) to the requesting user.
   requestedById String?
 

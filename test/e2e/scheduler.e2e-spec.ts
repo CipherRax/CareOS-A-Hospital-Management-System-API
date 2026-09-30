@@ -159,7 +159,7 @@ describe('time-based scheduler (patch P5)', () => {
             reportType: 'FINANCIAL',
             format: 'JSON',
             status: 'READY',
-            artifact: '{}',
+            artifactKey: `reports/${organizationId}/due.json`,
             expiresAt: new Date(now.getTime() - 1_000),
           },
           {
@@ -168,7 +168,7 @@ describe('time-based scheduler (patch P5)', () => {
             reportType: 'FINANCIAL',
             format: 'JSON',
             status: 'READY',
-            artifact: '{}',
+            artifactKey: `reports/${organizationId}/future.json`,
             expiresAt: new Date(now.getTime() + 3_600_000),
           },
           {

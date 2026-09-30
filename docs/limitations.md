@@ -112,18 +112,38 @@ working code with a caveat.
   (at-least-once, deduped receiver-side by the idempotency key; see ADR-045).
   `SCHEDULER_ENABLED=false` registers no duty at all — the operator kill-switch
   for a worker-less deploy. Report exports are expired by the `report-expiry`
-  duty now, but generation is still synchronous and relies on the same
-  read-side `expiresAt` check.
-- **Report exports are synchronous and stored, not streamed.** `[stub]` An
-  export is built inside the request (in-memory serialize) and persisted as a
-  `ReportExport` row — there is no outbox/kick task object, no async
-  callback, and no chunked streaming of very large reports. The PDF itself is
-  produced by the production renderer (`src/jobs/pdf`, P10): embedded Unicode
-  fonts, real tables with repeated headers, bar/line charts, pagination, and
-  PNG/JPEG images. The remaining gap is only the *transport* — the artifact is
-  held in memory, and a PDF is stored base64-encoded in a `String` column, so
-  the row is ~33% larger than the file. `sizeBytes` reports the decoded file
-  size, not the encoded length. P11 moves generation off the request path.
+  duty, which also removes the stored object (ADR-049).
+- **Report export is asynchronous, and a failure is visible rather than
+  retried.** `[by design]` `POST /reports/export` returns `202` with a `PENDING`
+  row; the `Reports.ExportRequested` consumer renders it and the row moves to
+  `READY` with an `artifactKey` in object storage (ADR-049). The caller polls
+  `GET /reports/exports/:id`. A generation failure is *recorded* (`FAILED` with
+  a PHI-free reason) rather than re-raised, because re-raising would make the
+  outbox retry a missing-glyph render on a tight loop forever. A retry
+  therefore has to be a deliberate new export request — there is no
+  "retry this export" affordance yet, and no backoff/requeue policy for a
+  transient storage outage, which currently lands as a `FAILED` row with
+  `S3_UNAVAILABLE` and waits for the operator.
+- **Report export requires object storage; documents do not.** `[by design]`
+  With S3 unconfigured, `POST /reports/export` still accepts the request and the
+  export then fails with `S3_UNAVAILABLE`, so the outage surfaces on the row
+  rather than at the API boundary. Rejecting at request time would need S3
+  presence in the request path, which is a different tradeoff. Downloads stream
+  through the API in bounded chunks (`MAX_REPORT_ARTIFACT_BYTES` ceiling, much
+  larger than any capped report) so tenant and `reports.read` are re-checked at
+  read time and the access is auditable; a presigned GET would have been a
+  bearer capability over a table of patient data. The report *rows* are still
+  materialised in memory during generation — the P10 caps are what keep that
+  bounded — so a future uncapped report would need cursor-based builders, not
+  just a streaming sink.
+- **Expired artifacts are deleted on a schedule, and a failed delete is
+  swallowed.** `[by design]` The `report-expiry` duty marks due rows `EXPIRED`,
+  deletes the object, and clears the key. If the delete fails the key is still
+  cleared, so the row cannot be downloaded but the object is orphaned until the
+  bucket's lifecycle rule reaps it — which is only true if that rule is
+  actually configured. A read that finds an expired artifact also drops the
+  object early, but the status transition stays with the scheduler so there is
+  one writer for it.
 - **PDF glyph coverage is only as good as the configured font.** `[by design]`
   The renderer embeds DejaVu Sans, which has no CJK coverage. Rather than emit
   a document with silently dropped characters, it parses the embedded font's

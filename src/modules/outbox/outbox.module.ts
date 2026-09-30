@@ -11,6 +11,7 @@ import { NotificationConsumer } from '../notifications/notifications.consumer';
 import { LedgerModule } from '../ledger/ledger.module';
 import { LedgerPostingConsumer } from '../ledger/ledger-postings.consumer';
 import { InsightsModule } from '../insights/insights.module';
+import { ReportExportConsumer } from '../insights/report-export.consumer';
 import { RollupTouchConsumer } from '../insights/rollups.consumer';
 import { DirectoryModule } from '../directory/directory.module';
 import { PublicListingConsumer } from '../directory/directory.consumer';
@@ -52,6 +53,7 @@ import { DocumentScanConsumer } from '../documents/document-scan.consumer';
         publicListing: PublicListingConsumer,
         coding: CodingReferenceConsumer,
         documentScan: DocumentScanConsumer,
+        reportExport: ReportExportConsumer,
       ): OutboxConsumer[] => [
         timeline,
         pharmacyTasks,
@@ -61,6 +63,7 @@ import { DocumentScanConsumer } from '../documents/document-scan.consumer';
         publicListing,
         coding,
         documentScan,
+        reportExport,
       ],
       inject: [
         TimelineProjectionConsumer,
@@ -71,6 +74,7 @@ import { DocumentScanConsumer } from '../documents/document-scan.consumer';
         PublicListingConsumer,
         CodingReferenceConsumer,
         DocumentScanConsumer,
+        ReportExportConsumer,
       ],
     },
     ConsumerOutboxDispatcher,

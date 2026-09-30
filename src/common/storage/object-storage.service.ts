@@ -8,6 +8,8 @@ import {
   type GetObjectCommandOutput,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { Upload } from '@aws-sdk/lib-storage';
+import type { Readable } from 'node:stream';
 import { ENV, type Env } from '../../config/config.module';
 import { AppError } from '../errors/app-error';
 import { ErrorCodes } from '../errors/codes';
@@ -34,10 +36,16 @@ export interface ObjectStream {
 
 /**
  * S3/MinIO object storage. Clients upload directly to short-lived presigned
- * PUT URLs and download through presigned GET URLs — the API never proxies the
- * binary through Nest. The client is created lazily from env; when S3 is not
- * configured (dev/test without storage) every operation fails with
- * S3_UNAVAILABLE rather than hiding the absence.
+ * PUT URLs and document downloads hand back a presigned GET — for those, the
+ * binary never transits Nest. Two paths do move bytes through the API, both
+ * deliberately and for the same reason: the data originates or terminates
+ * *server-side*, so there is no client to hand a URL to. `stream` serves the
+ * document scanner (ADR-047) and the report-export download (ADR-049), and
+ * `put` stores a report artifact the server itself rendered.
+ *
+ * The client is created lazily from env; when S3 is not configured
+ * (dev/test without storage) every operation fails with S3_UNAVAILABLE rather
+ * than hiding the absence.
  */
 @Injectable()
 export class ObjectStorageService {
@@ -110,9 +118,77 @@ export class ObjectStorageService {
     return { url, expiresIn: this.ttlSeconds };
   }
 
-  /** Verifies an object exists and reports size/content-type, without body. */
-  async head(key: string): Promise<ObjectHead> {
+  /**
+   * Server-side upload.
+   *
+   * This is the exception to the rule above that the API never handles the
+   * binary. It exists for artifacts the *server* produces — a rendered report
+   * export — where there is no client to hand a presigned URL to. The bytes
+   * still do not linger: the caller hands over a completed buffer, and the
+   * download path streams the object back in chunks.
+   *
+   * `key` is the caller's to choose and must already be tenant-scoped; nothing
+   * here derives a prefix from an organization id, because only the caller
+   * knows the row the object belongs to.
+   */
+  async put(key: string, body: Buffer, contentType?: string): Promise<void> {
+    const client = this.requireClient();
     try {
+      await client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: body,
+          ...(contentType ? { ContentType: contentType } : {}),
+        }),
+      );
+    } catch (err) {
+      throw new AppError({
+        code: ErrorCodes.S3_UNAVAILABLE,
+        message: 'Object storage is unavailable.',
+        cause: err,
+      });
+    }
+  }
+
+  /**
+   * Uploads a readable stream, returning the byte count actually stored.
+   *
+   * A rendered report is piped straight in rather than buffered: `Upload` uses a
+   * single PUT for a small body and switches to multipart on its own for a large
+   * one, so the artifact never has to exist whole in this process. A failed part
+   * set is aborted rather than left behind, since an orphaned part set is
+   * invisible to a listing and would quietly cost money.
+   */
+  async putStream(key: string, body: Readable, contentType?: string): Promise<number> {
+    const client = this.requireClient();
+    let bytes = 0;
+    body.on('data', (chunk: Buffer) => {
+      bytes += chunk.length;
+    });
+    try {
+      await new Upload({
+        client,
+        params: {
+          Bucket: this.bucket,
+          Key: key,
+          Body: body,
+          ...(contentType ? { ContentType: contentType } : {}),
+        },
+        leavePartsOnError: false,
+      }).done();
+    } catch (err) {
+      throw new AppError({
+        code: ErrorCodes.S3_UNAVAILABLE,
+        message: 'Object storage is unavailable.',
+        cause: err,
+      });
+    }
+    return bytes;
+  }
+
+  /** Verifies an object exists and reports size/content-type, without body. */
+  async head(key: string): Promise<ObjectHead> {    try {
       const client = this.requireClient();
       const res = await client.send(
         new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
@@ -144,11 +220,10 @@ export class ObjectStorageService {
   /**
    * Streams an object back in chunks, stopping at `limitBytes`.
    *
-   * This is the one path that brings bytes into the API, and it exists for the
-   * document scanner (ADR-047). It is deliberately *not* a `getBuffer`: a
-   * hospital upload can be hundreds of megabytes, so the cap plus chunked
-   * ranges bound memory to the chunk size regardless of object size. Everything
-   * else in this service stays presigned so the binary never transits Nest.
+   * This brings bytes into the API, for the document scanner (ADR-047) and the
+   * report-export download (ADR-049). It is deliberately *not* a `getBuffer`: a
+   * hospital upload, or a wide report, can be tens of megabytes, so the cap plus
+   * chunked ranges bound memory to the chunk size regardless of object size.
    */
   async stream(key: string, limitBytes: number, chunkBytes = 64 * 1024): Promise<ObjectStream> {
     const client = this.requireClient();

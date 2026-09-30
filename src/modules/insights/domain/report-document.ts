@@ -21,6 +21,15 @@ import type { ReportPayload } from './report-builder';
 /** Rows beyond this are not embedded. The document discloses the truncation. */
 export const DEFAULT_MAX_REPORT_ROWS = 500;
 
+/**
+ * Hard ceiling on a stored report artifact, and the read cap for streaming one
+ * back. Reports are capped at 500 embedded rows, so a real artifact is orders of
+ * magnitude below this; the ceiling exists to stop an unbounded read if a stored
+ * object has grown far past its recorded size. It is deliberately generous —
+ * truncating a clinical document because it grew a byte is silent corruption.
+ */
+export const MAX_REPORT_ARTIFACT_BYTES = 128 * 1024 * 1024;
+
 /** How a value is rendered inside a table cell. */
 function cell(value: unknown): string {
   if (value == null) return '—';

@@ -28,6 +28,8 @@ export class PdfRenderError extends Error {
  */
 export class MissingGlyphError extends PdfRenderError {
   readonly codePoints: number[];
+  /** What was being drawn, e.g. "a chart axis label". Never the string itself. */
+  readonly context: string;
 
   constructor(codePoints: number[], context: string) {
     super(
@@ -37,6 +39,7 @@ export class MissingGlyphError extends PdfRenderError {
     );
     this.name = 'MissingGlyphError';
     this.codePoints = codePoints;
+    this.context = context;
   }
 }
 

@@ -3,6 +3,64 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-049 — Report exports are asynchronous artifacts in object storage, downloaded through the API
+
+**Status:** accepted (Phase P11)
+
+**Context:** report export was synchronous and self-contained. `POST
+/reports/export` built the whole report, rendered the PDF, base64-encoded it into
+`ReportExport.artifact`, and returned `201` with the bytes inline. That couples
+three unrelated limits to one request: the report builders' row caps, the
+renderer's memory, and the caller's HTTP timeout. A wide report is refused
+mid-build and the operator gets a 400, and the bytes transit Nest twice — once
+in, once out — as a base64 string a third larger than the file.
+
+Object storage and presigned URLs were already the pattern for documents
+(ADR-047), and the obvious move is to reuse it: store the artifact, hand back a
+presigned GET. That is right for documents, and wrong here, because a presigned
+URL is a bearer capability. For a document a uploader already holds the bytes,
+so nothing is disclosed. For a report export the URL would be a *read* capability
+over a table of patient data, handed to whoever holds the row, valid for minutes
+and untraceable to a principal. It cannot be revoked per user, it bypasses the
+permission check at read time, and it is exactly the shape of leak that a
+health-records system is built to prevent.
+
+**Decision:**
+
+1. *Export is a request, not a computation.* `POST /reports/export` writes a
+   `PENDING` row and returns `202` with the row. Generation happens in the
+   `Reports.ExportRequested` consumer, off the request path.
+2. *The event carries an id, not data.* The payload is `{ exportId }` only. The
+   resolved window, branch, and format live on the tenant-scoped row, so a
+   report is always generated from what was recorded at request time and no
+   patient data ever passes through the outbox. Row creation and the event
+   emission share one transaction.
+3. *The artifact lives in S3, the row keeps only a key.* `artifactKey` is
+   tenant-scoped (`reports/{orgId}/{exportId}.{ext}`) so a mixed-up key is
+   visible in a bucket listing rather than quietly serving another hospital's
+   data.
+4. *Download streams through the API.* `GET /reports/exports/:id/download`
+   re-checks tenancy and `reports.read`, then pipes the object back in chunks
+   with the recorded `Content-Length`, `private, no-store`, and an attachment
+   filename. Presigned GET is not used for reports.
+5. *Generation streams too.* The renderer writes into the upload rather than
+   returning a buffer, and JSON/CSV are emitted chunk by chunk, so peak memory
+   is a chunk rather than an artifact. The report *rows* stay in memory by
+   design — the P10 caps are what make the byte ceiling a runaway guard rather
+   than a routine limit.
+6. *A generation failure is a recorded state, not a retry storm.* The consumer
+   stores a PHI-free reason (hex code points for a missing glyph, the error code
+   for a storage outage) and the row goes `FAILED`. Re-raising would make the
+   outbox retry a missing-glyph render on a tight loop forever.
+
+**Consequences:** exports are polled rather than awaited, and `POST` no longer
+carries a format-specific success payload. S3 becomes a hard requirement for
+report export — without it the export reaches `FAILED` with `S3_UNAVAILABLE`
+rather than silently producing nothing. Audit is preserved, because the download
+is an ordinary authorized request rather than an unattributable URL. The cost is
+a round trip and a status poll, which is the right trade for a report that
+previously had to fit in one response.
+
 ## ADR-048 — A PDF that cannot be drawn must fail loudly, and the renderer owns its own input bounds
 
 **Status:** accepted (Patch P10)

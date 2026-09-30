@@ -41,11 +41,13 @@ function makeService(mocks: Mocks, env: Record<string, unknown> = {}) {
   const maintenance = { queueReminders: jest.fn().mockResolvedValue({ queued: 0, skipped: 0 }) };
   const publisher = { publishReadyEvents: jest.fn().mockResolvedValue(0) };
   const notifications = { send: jest.fn().mockResolvedValue({ status: 'SENT' }) };
+  const reports = { expireArtifact: jest.fn().mockResolvedValue(undefined) };
   const service = new SchedulerService(
     prisma as never,
     maintenance as never,
     publisher as never,
     notifications as never,
+    reports as never,
     {
       SCHEDULER_SWEEP_BATCH: 500,
       SCHEDULER_ORG_BATCH: 2,
@@ -53,7 +55,7 @@ function makeService(mocks: Mocks, env: Record<string, unknown> = {}) {
       ...env,
     } as never,
   );
-  return { service, prisma, maintenance, publisher, notifications, mocks };
+  return { service, prisma, maintenance, publisher, notifications, reports, mocks };
 }
 
 describe('SchedulerService', () => {
@@ -118,16 +120,18 @@ describe('SchedulerService', () => {
   describe('expireReportExports', () => {
     it('flips READY exports whose expiry passed, re-asserting READY on write', async () => {
       const mocks = makeMocks();
-      mocks.reportExport.findMany.mockResolvedValue([{ id: 'exp-1' }]);
+      mocks.reportExport.findMany.mockResolvedValue([
+        { id: 'exp-1', artifactKey: 'reports/org/exp-1.json' },
+      ]);
       mocks.reportExport.updateMany.mockResolvedValue({ count: 1 });
-      const { service } = makeService(mocks);
+      const { service, reports } = makeService(mocks);
       const now = new Date('2026-10-02T00:00:00.000Z');
 
       await expect(service.expireReportExports(now)).resolves.toEqual({ expired: 1 });
 
       expect(mocks.reportExport.findMany).toHaveBeenCalledWith({
         where: { status: 'READY', expiresAt: { lte: now } },
-        select: { id: true },
+        select: { id: true, artifactKey: true },
         orderBy: { expiresAt: 'asc' },
         take: 500,
       });
@@ -135,6 +139,42 @@ describe('SchedulerService', () => {
         where: { id: { in: ['exp-1'] }, status: 'READY' },
         data: { status: 'EXPIRED' },
       });
+      // The bytes are the reason this matters: marking the row expired while the
+      // object is still in the bucket is a retention promise the system has not
+      // kept.
+      expect(reports.expireArtifact).toHaveBeenCalledWith('exp-1', 'reports/org/exp-1.json');
+    });
+
+    it('removes artifacts even for rows a concurrent pass already flipped', async () => {
+      // The object outlives the row update if the process dies between them, so
+      // cleanup keys off the due list rather than off this pass's win count.
+      const mocks = makeMocks();
+      mocks.reportExport.findMany.mockResolvedValue([
+        { id: 'exp-1', artifactKey: 'reports/org/exp-1.json' },
+        { id: 'exp-2', artifactKey: null },
+      ]);
+      mocks.reportExport.updateMany.mockResolvedValue({ count: 0 });
+      const { service, reports } = makeService(mocks);
+
+      await expect(service.expireReportExports()).resolves.toEqual({ expired: 0 });
+      expect(reports.expireArtifact).toHaveBeenCalledWith('exp-1', 'reports/org/exp-1.json');
+      expect(reports.expireArtifact).toHaveBeenCalledWith('exp-2', null);
+    });
+
+    it('does not let one unremovable artifact abort the sweep', async () => {
+      // Otherwise a single S3 hiccup leaves every other expired export holding
+      // patient data until someone notices.
+      const mocks = makeMocks();
+      mocks.reportExport.findMany.mockResolvedValue([
+        { id: 'exp-1', artifactKey: 'reports/org/exp-1.json' },
+        { id: 'exp-2', artifactKey: 'reports/org/exp-2.json' },
+      ]);
+      mocks.reportExport.updateMany.mockResolvedValue({ count: 2 });
+      const { service, reports } = makeService(mocks);
+      reports.expireArtifact.mockRejectedValueOnce(new Error('S3 unavailable'));
+
+      await expect(service.expireReportExports()).resolves.toEqual({ expired: 2 });
+      expect(reports.expireArtifact).toHaveBeenCalledWith('exp-2', 'reports/org/exp-2.json');
     });
 
     it('counts a lost race as 0 expired (another pass or operator won)', async () => {

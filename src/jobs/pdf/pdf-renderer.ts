@@ -18,6 +18,7 @@
  *    because PDFKit drops uncovered characters silently. See `pdf-fonts.ts`.
  */
 import PDFDocument from 'pdfkit';
+import { Writable } from 'node:stream';
 import type { GlyphCoverage } from './pdf-fonts';
 import { loadFonts, type PdfFontStyle, type ResolvedFont } from './pdf-fonts';
 import { MissingGlyphError, PdfRenderError } from './pdf-errors';
@@ -65,12 +66,34 @@ const TABLE_BAND_BG = '#f9fafb';
 /**
  * Render a document specification to PDF bytes.
  *
- * The result is buffered because callers store the artifact
- * (`ReportExport.artifact`, the document-job response), but PDFKit writes
- * incrementally, so a large document is never assembled as one giant string.
+ * Kept for callers that want the whole document in memory. Report export uses
+ * {@link renderPdfTo} instead so a large artifact is never held whole.
  */
 export function renderPdf(spec: PdfDocumentSpec): Promise<Buffer> {
-  return new Promise<Buffer>((resolve, reject) => {
+  const chunks: Buffer[] = [];
+  return renderPdfTo(spec, sinkOf(chunks)).then(() => Buffer.concat(chunks));
+}
+
+/** Collects into an array; used only by the buffering entry point above. */
+function sinkOf(chunks: Buffer[]): Writable {
+  return new Writable({
+    write(chunk: Buffer, _encoding, done) {
+      chunks.push(Buffer.from(chunk));
+      done();
+    },
+  });
+}
+
+/**
+ * Render a document specification straight into a sink.
+ *
+ * PDFKit writes incrementally, so piping into storage or a file keeps memory at
+ * the sink's high-water mark instead of the artifact's full size. The sink is
+ * not closed — the caller owns it, because a streaming upload needs the bytes
+ * flushed before it finalises the object.
+ */
+export function renderPdfTo(spec: PdfDocumentSpec, sink: Writable): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     let fonts: Map<PdfFontStyle, ResolvedFont>;
     try {
       fonts = loadFonts();
@@ -104,21 +127,22 @@ export function renderPdf(spec: PdfDocumentSpec): Promise<Buffer> {
 
     for (const font of fonts.values()) doc.registerFont(font.name, font.path);
 
-    const chunks: Buffer[] = [];
     let settled = false;
-    doc.on('data', (chunk: Buffer) => {
-      if (!settled) chunks.push(chunk);
-    });
-    doc.on('error', (error: Error) => {
+    const fail = (error: Error): void => {
       if (settled) return;
       settled = true;
       reject(error);
-    });
+    };
+    doc.on('error', fail);
+    // A sink failure (a dropped upload, a full disk) has to fail the render too,
+    // or the promise would resolve while the bytes went nowhere.
+    sink.on('error', fail);
     doc.on('end', () => {
       if (settled) return;
       settled = true;
-      resolve(Buffer.concat(chunks));
+      resolve();
     });
+    doc.pipe(sink, { end: false });
 
     try {
       new PdfLayout(doc, fonts, spec, pageSize).build();

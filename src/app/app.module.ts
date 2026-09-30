@@ -1,5 +1,6 @@
 import { Global, MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
+import { StorageModule } from '../common/storage/storage.module';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
@@ -71,6 +72,9 @@ import { newId } from '../common/lib/uuidv7';
   imports: [
     ConfigModule,
     DatabaseModule,
+    // Global: provides the one ObjectStorageService that documents (presigned
+    // URLs) and report exports (server-side put + stream) both use.
+    StorageModule,
     DiscoveryModule,
     // CLS is global; the middleware is mounted explicitly below so it runs
     // before the test-principal middleware in e2e (mount: false avoids double).

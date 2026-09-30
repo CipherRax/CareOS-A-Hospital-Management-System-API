@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 645/645 unit (70 suites) |
+| `npm test`   | 677/677 unit (72 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 246/246 (20 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 248/248 (20 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -1722,3 +1722,63 @@ and chart *input* remains server-side only.
   notification-delivery suite fails over stale `PENDING` rows at the start of
   each test, because the duty claims the oldest due rows across all tenants and
   a leftover backlog would starve the row under test.
+## Phase P11 — Asynchronous, streamed report exports (COMPLETE)
+
+Report export was synchronous and self-contained: `POST /reports/export` built
+the report, rendered it, base64-encoded the bytes into `ReportExport.artifact`,
+and returned `201` with the file inline. That tied the builders' row caps, the
+renderer's memory, and the caller's HTTP timeout to a single request (ADR-049).
+
+Done:
+
+- **Export is a request, not a computation.** `POST /reports/export` writes a
+  `PENDING` row and returns `202`. `ReportExportConsumer` handles
+  `Reports.ExportRequested` (v1) off the request path and moves the row to
+  `READY` with a key, size, summary and `completedAt`, or to `FAILED` with a
+  PHI-free reason. The consumer is idempotent — a non-`PENDING` row is skipped,
+  and the `READY` write is guarded on `status: 'PENDING'`, so duplicate
+  delivery is harmless.
+- **The event carries an id, not data.** The payload is `{ exportId }`; the
+  resolved window, branch and format are read from the tenant-scoped row, so a
+  report is always generated from what was recorded at request time and no
+  patient data passes through the outbox.
+- **The artifact lives in S3.** `ReportExport.artifactKey` replaces the base64
+  `artifact` column, and keys are tenant-scoped
+  (`reports/{orgId}/{exportId}.{ext}`) so a mixed-up key is visible in a bucket
+  listing rather than quietly serving another hospital's data. A new
+  `ObjectStorageService.put()` is served by a global `StorageModule`.
+- **Download streams through the API.** `GET /reports/exports/:id/download`
+  re-checks tenancy and `reports.read`, then pipes the object back in bounded
+  chunks with the recorded `Content-Length`, `private, no-store` and an
+  attachment filename. A presigned GET would have been a bearer capability over
+  a table of patient data, untraceable to a principal and unrevocable per user;
+  the row keeps only a key and the bytes never leave through a URL.
+- **Generation streams too.** The renderer gained `renderPdfTo(spec, sink)` and
+  writes into the upload instead of returning a buffer; JSON and CSV are emitted
+  chunk by chunk (`streamRowsToJson`, `rowToCsvLine`) and are byte-identical to
+  the buffered form, which is pinned by test. `putStream` uses an S3 multipart
+  upload and aborts a partial part set on failure. Peak memory is a chunk
+  rather than an artifact; the report *rows* stay in memory, bounded by the P10
+  caps.
+- **Failures are recorded, not retried forever.** A missing glyph is stored as
+  hex code points (`U+4E2D`) and never as the character itself — one character
+  of a patient's name is still patient data, and the row is read by operators.
+  A storage outage is stored as its error code. The full error chain goes to
+  the log, not the row.
+- **Expiry deletes the object.** The `report-expiry` duty marks due rows
+  `EXPIRED`, removes the artifact and clears the key; a read that finds an
+  expired artifact drops the object early but leaves the status transition to
+  the scheduler, so there is one writer for it.
+
+Notes:
+
+- `TENANT_REQUIRED` from a background consumer was a real bug found by the new
+  e2e, not a hypothetical: the report builders read the tenant from ambient
+  request state, which an outbox consumer does not have. `build` now takes an
+  explicit tenant client, matching how `DocumentScanConsumer` uses `ctx.db`.
+- The migration drops the `artifact` column, so any export that had not yet
+  expired loses its bytes. They are regenerable and the window is 24h, but a
+  deployment mid-window would lose them.
+- Report export is now the one flow that hard-requires S3. Without it the
+  request is still accepted and the export lands in `FAILED` with
+  `S3_UNAVAILABLE`.

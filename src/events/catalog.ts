@@ -145,6 +145,12 @@ export const EventTypes = {
   PaymentConfirmed: 'Mpesa.PaymentConfirmed',
   PaymentFailed: 'Mpesa.PaymentFailed',
   ReconciliationCompleted: 'Mpesa.ReconciliationCompleted',
+  /**
+   * Report export requested (patch P11). Payload carries the export id only —
+   * never the report parameters, which contain dates and scope that would put
+   * clinical context in the outbox.
+   */
+  ExportRequested: 'Reports.ExportRequested',
   /** Operations (brief Phase 10, repo Phase 12). Payloads carry IDs only. */
   ExpenseCreated: 'Operations.ExpenseCreated',
   ExpenseSubmitted: 'Operations.ExpenseSubmitted',
@@ -297,6 +303,7 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.PaymentConfirmed]: 1,
   [EventTypes.PaymentFailed]: 1,
   [EventTypes.ReconciliationCompleted]: 1,
+  [EventTypes.ExportRequested]: 1,
   [EventTypes.ExpenseCreated]: 1,
   [EventTypes.ExpenseSubmitted]: 1,
   [EventTypes.ExpenseApproved]: 1,

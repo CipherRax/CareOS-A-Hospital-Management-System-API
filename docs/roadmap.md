@@ -62,6 +62,15 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–046.
 
 ## High priority
 
+- [ ] **Report export retry and backoff.** A generation failure is recorded as
+  `FAILED` rather than re-raised, so a transient storage outage needs a
+  deliberate new export request (ADR-049). A requeue with backoff, bounded
+  attempts, and a "retry this export" affordance would let the outbox absorb
+  short outages without an operator.
+- [ ] **Cursor-based report builders.** Generation streams the artifact, but the
+  report *rows* are still materialised in memory. The P10 caps are what keep
+  that bounded today; an uncapped report needs builders that yield rows rather
+  than return arrays.
 - [ ] **Live M-PESA Daraja adapter.** Wire the real Safaricom adapter
   (`src/integrations/mpesa`): Daraja BEARER auth, STK push/query, callback
   `CallbackMetadata` parsing, STK status-query. Needs live consumer

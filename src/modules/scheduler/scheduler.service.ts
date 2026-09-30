@@ -4,6 +4,7 @@ import { OutboxPublisherService } from '../../database/outbox-publisher.service'
 import { PrismaService } from '../../database/prisma.service';
 import { NotificationDeliveryService } from '../notifications/notifications-delivery.service';
 import { MaintenanceService } from '../operations/maintenance.service';
+import { ReportsService } from '../insights/reports.service';
 
 /** Queue carrying every time-based duty (ADR-044). */
 export const SCHEDULER_QUEUE = 'scheduler';
@@ -86,6 +87,7 @@ export class SchedulerService {
     private readonly maintenance: MaintenanceService,
     private readonly publisher: OutboxPublisherService,
     private readonly notifications: NotificationDeliveryService,
+    private readonly reports: ReportsService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -135,7 +137,7 @@ export class SchedulerService {
     const db = this.prisma.unscoped();
     const due = await db.reportExport.findMany({
       where: { status: 'READY', expiresAt: { lte: now } },
-      select: { id: true },
+      select: { id: true, artifactKey: true },
       orderBy: { expiresAt: 'asc' },
       take: this.env.SCHEDULER_SWEEP_BATCH,
     });
@@ -145,6 +147,21 @@ export class SchedulerService {
       where: { id: { in: due.map((row) => row.id) }, status: 'READY' },
       data: { status: 'EXPIRED' },
     });
+    // Removing the object is the point (patch P11): the bytes are patient data
+    // in a bucket, and a row marked EXPIRED while the file is still there is a
+    // retention promise the system has not kept. This runs for every due row,
+    // not only the ones this pass won, so an object orphaned by a pass that died
+    // between the update and the delete is still cleaned up. Both operations
+    // are idempotent, and a row that something else revived keeps its object.
+    await Promise.all(
+      due.map((row) =>
+        this.reports.expireArtifact(row.id, row.artifactKey).catch((err: unknown) => {
+          this.logger.warn(
+            `could not remove artifact for expired export ${row.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }),
+      ),
+    );
     return { expired: expired.count };
   }
 

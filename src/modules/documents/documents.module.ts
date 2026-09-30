@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { DocumentsController } from './documents.controller';
 import { DocumentsService } from './documents.service';
 import { DocumentScanConsumer } from './document-scan.consumer';
-import { ObjectStorageService } from '../../common/storage/object-storage.service';
 import {
   DOCUMENT_SCANNER,
   defaultDocumentScanner,
@@ -13,7 +12,6 @@ import { ENV } from '../../config/config.module';
   controllers: [DocumentsController],
   providers: [
     DocumentsService,
-    ObjectStorageService,
     DocumentScanConsumer,
     {
       // Resolved once at startup from env, so the scanner is swappable without

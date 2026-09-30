@@ -2,6 +2,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp, principalHeaders } from '../support/test-app';
 import { ENV, type Env } from '../../src/config/config.module';
 import { PrismaService } from '../../src/database/prisma.service';
+import { OutboxPublisherService } from '../../src/database/outbox-publisher.service';
 import { Prisma } from '@prisma/client';
 import { ErrorCodes } from '../../src/common/errors/codes';
 import { newId } from '../../src/common/lib/uuidv7';
@@ -26,6 +27,7 @@ describe('phase13 analytics & reports', () => {
 
   let app: NestFastifyApplication;
   let prisma: PrismaService;
+  let publisher: OutboxPublisherService;
   let env: Env;
   let org: string;
   let user: string;
@@ -61,6 +63,7 @@ describe('phase13 analytics & reports', () => {
   beforeAll(async () => {
     app = await createTestApp({ tenantHeaders: true });
     prisma = app.get(PrismaService);
+    publisher = app.get(OutboxPublisherService);
     env = app.get(ENV);
     const sc = prisma.unscoped();
 
@@ -526,40 +529,74 @@ describe('phase13 analytics & reports', () => {
 
   // ─── Reports ──────────────────────────────────────────────────────────────
 
-  it('exports JSON, CSV and PDF reports with a 24h expiry; downloads the artifact', async () => {
+  it('requests exports asynchronously, generates them off the request path, and streams the artifact', async () => {
     const payload = { reportType: 'OPERATIONS', from, to };
+
+    // 202 + PENDING: the request records the work and returns. Nothing is
+    // rendered here, which is the point — a wide report is no longer bounded by
+    // the caller's HTTP timeout.
     const json = await post('/reports/export', perms, { ...payload, format: 'JSON' });
-    expect(json.statusCode).toBe(201);
+    expect(json.statusCode).toBe(202);
     const jsonExport = json.json().data;
-    expect(jsonExport.status).toBe('READY');
+    expect(jsonExport.status).toBe('PENDING');
     expect(jsonExport.contentType).toBe('application/json');
     expect(jsonExport.expiresAt).toBeDefined();
-
-    const csv = await post('/reports/export', perms, { ...payload, format: 'CSV' });
-    expect(csv.statusCode).toBe(201);
-    expect(csv.json().data.contentType).toBe('text/csv');
+    expect(jsonExport.artifactKey).toBeUndefined();
 
     const pdf = await post('/reports/export', perms, { ...payload, format: 'PDF' });
-    expect(pdf.statusCode).toBe(201);
+    expect(pdf.statusCode).toBe(202);
     const pdfExport = pdf.json().data;
-    expect(pdfExport.contentType).toBe('application/pdf');
-    expect(pdfExport.sizeBytes).toBeGreaterThan(0);
+    expect(pdfExport.status).toBe('PENDING');
 
-    // The PDF path was previously only ever checked for a non-zero size, which
-    // would pass for any buffer at all. Download it and verify it is a real,
-    // self-contained document.
+    // Downloading a pending export is a conflict that names the next action, not
+    // a 404 and not an empty body.
+    const premature = await get(`/reports/exports/${pdfExport.id}/download`, perms);
+    expect(premature.statusCode).toBe(409);
+    expect(premature.json().error.message).toMatch(/still being generated/i);
+
+    let guard = 0;
+    while ((await publisher.publishReadyEvents(100)) > 0 && guard < 20) guard += 1;
+
+    const ready = await get(`/reports/exports/${pdfExport.id}`, perms);
+    expect(ready.statusCode).toBe(200);
+    expect(ready.json().data.status).toBe('READY');
+    expect(ready.json().data.sizeBytes).toBeGreaterThan(0);
+    expect(ready.json().data.completedAt).not.toBeNull();
+
+    // Binary, streamed: not the JSON envelope the old endpoint returned.
     const pdfDownload = await get(`/reports/exports/${pdfExport.id}/download`, perms);
     expect(pdfDownload.statusCode).toBe(200);
-    expect(pdfDownload.json().data.contentType).toBe('application/pdf');
-    const pdfBytes = expectRenderedPdf(pdfDownload.json().data.artifact);
-    // The export is carried base64-encoded, so this also pins `sizeBytes` to
-    // the real file length rather than the ~33% larger encoding.
-    expect(pdfBytes.length).toBe(pdfExport.sizeBytes);
+    expect(pdfDownload.headers['content-type']).toBe('application/pdf');
+    expect(pdfDownload.headers['content-disposition']).toMatch(/attachment; filename="operations-/);
+    // Patient data must not be left in a shared cache or a proxy.
+    expect(pdfDownload.headers['cache-control']).toBe('private, no-store');
+    const pdfBytes = expectRenderedPdf(pdfDownload.rawPayload);
+    // The recorded size is the real file length, and the body actually sent.
+    expect(pdfBytes.length).toBe(ready.json().data.sizeBytes);
+    expect(Number(pdfDownload.headers['content-length'])).toBe(pdfBytes.length);
 
-    const download = await get(`/reports/exports/${jsonExport.id}/download`, perms);
-    expect(download.statusCode).toBe(200);
-    expect(download.json().data.artifact.length).toBeGreaterThan(0);
-    expect(download.json().data.contentType).toBe('application/json');
+    // JSON export end to end.
+    const jsonReady = await get(`/reports/exports/${jsonExport.id}`, perms);
+    expect(jsonReady.json().data.status).toBe('READY');
+    const jsonDownload = await get(`/reports/exports/${jsonExport.id}/download`, perms);
+    expect(jsonDownload.statusCode).toBe(200);
+    expect(jsonDownload.headers['content-type']).toBe('application/json');
+    expect(JSON.parse(jsonDownload.rawPayload.toString('utf8')).rows.length).toBeGreaterThan(0);
+
+    const csv = await post('/reports/export', perms, { ...payload, format: 'CSV' });
+    expect(csv.statusCode).toBe(202);
+    guard = 0;
+    while ((await publisher.publishReadyEvents(100)) > 0 && guard < 20) guard += 1;
+    const csvDownload = await get(`/reports/exports/${csv.json().data.id}/download`, perms);
+    expect(csvDownload.statusCode).toBe(200);
+    expect(csvDownload.headers['content-type']).toBe('text/csv');
+
+    // The row keeps only a key, never the bytes.
+    const stored = await prisma.unscoped().reportExport.findUniqueOrThrow({
+      where: { id: pdfExport.id },
+    });
+    expect(stored.artifactKey).toBe(`reports/${org}/${pdfExport.id}.pdf`);
+    expect(stored.artifactKey).not.toBeNull();
 
     const missing = await get('/reports/exports/00000000-0000-7000-8000-000000000001/download', perms);
     expect(missing.statusCode).toBe(404);
@@ -573,6 +610,74 @@ describe('phase13 analytics & reports', () => {
     const one = await get(`/reports/exports/${jsonExport.id}`, perms);
     expect(one.statusCode).toBe(200);
     expect(one.json().data.id).toBe(jsonExport.id);
+  });
+
+  it('refuses a download from another organization', async () => {
+    // The stream is served through the API precisely so the tenant check still
+    // applies to the bytes; a presigned URL would have bypassed it.
+    const requested = await post(
+      '/reports/export',
+      perms,
+      { reportType: 'OPERATIONS', from, to, format: 'JSON' },
+    );
+    let guard = 0;
+    while ((await publisher.publishReadyEvents(100)) > 0 && guard < 20) guard += 1;
+    const id = requested.json().data.id;
+
+    const otherOrg = newId();
+    const otherUser = newId();
+    await prisma.unscoped().organization.create({ data: { id: otherOrg, name: 'Other Org' } });
+    await prisma.unscoped().user.create({
+      data: {
+        id: otherUser,
+        organizationId: otherOrg,
+        email: `other.${otherUser}@test.local`,
+        firstName: 'Other',
+        lastName: 'Org',
+        status: 'ACTIVE',
+      },
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: url(`/reports/exports/${id}/download`),
+      headers: {
+        'x-careos-test-org': otherOrg,
+        'x-careos-test-user': otherUser,
+        'x-careos-test-permissions': perms.join(','),
+        'x-request-id': 'test-request',
+      },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('records a failed export instead of retrying it forever', async () => {
+    // Drive the failure path directly: a payload the renderer cannot draw is
+    // awkward to produce through the public API, and the behaviour under test
+    // is what the consumer records when generation throws.
+    const { ReportsService } = await import('../../src/modules/insights/reports.service');
+    const reports = app.get(ReportsService);
+    const requested = await post(
+      '/reports/export',
+      perms,
+      { reportType: 'OPERATIONS', from, to, format: 'JSON' },
+    );
+    const id = requested.json().data.id;
+
+    await reports.failGeneration(id, org, 'font cannot render U+4E2D (a table cell)');
+
+    const failed = await get(`/reports/exports/${id}`, perms);
+    expect(failed.json().data.status).toBe('FAILED');
+    expect(failed.json().data.error).toBe('font cannot render U+4E2D (a table cell)');
+    // And it is not downloadable, with a state-specific message.
+    const download = await get(`/reports/exports/${id}/download`, perms);
+    expect(download.statusCode).toBe(409);
+    expect(download.json().error.message).toMatch(/failed/i);
+
+    // A FAILED row must not be picked up and re-rendered by a later tick.
+    let guard = 0;
+    while ((await publisher.publishReadyEvents(100)) > 0 && guard < 20) guard += 1;
+    const still = await get(`/reports/exports/${id}`, perms);
+    expect(still.json().data.status).toBe('FAILED');
   });
 
   it('enforces reports.read on report endpoints', async () => {
