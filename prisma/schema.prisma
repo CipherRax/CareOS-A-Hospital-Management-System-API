@@ -469,6 +469,7 @@ model User {
 
   organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   staffProfile     StaffProfile?
+  patientAccount   Patient?                @relation("PatientPortalAccount")
   userBranches     UserBranch[]
   userDepartments  UserDepartment[]
   userRoles        UserRole[]
@@ -901,6 +902,13 @@ model Patient {
   town           String?
   photoUrl       String?
 
+  // The patient-portal login this record may be reached through (ADR-051).
+  // Nullable: most patients never get portal access, and adding a column must
+  // not require one. Unique: one login resolving to two records would hand one
+  // person another person's chart, and `UNIQUE` is what makes that impossible
+  // rather than merely unlikely.
+  userId String? @unique
+
   // Duplicate handling: set when the creator confirms the record (or a merge
   // reviewer confirms it) is a known duplicate despite a flag. History is kept
   // via audit + timeline; the row itself is never silently deleted.
@@ -922,6 +930,7 @@ model Patient {
   updatedAt DateTime @updatedAt
 
   organization         Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  portalAccount        User?                  @relation("PatientPortalAccount", fields: [userId], references: [id], onDelete: SetNull)
   guardianLinks        PatientGuardian[]
   consents             PatientConsent[]
   allergies            Allergy[]

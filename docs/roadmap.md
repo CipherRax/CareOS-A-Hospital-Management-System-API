@@ -152,9 +152,30 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–046.
   minted and hashed but delivery is not yet surfaced here, and the directory
   is read-only to non-managers.
 
-- [ ] **Patient-portal real JWT auth.** Self-scoped patients currently ride the
-  test-principal header seam (`x-careos-test-patient-id`); replace with real
-  patient-facing JWT/session auth.
+- [x] **Patient-portal real JWT auth.** The portal's authorization was already
+  built — eight services narrow on `TenantScope.patientId` — but nothing in
+  production could ever set that value: the only writer was the test-principal
+  header seam. The gap was a missing link, not a missing authentication system
+  (ADR-051).
+
+  `patients.userId` links a record to an ordinary `User` holding the `PATIENT`
+  role, so `Session.userId` stays `NOT NULL` and refresh rotation, reuse
+  detection, brute-force limits, MFA and invite acceptance all keep working
+  unchanged. There is deliberately no second token purpose, signing secret or
+  audience; patient/staff separation is already expressed by permissions, since
+  `portal.read` is granted to `PATIENT` and to no other role. `patientId` is
+  resolved per request by `TenantGuard` from the link rather than read from a
+  claim, so removing the link revokes portal access immediately instead of at
+  token expiry — the same reason roles and permissions are re-resolved rather
+  than trusted.
+
+  `POST /patients/:id/portal-access` provisions the login under
+  `patients.manage`, the same records-steward authority that gates merging a
+  record; a merge clears the link, because two records being merged are
+  suspected to be the same person. `GET /auth/me` now resolves the patient it
+  previously hardcoded to `null`, and `PATIENT` gained `queue.read`,
+  `messaging.read` and `messaging.send`, without which the patient-aware code in
+  those two modules was unreachable by any real principal.
 
 ## Low priority
 

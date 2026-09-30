@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 693/693 unit (73 suites) |
+| `npm test`   | 699/699 unit (74 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 266/266 (21 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 283/283 (22 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -1856,3 +1856,98 @@ Notes:
 - Onboarding mints and hashes an invite token but does not surface delivery;
   activation goes through the ordinary user invite flow. Recorded in
   `docs/limitations.md` rather than papered over with a second mechanism.
+
+## Phase P13 — Patient-portal real authentication (COMPLETE)
+
+The roadmap described this as replacing a test seam with real JWT auth, which
+framed it as an authentication problem. It was not. The authorization had been
+built and was already correct: `TenantScope.patientId` is read by eight services
+— the portal projections, `patients.assertPatientOwnership`, queue status,
+notifications' principal identity, conversation access, feedback, and the two
+`assertStaffPrincipal` denials — and every one narrows to
+`patientId === scope.patientId` or fails closed. What did not exist was any way
+for that value to be non-null in production. The only writer of `patientId` in
+the codebase was `TestPrincipalMiddleware`. The missing piece was a link
+(ADR-051).
+
+Done:
+
+- **`patients.userId` links a record to a login.** Nullable, so no existing row
+  changes and every patient behaves exactly as before until someone provisions
+  access; `UNIQUE`, so one account can never resolve to two records and hand one
+  person another's chart; `ON DELETE SET NULL`, so deleting a login does not
+  delete a medical record. No backfill: a link is an assertion that a specific
+  person owns a specific record, and no existing column records that — inferring
+  candidates from a matching email or phone would hand portal access to whoever
+  shared a contact detail.
+- **A patient principal is an ordinary `User` holding the `PATIENT` role.** Not a
+  parallel principal type, a second token purpose, a second signing secret or a
+  second audience. `Session.userId` stays `NOT NULL`, so refresh rotation, reuse
+  detection, brute-force limits, MFA and `/auth/invites/accept` are untouched and
+  there is exactly one authentication mechanism to audit. Patient/staff
+  separation is already carried by permissions: `portal.read` is granted to
+  `PATIENT` and to no other role, which is why a staff token is refused on
+  `/portal/*` and a patient token on every staff route.
+- **`patientId` is derived per request, never claimed.** `TenantGuard` already
+  loaded the session's user with `userRoles` in one query, so adding
+  `patientAccount` to that include costs no extra round trip. A token claim would
+  be a cached authorization decision, so revoking a patient's portal access would
+  not take effect until the token expired — the same class of bug as trusting the
+  `roles` claim, which is why roles and permissions are re-resolved from the
+  database on every request at all. The e2e asserts this directly: removing the
+  link invalidates an unexpired token on the very next request.
+- **The link and the role are required together** (`resolvePatientScope`, a pure
+  function so the rule is testable without a request, a session and a database).
+  Either alone is a misconfiguration, and the conjunction means a staff user who
+  is accidentally linked receives no patient scope: the failure mode is a dead
+  feature rather than a privilege escalation.
+- **Provisioning is a staff action.** `POST /patients/:id/portal-access` creates
+  the user, assigns `PATIENT`, writes the link and issues an invite in one
+  transaction, under `patients.manage` — the same records-steward authority that
+  gates merging a record and confirming a duplicate. Letting a patient claim a
+  record by asserting a phone number is an identity-verification problem this
+  codebase has no answer for. The patient then signs in through the ordinary
+  invite-accept and login flow; there is no second portal credential.
+- **A merge clears the link.** Two records being merged are by definition
+  suspected to be the same person, so a live login left on the source would point
+  a real human at a `MERGED` duplicate — possibly at the wrong person entirely.
+  The account is re-provisioned against the survivor deliberately.
+- **`/auth/me` resolves the patient** it previously hardcoded to `null`, through
+  the portal's public projection. `toPublicPatient` is now typed as a `Pick` of the
+  nine columns it actually reads, so a caller cannot widen the projection by
+  handing over a full row — the exact failure a "safe serializer" is meant to make
+  impossible.
+- **`PATIENT` gained `queue.read`, `messaging.read` and `messaging.send`.** The
+  patient-aware code in `queue.service.status()` and `conversations.service` was
+  **unreachable**: those routes need permissions the role did not hold, so a real
+  patient principal was rejected by the guard before either ran, and the tests
+  passed only because the seam can assert permissions independently of the role
+  matrix. Both already narrow to `scope.patientId`, and a conversation
+  additionally requires the caller be a participant, so this makes live code
+  reachable rather than opening anything.
+
+Notes:
+
+- The escalation check used when assigning a role elsewhere,
+  `canGrantRole` ("is this role's permissions a subset of the caller's?"), is
+  deliberately **not** used for `PATIENT`. It is vacuous twice over: `portal.read`
+  belongs to no other role, so no caller could ever satisfy it, and every
+  permission the role does hold is narrowed to the caller's own record by the
+  self-scope, so the resulting principal is never more powerful than the caller.
+  Left in, it made the endpoint unreachable for every role in the system
+  including the ones meant to use it — found by the e2e, not by reading.
+- `PATIENT` gaining `messaging.send` means a patient can now start a
+  conversation. `canAccessConversation` requires the caller be a participant
+  *and*, under a patient scope, that the conversation belongs to their own record,
+  so this cannot be used to reach a clinician's thread — but it is a genuine
+  capability change and the e2e pins the ownership half of it.
+- The new suite deliberately builds the app without `TestPrincipalModule` and
+  authenticates every patient request for real, because the previous arrangement
+  is precisely why the gap survived: the portal's own tests injected `patientId`,
+  so all of them passed while no production path could set it.
+- One full e2e run immediately after the migration was first applied failed six
+  scheduler assertions (`failed === 0` across a global org sweep); two
+  subsequent full runs were clean at 283/283. The scheduler's sweep is
+  org- and record-based and shares nothing with this patch's changes, so this was
+  read as first-run container warm-up rather than a regression — recorded here
+  rather than quietly dropped.

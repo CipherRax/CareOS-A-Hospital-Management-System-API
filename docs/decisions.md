@@ -3,6 +3,95 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-051 — A patient login is an ordinary `User` holding the `PATIENT` role; `patientId` is derived per request, never claimed
+
+**Status:** accepted (Phase P13)
+
+**Context:** the roadmap carried "Patient-portal real JWT auth. Self-scoped
+patients currently ride the test-principal header seam
+(`x-careos-test-patient-id`); replace with real patient-facing JWT/session auth."
+
+The framing makes this look like an authentication problem. It is not. The
+authorization is already built and already correct: `TenantScope.patientId`
+(`src/database/tenant-context.ts:37`) is read by eight services — the portal
+projections, `patients.assertPatientOwnership`, queue status, notifications'
+principal identity, conversation access, feedback, and the two
+`assertStaffPrincipal` denials. Every one of them narrows to
+`patientId === scope.patientId` or fails closed. What does not exist is any way
+for that value to be non-null in production: the only writer of `patientId` in
+the entire codebase is the test-only header middleware at
+`test/support/test-app.ts:50`.
+
+Two structural facts shape the answer:
+
+1. `Patient` (`prisma/schema.prisma:888`) has no `userId`, and `User` has no
+   `patientId`. There is no link to put in a token. `/auth/me` returns
+   `patient: null` (`auth.service.ts:887`) as a reserved hook.
+2. `Session.userId` is `NOT NULL` and references `User`. `TenantGuard` hard-loads
+   the session with its user (`tenant.guard.ts:52`), and `SessionService.rotate`
+   requires `session.user`. A principal that is not a `User` row therefore cannot
+   have a session at all without reshaping the session model.
+
+**Decision:**
+
+1. *A patient login is an ordinary `User` holding the `PATIENT` role.* Not a
+   parallel principal type, a second token purpose, a second signing secret, or a
+   second JWT audience. `Session`, refresh rotation, reuse detection, brute-force
+   limits, MFA and `/auth/invites/accept` all keep working unchanged, because
+   there is nothing new to keep working. A second audience and a second secret
+   would be security theatre here: separation of patient from staff is already
+   expressed by permissions, since `portal.read` is granted to `PATIENT` and to
+   no other role in the matrix.
+2. *`Patient.userId String? @unique`* links the record to the login. Nullable, so
+   no patient row changes. Unique, so one account can never resolve to two
+   records — a duplicate link would silently hand one person another's chart.
+   One-to-one rather than a join table because `TenantScope.patientId` is a
+   single value and eight enforcement sites plus the notifications discriminated
+   union assume one; a parent managing several children needs a scope shape that
+   is a different decision.
+3. *`patientId` is derived from the database on every request, never read from a
+   token.* `TenantGuard` already loads the session's user with `userRoles` in one
+   query; adding `patientAccount` to that include costs no extra round trip. A
+   `pid` claim would be a cached authorization decision: unlinking a patient
+   would not take effect until the token expired, which is the same class of bug
+   as trusting the `roles` claim — the reason `TenantGuard` re-resolves roles and
+   permissions from the database on every request at all. Following that
+   precedent is the whole point.
+4. *The link and the role are required together.* `patientId` is stamped only
+   when the linked record exists **and** the user holds `PATIENT`. Either alone is
+   a misconfiguration, and the conjunction means a staff user who is accidentally
+   linked still receives no patient scope — the failure mode is a dead feature,
+   not a privilege escalation.
+5. *Provisioning is a staff action, not self-registration.*
+   `POST /patients/:id/portal-access` (`patients.manage`) creates the `User`,
+   assigns `PATIENT`, links the record and issues an invite in one transaction.
+   The patient then uses the existing invite-accept and login flows. Letting a
+   patient claim a record by asserting a phone number is a verification problem
+   this codebase has no answer for; having staff establish the link on a record
+   they can already see keeps identity proof where the rest of the system puts
+   it, and means there is exactly one authentication mechanism to audit.
+6. *A merge clears `userId` on the source.* Two records being merged are, by
+   definition, suspected to be the same person — so leaving a live login on the
+   source would point a real human at a `MERGED` duplicate, and possibly at the
+   wrong person entirely. The link is dropped with the merge and the account is
+   re-provisioned against the survivor deliberately.
+7. *`PATIENT` gains `queue.read`, `messaging.read` and `messaging.send`.* The
+   patient-aware code in `queue.service.ts:566` and `conversations.service.ts` is
+   currently **unreachable**, because those routes require permissions the role
+   does not hold — the tests only pass because the test seam can assert
+   permissions independently of the role matrix. Both are already narrowed to
+   `scope.patientId` (`queue.service.ts:577`, `domain/conversation-access.ts:22`),
+   so granting them makes live code reachable rather than opening anything.
+
+**Consequences:** a patient can now log in and every self-scoped surface works
+through the real guard chain. One `User` row per patient login is a real
+constraint: shared or family accounts are not supported, and the alternative
+would touch all eight enforcement sites. Revoking portal access means deleting
+the link and revoking sessions, which is two steps rather than one; there is no
+per-link revocation timestamp yet. The test header seam stays for staff e2e, but
+the portal e2e now authenticates with a real token, so the seam can no longer
+mask a broken production path.
+
 ## ADR-050 — A provider is identity plus eligibility, not a new aggregate; and eligibility is one shared predicate
 
 **Status:** accepted (Phase P12)

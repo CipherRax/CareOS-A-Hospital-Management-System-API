@@ -38,6 +38,7 @@ import type {
 import { AccessTokenService } from './access-token.service';
 import { SessionService } from './sessions.service';
 import { BruteForceService } from './brute-force.service';
+import { toPublicPatient } from '../portal/domain/portal';
 
 export interface MfaVerifyInput {
   challengeToken: string;
@@ -784,6 +785,7 @@ export class AuthService {
     const [
       organization,
       roleRows,
+      linkedPatient,
       branchRows,
       mfaCredential,
       session,
@@ -809,6 +811,24 @@ export class AuthService {
         where: { userId },
         select: { role: { select: { key: true, name: true } } },
       }),
+      // The patient record this login may reach, if any. Resolved from the link
+      // rather than from the scope so `/auth/me` is correct for a session that
+      // has not yet passed through the portal (ADR-051). Projected through the
+      // portal's public allowlist: this is demographics, never clinical data.
+      db.patient.findFirst({
+        where: { userId },
+        select: {
+          id: true,
+          patientNumber: true,
+          firstName: true,
+          lastName: true,
+          dateOfBirth: true,
+          phone: true,
+          email: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
       db.userBranch.findMany({
         where: { userId },
         select: { branch: { select: { id: true, name: true, code: true } } },
@@ -826,9 +846,20 @@ export class AuthService {
         : Promise.resolve(null),
       db.userPreference.findUnique({ where: { userId } }),
       db.breakGlassGrant.findFirst({
-        where: { requesterUserId: userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+        where: {
+          requesterUserId: userId,
+          status: 'ACTIVE',
+          expiresAt: { gt: new Date() },
+        },
         orderBy: { grantedAt: 'desc' },
-        select: { id: true, resourceType: true, resourceId: true, reason: true, grantedAt: true, expiresAt: true },
+        select: {
+          id: true,
+          resourceType: true,
+          resourceId: true,
+          reason: true,
+          grantedAt: true,
+          expiresAt: true,
+        },
       }),
     ]);
 
@@ -840,7 +871,9 @@ export class AuthService {
     const mfaVerifiedThisSession = session?.mfaVerifiedAt != null;
     const sessionStaging: string[] = [];
     if (!mfaEnabled) {
-      sessionStaging.push(user.mfaEnrolmentRequired ? 'mfa_enrolment_required' : 'weaker');
+      sessionStaging.push(
+        user.mfaEnrolmentRequired ? 'mfa_enrolment_required' : 'weaker',
+      );
     } else if (!mfaVerifiedThisSession) {
       sessionStaging.push('stronger');
     }
@@ -884,7 +917,11 @@ export class AuthService {
       // The parity guarantee with the permission guard is that both read this
       // same scope; the identity e2e asserts the deep-equal against role union.
       permissions: this.tenantContext.scope.permissions,
-      patient: null,
+      // The reserved patient surface, now resolved (ADR-051). Null for staff —
+      // and null for a PATIENT-role login that has not been provisioned against
+      // a record yet, which is a real state between role assignment and
+      // provisioning and should read as "no record" rather than erroring.
+      patient: linkedPatient ? toPublicPatient(linkedPatient) : null,
       breakGlass: activeBreakGlass
         ? {
             id: activeBreakGlass.id,

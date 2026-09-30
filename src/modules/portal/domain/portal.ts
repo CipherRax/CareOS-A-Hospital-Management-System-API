@@ -34,8 +34,29 @@ export interface PublicPatient {
   createdAt: Date;
 }
 
-/** Safe demographics allowlist. Clinical/extended fields must never be included. */
-export function toPublicPatient(p: Patient): PublicPatient {
+/**
+ * Safe demographics allowlist. Clinical/extended fields must never be included.
+ *
+ * The parameter is `Pick`ed rather than the whole `Patient` on purpose: it names
+ * exactly which columns this projection is allowed to depend on, so a caller
+ * cannot quietly widen it by handing over a full row and later adding a field to
+ * the output. That is the failure mode a "safe serializer" is supposed to make
+ * impossible.
+ */
+export function toPublicPatient(
+  p: Pick<
+    Patient,
+    | 'id'
+    | 'patientNumber'
+    | 'firstName'
+    | 'lastName'
+    | 'dateOfBirth'
+    | 'phone'
+    | 'email'
+    | 'status'
+    | 'createdAt'
+  >,
+): PublicPatient {
   return {
     id: p.id,
     patientNumber: p.patientNumber,

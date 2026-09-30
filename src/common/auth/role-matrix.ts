@@ -774,8 +774,7 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
   PATIENT: {
     key: 'PATIENT',
     name: 'Patient',
-    description:
-      'Self-service access to own records (self-scoped via the portal).',
+    description: 'Self-service access to own records (self-scoped via the portal).',
     permissions: [
       G.patients.read,
       G.documents.read,
@@ -783,6 +782,17 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.portal.read,
       G.feedback.submit,
       G.notifications.read,
+      // The next three were missing, which made the patient-aware code in
+      // `queue.service.status()` and `conversations.service` unreachable: the
+      // permissions guard rejected a real patient principal before either ran,
+      // and the tests only passed because the test seam can assert permissions
+      // independently of this matrix (ADR-051). Both paths already narrow to
+      // `scope.patientId` (`queue.service.ts`, `domain/conversation-access.ts`),
+      // and a conversation additionally requires the caller be a participant —
+      // so this makes live code reachable rather than opening anything.
+      G.queue.read,
+      G.messaging.read,
+      G.messaging.send,
     ],
   },
 };

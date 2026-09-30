@@ -6,6 +6,7 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { TenantContext } from '../../database/tenant-context';
 import { PrismaService } from '../../database/prisma.service';
 import { classifySession, type SessionVerdict } from '../auth/refresh-rotation';
+import { resolvePatientScope } from '../auth/patient-scope';
 import { permissionUnion } from '../auth/rbac';
 
 /**
@@ -55,6 +56,12 @@ export class TenantGuard implements CanActivate {
         user: {
           include: {
             userRoles: { include: { role: true } },
+            // The patient-portal link. Resolved here, per request, rather than
+            // read from a token claim (ADR-051): a claim would be a cached
+            // authorization decision, so revoking a patient's portal access would
+            // not take effect until the token expired. This is the same reason
+            // roles and permissions are re-resolved below instead of trusted.
+            patientAccount: { select: { id: true } },
           },
         },
       },
@@ -107,10 +114,12 @@ export class TenantGuard implements CanActivate {
 
     const roles = session.user.userRoles.map((ur) => ur.role);
     const effectivePermissions = permissionUnion(roles);
+    const roleKeys = roles.map((r) => r.key);
 
     this.tenantContext.setScope({
-      roles: roles.map((r) => r.key),
+      roles: roleKeys,
       permissions: effectivePermissions,
+      patientId: resolvePatientScope(user.patientAccount, roleKeys),
     });
 
     await this.applyBranchContext(context);
@@ -127,7 +136,9 @@ export class TenantGuard implements CanActivate {
    */
   private async applyBranchContext(context: ExecutionContext): Promise<void> {
     const scope = this.tenantContext.scope;
-    const request = context.switchToHttp().getRequest<{ headers: Record<string, unknown> }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<{ headers: Record<string, unknown> }>();
     const raw = request.headers['x-branch-id'];
     const branchId = Array.isArray(raw) ? raw[0] : raw;
     if (typeof branchId !== 'string' || branchId.trim().length === 0) return;

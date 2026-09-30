@@ -49,9 +49,15 @@ working code with a caveat.
   fields; it trades false negatives/positives by design and always defers to a
   human (409 + candidates, id-confirm). Non-name aliases (nicknames,
   misspellings) are not matched.
-- **Patient portal auth keeps the Phase 1 role surface.** A self-scoped
-  patient uses the same test-principal header seam as staff (`x-careos-test-patient-id`);
-  real patient-facing JWT auth is a later phase.
+- **The test-principal header seam still exists.** Staff *and* patient e2e
+  requests can still be authenticated by `x-careos-test-*` headers instead of a
+  token. The seam is test-only (registered by `TestPrincipalModule`, never by
+  application code) and the patient portal now has a suite that drives the real
+  chain — `test/e2e/patient-portal-auth.e2e-spec.ts` builds the app *without*
+  the seam and goes through `/auth/invites/accept` → `/auth/login` → the guard
+  chain for every patient request. Migrating the remaining staff suites onto real
+  tokens would be a large mechanical diff for no behavioural gain, so it has not
+  been done.
 - **Off-system notification delivery is a transport, not a mail/SMS/push
   client.** `NOTIFICATION_WEBHOOK_URL` turns `EMAIL`/`SMS`/`PUSH` from the
   structural stub into a real, HMAC-signed JSON POST with an idempotency key,
@@ -246,10 +252,23 @@ working code with a caveat.
 
 ## Known caveats in shipped code
 
-- **`/auth/me` `patient` is always null (P1).** Staff↔patient links are not
-  modelled yet (no `Patient.userId`); the field is a reserved surface that will
-  resolve once the patient-portal JWT link lands. The parity guarantee (me↔guard
-  permissions) is unaffected.
+- **A patient login is one-to-one with a record.** `patients.userId` is
+  `UNIQUE`, because `TenantScope.patientId` is a single value and eight services
+  plus the notifications principal identity assume one. A parent or carer
+  managing several patients therefore cannot be modelled: it needs a scope that
+  carries a set, and every one of those enforcement sites would have to change
+  shape. Guardians exist as their own model for the clinical relationship, but
+  they get no portal login.
+- **Revoking portal access is two steps, not one.** There is no per-link
+  revocation timestamp, so withdrawing access means unlinking the record *and*
+  revoking the user's sessions. Unlinking alone leaves a valid, unprivileged
+  session that can still read `/auth/me` and nothing clinical; revoking sessions
+  alone leaves a login that will regain the portal if the link is ever restored.
+  Both are needed and neither is automatic.
+- **`/auth/me` `patient` is null for a `PATIENT`-role login with no linked
+  record.** That is a real state between assigning the role and provisioning, and
+  it reads as "no record" rather than erroring — a client that assumed the role
+  implied a record would show an empty portal instead of a provisioning prompt.
 - **`/auth/me` `session.idleTimeoutSeconds` / `lockAfterMinutes` are fixed,
   config-derived values (P1).** There is no per-session idle timer or
   lock-after-window column; session lifetime is enforced by the access-token TTL

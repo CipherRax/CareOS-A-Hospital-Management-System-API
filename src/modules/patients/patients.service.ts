@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService, type TenantClient } from '../../database/prisma.service';
 import { TenantContext } from '../../database/tenant-context';
 import { AuditService } from '../../database/audit.service';
@@ -9,15 +9,15 @@ import { AppError } from '../../common/errors/app-error';
 import { ErrorCodes } from '../../common/errors/codes';
 import { PERMISSION_GROUPS } from '../../common/auth/permissions.catalog';
 import { EventTypes } from '../../events/catalog';
+import { ENV, type Env } from '../../config/config.module';
+import { generateHashedToken } from '../../common/security/token';
+import { PATIENT_ROLE_KEY } from '../../common/auth/patient-scope';
 import {
   DUPLICATE_THRESHOLD,
   scoreDuplicate,
   type PatientKeyFacts,
 } from './domain/duplicate-score';
-import {
-  formatPatientNumber,
-  nextPatientSequence,
-} from './domain/patient-number';
+import { formatPatientNumber, nextPatientSequence } from './domain/patient-number';
 import type {
   AddAllergyDto,
   AddGuardianDto,
@@ -25,6 +25,7 @@ import type {
   AmendAllergyDto,
   CreatePatientDto,
   GrantConsentDto,
+  ProvisionPortalAccessDto,
   UpdateAllergyStatusDto,
   UpdatePatientDto,
   WithdrawConsentDto,
@@ -63,6 +64,7 @@ export class PatientsService {
     private readonly tenantContext: TenantContext,
     private readonly audit: AuditService,
     private readonly txRunner: TxRunner,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -80,11 +82,7 @@ export class PatientsService {
       .sort((a, b) => b.score - a.score);
 
     const best = scored[0];
-    if (
-      best &&
-      best.score >= DUPLICATE_THRESHOLD &&
-      input.confirmDuplicate !== true
-    ) {
+    if (best && best.score >= DUPLICATE_THRESHOLD && input.confirmDuplicate !== true) {
       throw new AppError({
         code: ErrorCodes.POSSIBLE_DUPLICATE,
         message:
@@ -126,8 +124,7 @@ export class PatientsService {
           county: input.county ?? null,
           town: input.town ?? null,
           photoUrl: input.photoUrl ?? null,
-          duplicateConfirmedAt:
-            input.confirmDuplicate === true ? new Date() : null,
+          duplicateConfirmedAt: input.confirmDuplicate === true ? new Date() : null,
           duplicateConfirmedBy: input.confirmDuplicate === true ? userId : null,
           duplicateConfirmReason:
             input.confirmDuplicate === true
@@ -211,22 +208,30 @@ export class PatientsService {
     ]);
 
     return pageOf(
-      rows.map((p) => serialize(p, { includeContact: this.mayViewContact(scope.permissions) })),
+      rows.map((p) =>
+        serialize(p, { includeContact: this.mayViewContact(scope.permissions) }),
+      ),
       total,
       page,
       limit,
     ) as PageResult<ReturnType<typeof serialize>>;
   }
 
-  async findById(
-    id: string,
-    access?: AccessContext,
-  ) {
+  async findById(id: string, access?: AccessContext) {
     this.assertPatientOwnership(id);
     const organizationId = this.tenantContext.requireOrg();
     const patient = await this.requirePatient(this.prisma.tenantFor(organizationId), id);
-    await this.logAccess(patient.id, 'demographics', this.tenantContext.scope.userId, access);
-    return { patient: serialize(patient, { includeContact: this.mayViewContact(this.tenantContext.scope.permissions) }) };
+    await this.logAccess(
+      patient.id,
+      'demographics',
+      this.tenantContext.scope.userId,
+      access,
+    );
+    return {
+      patient: serialize(patient, {
+        includeContact: this.mayViewContact(this.tenantContext.scope.permissions),
+      }),
+    };
   }
 
   async update(id: string, input: UpdatePatientDto) {
@@ -237,10 +242,7 @@ export class PatientsService {
       const current = await ctx.db.patient.findFirst({ where: { id } });
       if (!current) throw patientNotFound();
 
-      if (
-        input.version !== undefined &&
-        input.version !== current.version
-      ) {
+      if (input.version !== undefined && input.version !== current.version) {
         throw new AppError({
           code: ErrorCodes.VERSION_CONFLICT,
           message: `Record was modified concurrently. Current version: ${current.version}.`,
@@ -349,6 +351,197 @@ export class PatientsService {
     };
   }
 
+  /**
+   * Give a patient record a portal login (ADR-051).
+   *
+   * The link is the whole mechanism: a `User` holding the `PATIENT` role, whose
+   * `TenantScope.patientId` is resolved per request by `TenantGuard`. There is no
+   * second token type, secret or audience, so the patient then signs in through
+   * the same `/auth/login` and `/auth/invites/accept` flow as any other account.
+   *
+   * Provisioning is a staff action rather than self-registration on purpose.
+   * Letting a patient claim a record by asserting a phone number is an identity
+   * verification problem this codebase has no answer for, whereas staff
+   * establishing the link on a record they can already read keeps identity proof
+   * where the rest of the system puts it — and leaves one authentication
+   * mechanism to audit instead of two.
+   */
+  async provisionPortalAccess(
+    patientId: string,
+    input: ProvisionPortalAccessDto,
+  ): Promise<Record<string, unknown>> {
+    const organizationId = this.tenantContext.requireOrg();
+    const actorUserId = this.tenantContext.scope.userId;
+    const db = this.prisma.tenantFor(organizationId);
+
+    const patient = await db.patient.findFirst({
+      where: { id: patientId, organizationId },
+      select: {
+        id: true,
+        status: true,
+        mergedIntoPatientId: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        userId: true,
+      },
+    });
+    if (!patient) throw patientNotFound();
+
+    // A MERGED record is a superseded duplicate. Linking a login to it would
+    // point a real person at the wrong chart, which is the exact hazard the
+    // merge exists to resolve.
+    if (patient.status !== 'ACTIVE') {
+      throw new AppError({
+        code: ErrorCodes.INVALID_WORKFLOW_TRANSITION,
+        message:
+          'Portal access can only be provisioned on an ACTIVE record. Merge it into the surviving record first.',
+        details: {
+          status: patient.status,
+          mergedIntoPatientId: patient.mergedIntoPatientId,
+        },
+        silent: true,
+      });
+    }
+
+    if (patient.userId) {
+      throw new AppError({
+        code: ErrorCodes.CONFLICT,
+        message:
+          'This record already has portal access. Revoke the existing login before provisioning another.',
+        silent: true,
+      });
+    }
+
+    const email = input.email ?? patient.email;
+    if (!email) {
+      throw new AppError({
+        code: ErrorCodes.VALIDATION_ERROR,
+        message:
+          'This record has no email on file. Supply an email address for the portal login.',
+        silent: true,
+      });
+    }
+
+    const role = await db.role.findFirst({
+      where: { organizationId, key: PATIENT_ROLE_KEY },
+      select: { id: true, key: true, permissions: true },
+    });
+    if (!role) {
+      throw new AppError({
+        code: ErrorCodes.RESOURCE_NOT_FOUND,
+        message: `The ${PATIENT_ROLE_KEY} role does not exist in this organization.`,
+        silent: true,
+      });
+    }
+
+    // Deliberately NOT `canGrantRole`, which is the check everywhere else a role
+    // is assigned. That test asks "is this role's permission set a subset of the
+    // caller's?", and for PATIENT it is vacuous twice over: `portal.read` is
+    // granted to no other role by design, so no caller could ever satisfy it;
+    // and every permission the role does hold is narrowed to the caller's own
+    // patient record by the self-scope, so the resulting principal is never more
+    // powerful than the caller. Left in, it made the endpoint unreachable for
+    // every role in the system, including the ones meant to use it.
+    //
+    // The real control is the route permission: `patients.manage`, the same
+    // records-steward authority that gates merging a record and confirming a
+    // duplicate. Anyone who can rewrite a patient's identity can decide who is
+    // allowed to log in as them, and anyone who cannot must not.
+
+    const taken = await db.user.findFirst({
+      where: { organizationId, email },
+      select: { id: true },
+    });
+    if (taken) {
+      throw new AppError({
+        code: ErrorCodes.CONFLICT,
+        message: 'A user with that email already exists in this organization.',
+        silent: true,
+      });
+    }
+
+    const { value, digest } = generateHashedToken();
+    const inviteExpiresAt = new Date(
+      Date.now() + this.env.INVITE_TOKEN_TTL_SECONDS * 1000,
+    );
+
+    const user = await this.txRunner.run(async (ctx) => {
+      const created = await ctx.db.user.create({
+        data: {
+          id: newId(),
+          organizationId,
+          email,
+          firstName: input.firstName ?? patient.firstName,
+          lastName: input.lastName ?? patient.lastName,
+          // INVITED, not ACTIVE: activation is the identity proof, exactly as for
+          // a staff invite. A login that could be used before the invite was
+          // accepted would make the invite theatre.
+          status: 'INVITED',
+          inviteTokenHash: digest,
+          inviteTokenExpiresAt: inviteExpiresAt,
+        },
+      });
+
+      await ctx.db.userRole.create({
+        data: { id: newId(), organizationId, userId: created.id, roleId: role.id },
+      });
+
+      // The link is written in the same transaction as the user and the role, so
+      // a patient can never end up with a login that resolves to no record, or a
+      // record whose login has no role.
+      const linked = await ctx.db.patient.updateMany({
+        where: { id: patientId, organizationId, userId: null },
+        data: { userId: created.id },
+      });
+      if (linked.count !== 1) {
+        // Lost a race with a concurrent provisioning, or the row changed under
+        // us. Fail the whole transaction rather than orphan the user.
+        throw new AppError({
+          code: ErrorCodes.CONFLICT,
+          message: 'Portal access was provisioned concurrently. Reload and try again.',
+          silent: true,
+        });
+      }
+
+      await ctx.db.auditLog.create({
+        data: {
+          id: newId(),
+          organizationId,
+          userId: actorUserId,
+          action: 'patients.portal_access.provision',
+          resource: 'patient',
+          resourceId: patientId,
+          newState: { userId: created.id, role: role.key },
+        },
+      });
+
+      ctx.emit({
+        type: EventTypes.PatientPortalAccessProvisioned,
+        aggregateType: 'patient',
+        aggregateId: patientId,
+        // Ids only — the outbox must not carry a name, an email or a phone
+        // number (ADR-046).
+        payload: { patientId, userId: created.id },
+      });
+
+      return created;
+    });
+
+    return {
+      patientId,
+      userId: user.id,
+      email: user.email,
+      status: user.status,
+      inviteExpiresAt: user.inviteTokenExpiresAt,
+      // Never in production: the token goes out by email instead of becoming a
+      // bearer capability in an API response body.
+      ...(this.env.NODE_ENV !== 'production' && input.sendInvite
+        ? { inviteToken: value }
+        : {}),
+    };
+  }
+
   async merge(targetId: string, input: { sourcePatientId: string; reason: string }) {
     const { sourcePatientId, reason } = input;
     if (sourcePatientId === targetId) {
@@ -361,121 +554,129 @@ export class PatientsService {
     const organizationId = this.tenantContext.requireOrg();
     const userId = this.tenantContext.scope.userId;
 
-    return this.txRunner.run(async (ctx: TxContext) => {
-      const [target, source] = await Promise.all([
-        ctx.db.patient.findFirst({ where: { id: targetId } }),
-        ctx.db.patient.findFirst({ where: { id: sourcePatientId } }),
-      ]);
-      if (!target) throw patientNotFound('Target patient not found');
-      if (!source) throw patientNotFound('Source patient not found');
-      if (source.status !== 'ACTIVE' || target.status !== 'ACTIVE') {
-        throw new AppError({
-          code: ErrorCodes.INVALID_WORKFLOW_TRANSITION,
-          message: 'Only ACTIVE patients can be merged.',
-          silent: true,
-        });
-      }
-
-      // Mark the source as MERGED with a pointer to the survivor (reversible).
-      await ctx.db.patient.update({
-        where: { id: source.id },
-        data: {
-          status: 'MERGED',
-          mergedIntoPatientId: target.id,
-          mergedAt: new Date(),
-          mergedReason: reason,
-          version: { increment: 1 },
-        },
-      });
-
-      // Re-point guardians: skip links the target already has.
-      const sourceGuardians = await ctx.db.patientGuardian.findMany({
-        where: { patientId: source.id },
-      });
-      for (const link of sourceGuardians) {
-        const exists = await ctx.db.patientGuardian.findFirst({
-          where: { patientId: target.id, guardianId: link.guardianId },
-          select: { id: true },
-        });
-        if (exists) {
-          await ctx.db.patientGuardian.delete({ where: { id: link.id } });
-        } else {
-          await ctx.db.patientGuardian.update({
-            where: { id: link.id },
-            data: { patientId: target.id },
+    return this.txRunner
+      .run(async (ctx: TxContext) => {
+        const [target, source] = await Promise.all([
+          ctx.db.patient.findFirst({ where: { id: targetId } }),
+          ctx.db.patient.findFirst({ where: { id: sourcePatientId } }),
+        ]);
+        if (!target) throw patientNotFound('Target patient not found');
+        if (!source) throw patientNotFound('Source patient not found');
+        if (source.status !== 'ACTIVE' || target.status !== 'ACTIVE') {
+          throw new AppError({
+            code: ErrorCodes.INVALID_WORKFLOW_TRANSITION,
+            message: 'Only ACTIVE patients can be merged.',
+            silent: true,
           });
         }
-      }
 
-      // Re-point consents: skip types the target already holds.
-      const sourceConsents = await ctx.db.patientConsent.findMany({
-        where: { patientId: source.id },
-      });
-      for (const consent of sourceConsents) {
-        const exists = await ctx.db.patientConsent.findFirst({
-          where: { patientId: target.id, type: consent.type },
-          select: { id: true },
+        // Mark the source as MERGED with a pointer to the survivor (reversible).
+        // `userId: null` is deliberate: two records being merged are by definition
+        // suspected to be the same person, so leaving a live login on the source
+        // would point a real human at a MERGED duplicate — possibly at the wrong
+        // person entirely. The link is dropped with the merge and portal access is
+        // re-provisioned against the survivor on purpose (ADR-051).
+        await ctx.db.patient.update({
+          where: { id: source.id },
+          data: {
+            status: 'MERGED',
+            mergedIntoPatientId: target.id,
+            mergedAt: new Date(),
+            mergedReason: reason,
+            userId: null,
+            version: { increment: 1 },
+          },
         });
-        if (exists) {
-          await ctx.db.patientConsent.delete({ where: { id: consent.id } });
-        } else {
-          await ctx.db.patientConsent.update({
-            where: { id: consent.id },
-            data: { patientId: target.id },
+
+        // Re-point guardians: skip links the target already has.
+        const sourceGuardians = await ctx.db.patientGuardian.findMany({
+          where: { patientId: source.id },
+        });
+        for (const link of sourceGuardians) {
+          const exists = await ctx.db.patientGuardian.findFirst({
+            where: { patientId: target.id, guardianId: link.guardianId },
+            select: { id: true },
           });
+          if (exists) {
+            await ctx.db.patientGuardian.delete({ where: { id: link.id } });
+          } else {
+            await ctx.db.patientGuardian.update({
+              where: { id: link.id },
+              data: { patientId: target.id },
+            });
+          }
         }
-      }
 
-      // Allergies and medical history repoint wholesale (no uniqueness clash).
-      await ctx.db.allergy.updateMany({
-        where: { patientId: source.id },
-        data: { patientId: target.id },
-      });
-      await ctx.db.medicalHistoryEntry.updateMany({
-        where: { patientId: source.id },
-        data: { patientId: target.id },
-      });
+        // Re-point consents: skip types the target already holds.
+        const sourceConsents = await ctx.db.patientConsent.findMany({
+          where: { patientId: source.id },
+        });
+        for (const consent of sourceConsents) {
+          const exists = await ctx.db.patientConsent.findFirst({
+            where: { patientId: target.id, type: consent.type },
+            select: { id: true },
+          });
+          if (exists) {
+            await ctx.db.patientConsent.delete({ where: { id: consent.id } });
+          } else {
+            await ctx.db.patientConsent.update({
+              where: { id: consent.id },
+              data: { patientId: target.id },
+            });
+          }
+        }
 
-      await this.appendTimeline(ctx, source.id, {
-        type: 'patient.merged_into',
-        title: `Merged into the surviving record`,
-        requiredPermission: TIMELINE_VISIBLE_TO,
-        payload: { targetPatientId: target.id, reason },
-      });
-      await this.appendTimeline(ctx, target.id, {
-        type: 'patient.merged_in',
-        title: `Received merged record`,
-        requiredPermission: TIMELINE_VISIBLE_TO,
-        payload: { sourcePatientId: source.id, reason },
-      });
+        // Allergies and medical history repoint wholesale (no uniqueness clash).
+        await ctx.db.allergy.updateMany({
+          where: { patientId: source.id },
+          data: { patientId: target.id },
+        });
+        await ctx.db.medicalHistoryEntry.updateMany({
+          where: { patientId: source.id },
+          data: { patientId: target.id },
+        });
 
-      await ctx.db.auditLog.create({
-        data: {
-          id: newId(),
-          organizationId,
-          action: 'patients.merge',
-          resource: 'patient',
-          resourceId: target.id,
-          userId,
-          reason,
-          newState: { sourcePatientId: source.id, targetPatientId: target.id },
-        },
-      });
-      ctx.emit({
-        type: EventTypes.PatientMerged,
-        aggregateType: 'patient',
-        aggregateId: target.id,
-        payload: { sourcePatientId: source.id, targetPatientId: target.id },
-      });
+        await this.appendTimeline(ctx, source.id, {
+          type: 'patient.merged_into',
+          title: `Merged into the surviving record`,
+          requiredPermission: TIMELINE_VISIBLE_TO,
+          payload: { targetPatientId: target.id, reason },
+        });
+        await this.appendTimeline(ctx, target.id, {
+          type: 'patient.merged_in',
+          title: `Received merged record`,
+          requiredPermission: TIMELINE_VISIBLE_TO,
+          payload: { sourcePatientId: source.id, reason },
+        });
 
-      return target;
-    }).then((survivor) => ({
-      patient: serialize(survivor, {
-        includeContact: this.mayViewContact(this.tenantContext.scope.permissions),
-      }),
-      source: { patientId: sourcePatientId, status: 'MERGED' as const },
-      mergedIntoPatientId: targetId,
-    }));
+        await ctx.db.auditLog.create({
+          data: {
+            id: newId(),
+            organizationId,
+            action: 'patients.merge',
+            resource: 'patient',
+            resourceId: target.id,
+            userId,
+            reason,
+            newState: { sourcePatientId: source.id, targetPatientId: target.id },
+          },
+        });
+        ctx.emit({
+          type: EventTypes.PatientMerged,
+          aggregateType: 'patient',
+          aggregateId: target.id,
+          payload: { sourcePatientId: source.id, targetPatientId: target.id },
+        });
+
+        return target;
+      })
+      .then((survivor) => ({
+        patient: serialize(survivor, {
+          includeContact: this.mayViewContact(this.tenantContext.scope.permissions),
+        }),
+        source: { patientId: sourcePatientId, status: 'MERGED' as const },
+        mergedIntoPatientId: targetId,
+      }));
   }
 
   // ---------------------------------------------------------------------------
@@ -499,7 +700,9 @@ export class PatientsService {
     ]);
 
     return {
-      patient: serialize(patient, { includeContact: this.mayViewContact(scope.permissions) }),
+      patient: serialize(patient, {
+        includeContact: this.mayViewContact(scope.permissions),
+      }),
       sections: {
         guardians,
         consents,
@@ -509,7 +712,11 @@ export class PatientsService {
     };
   }
 
-  async timeline(id: string, params: { page?: number; limit?: number }, access?: AccessContext) {
+  async timeline(
+    id: string,
+    params: { page?: number; limit?: number },
+    access?: AccessContext,
+  ) {
     this.assertPatientOwnership(id);
     const scope = this.tenantContext.scope;
     const organizationId = this.tenantContext.requireOrg();
@@ -571,7 +778,12 @@ export class PatientsService {
       include: { guardian: true },
     });
     if (access !== null) {
-      await this.logAccess(patientId, 'guardians', this.tenantContext.scope.userId, access);
+      await this.logAccess(
+        patientId,
+        'guardians',
+        this.tenantContext.scope.userId,
+        access,
+      );
     }
     return rows;
   }
@@ -709,7 +921,12 @@ export class PatientsService {
       orderBy: { createdAt: 'asc' },
     });
     if (access !== null) {
-      await this.logAccess(patientId, 'consents', this.tenantContext.scope.userId, access);
+      await this.logAccess(
+        patientId,
+        'consents',
+        this.tenantContext.scope.userId,
+        access,
+      );
     }
     return rows;
   }
@@ -773,7 +990,10 @@ export class PatientsService {
         data: {
           id: newId(),
           organizationId,
-          action: status === 'GRANTED' ? 'patients.consent_granted' : 'patients.consent_withdrawn',
+          action:
+            status === 'GRANTED'
+              ? 'patients.consent_granted'
+              : 'patients.consent_withdrawn',
           resource: 'patient',
           resourceId: patientId,
           newState: { type, status },
@@ -803,7 +1023,12 @@ export class PatientsService {
       orderBy: { createdAt: 'asc' },
     });
     if (access !== null) {
-      await this.logAccess(patientId, 'allergies', this.tenantContext.scope.userId, access);
+      await this.logAccess(
+        patientId,
+        'allergies',
+        this.tenantContext.scope.userId,
+        access,
+      );
     }
     return rows;
   }
@@ -855,13 +1080,24 @@ export class PatientsService {
     return { allergy };
   }
 
-  async updateAllergyStatus(patientId: string, allergyId: string, input: UpdateAllergyStatusDto) {
+  async updateAllergyStatus(
+    patientId: string,
+    allergyId: string,
+    input: UpdateAllergyStatusDto,
+  ) {
     this.assertPatientOwnership(patientId);
     const organizationId = this.tenantContext.requireOrg();
 
     const allergy = await this.txRunner.run(async (ctx: TxContext) => {
-      const current = await ctx.db.allergy.findFirst({ where: { id: allergyId, patientId } });
-      if (!current) throw new AppError({ code: ErrorCodes.RESOURCE_NOT_FOUND, message: 'Allergy not found', silent: true });
+      const current = await ctx.db.allergy.findFirst({
+        where: { id: allergyId, patientId },
+      });
+      if (!current)
+        throw new AppError({
+          code: ErrorCodes.RESOURCE_NOT_FOUND,
+          message: 'Allergy not found',
+          silent: true,
+        });
       if (current.status === 'AMENDED') {
         throw new AppError({
           code: ErrorCodes.INVALID_WORKFLOW_TRANSITION,
@@ -900,8 +1136,15 @@ export class PatientsService {
     const organizationId = this.tenantContext.requireOrg();
 
     const corrected = await this.txRunner.run(async (ctx: TxContext) => {
-      const original = await ctx.db.allergy.findFirst({ where: { id: allergyId, patientId } });
-      if (!original) throw new AppError({ code: ErrorCodes.RESOURCE_NOT_FOUND, message: 'Allergy not found', silent: true });
+      const original = await ctx.db.allergy.findFirst({
+        where: { id: allergyId, patientId },
+      });
+      if (!original)
+        throw new AppError({
+          code: ErrorCodes.RESOURCE_NOT_FOUND,
+          message: 'Allergy not found',
+          silent: true,
+        });
 
       // Supersede the original: it is never deleted, only AMENDED.
       await ctx.db.allergy.update({
@@ -1063,10 +1306,7 @@ export class PatientsService {
     });
   }
 
-  private async requirePatient(
-    db: TenantClient | TxClient,
-    id: string,
-  ) {
+  private async requirePatient(db: TenantClient | TxClient, id: string) {
     const patient = await db.patient.findFirst({ where: { id } });
     if (!patient) throw patientNotFound();
     return patient;

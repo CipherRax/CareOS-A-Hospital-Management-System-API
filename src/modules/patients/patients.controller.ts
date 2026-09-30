@@ -18,6 +18,7 @@ import {
   PatientListResponseDto,
   PatientResponseDto,
   PatientTimelineResponseDto,
+  ProvisionPortalAccessDto,
   UpdateAllergyStatusDto,
   UpdatePatientDto,
   WithdrawConsentDto,
@@ -48,9 +49,7 @@ export class PatientsController {
     permissions: [PERMISSION_GROUPS.patients.create],
     statusCode: 201,
     responseType: PatientResponseDto,
-    errors: [
-      { status: 409, description: 'Possible duplicate (POSSIBLE_DUPLICATE)' },
-    ],
+    errors: [{ status: 409, description: 'Possible duplicate (POSSIBLE_DUPLICATE)' }],
   })
   register(@Body() body: CreatePatientDto) {
     return this.patients.register(body);
@@ -103,6 +102,25 @@ export class PatientsController {
     return this.patients.confirmNotDuplicate(id, body.reason);
   }
 
+  @Post(':id/portal-access')
+  @ApiEndpoint({
+    summary: 'Provision a patient-portal login for this record',
+    description:
+      'Creates a user holding the PATIENT role, links it to the record and issues an invite, in one transaction. The patient then signs in through the ordinary /auth/login and /auth/invites/accept flow — there is no separate portal credential. Requires holding every permission the PATIENT role has, so a caller who cannot read the portal cannot mint portal access.',
+    operationId: 'patientsProvisionPortalAccess',
+    permissions: [PERMISSION_GROUPS.patients.manage],
+    statusCode: 201,
+    errors: [
+      { status: 404, description: 'Patient not found' },
+      { status: 409, description: 'Already has portal access, or the email is taken' },
+      { status: 403, description: 'Caller cannot grant the PATIENT role' },
+      { status: 422, description: 'No email on file and none supplied' },
+    ],
+  })
+  provisionPortalAccess(@Param('id') id: string, @Body() body: ProvisionPortalAccessDto) {
+    return this.patients.provisionPortalAccess(id, body);
+  }
+
   @Post(':id/merge')
   @ApiEndpoint({
     summary: 'Merge a source patient into this (surviving) record',
@@ -133,13 +151,16 @@ export class PatientsController {
   @Get(':id/timeline')
   @ApiEndpoint({
     summary: 'Permission-filtered activity timeline',
-    description:
-      'Returns only timeline entries the caller has the permission to see.',
+    description: 'Returns only timeline entries the caller has the permission to see.',
     operationId: 'patientsTimeline',
     permissions: [PERMISSION_GROUPS.patients.read],
     responseType: PatientTimelineResponseDto,
   })
-  timeline(@Param('id') id: string, @Query() query: ListPatientsQueryDto, @Req() req: FastifyRequest) {
+  timeline(
+    @Param('id') id: string,
+    @Query() query: ListPatientsQueryDto,
+    @Req() req: FastifyRequest,
+  ) {
     return this.patients.timeline(
       id,
       { page: query.page, limit: query.limit },
@@ -154,7 +175,11 @@ export class PatientsController {
     permissions: [PERMISSION_GROUPS.patients.manage],
     responseType: PatientAccessLogResponseDto,
   })
-  accessLog(@Param('id') id: string, @Query() query: ListPatientsQueryDto, @Req() req: FastifyRequest) {
+  accessLog(
+    @Param('id') id: string,
+    @Query() query: ListPatientsQueryDto,
+    @Req() req: FastifyRequest,
+  ) {
     return this.patients.accessLog(
       id,
       { page: query.page, limit: query.limit },

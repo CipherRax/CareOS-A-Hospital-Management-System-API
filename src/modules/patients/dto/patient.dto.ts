@@ -59,10 +59,9 @@ export const CreatePatientSchema = z
     confirmDuplicate: z.boolean().optional(),
     duplicateConfirmReason: z.string().trim().max(500).optional(),
   })
-  .refine(
-    (v) => (v.confirmDuplicate === true ? !!v.duplicateConfirmReason : true),
-    { message: 'duplicateConfirmReason is required when confirmDuplicate is true' },
-  );
+  .refine((v) => (v.confirmDuplicate === true ? !!v.duplicateConfirmReason : true), {
+    message: 'duplicateConfirmReason is required when confirmDuplicate is true',
+  });
 export class CreatePatientDto extends createZodDto(CreatePatientSchema) {}
 
 export const UpdatePatientSchema = z
@@ -87,6 +86,26 @@ export const MergePatientsSchema = z.object({
 });
 export class MergePatientsDto extends createZodDto(MergePatientsSchema) {}
 
+// --- patient portal access (ADR-051) ---
+
+export const ProvisionPortalAccessSchema = z.object({
+  /**
+   * Defaults to the patient's recorded email, so the common case is a single
+   * call with no body. Required when the record has no email on file — a login
+   * has to be reachable somehow, and inventing an address is not the answer.
+   */
+  email: z.string().email().max(200).optional(),
+  /** Overrides the login's display name; defaults to the patient's name. */
+  firstName: z.string().trim().min(1).max(120).optional(),
+  lastName: z.string().trim().min(1).max(120).optional(),
+  /**
+   * Returned outside production only, matching the user invite flow. In
+   * production the token goes out by email and never in an API response.
+   */
+  sendInvite: z.boolean().default(true),
+});
+export class ProvisionPortalAccessDto extends createZodDto(ProvisionPortalAccessSchema) {}
+
 export const ListPatientsQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().positive().optional(),
@@ -99,7 +118,12 @@ export class ListPatientsQueryDto extends createZodDto(ListPatientsQuerySchema) 
 export const AddGuardianSchema = z.object({
   firstName: z.string().trim().min(1).max(120),
   lastName: z.string().trim().min(1).max(120),
-  phone: z.string().trim().regex(/^[0-9+()\-.\s]{6,32}$/).nullable().optional(),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^[0-9+()\-.\s]{6,32}$/)
+    .nullable()
+    .optional(),
   email: z.string().email().max(254).nullable().optional(),
   relationship: GuardianRelationship,
   isPrimary: z.boolean().optional(),
@@ -234,4 +258,6 @@ export const PatientTimelineResponseSchema = z.object({
     totalPages: z.number().int(),
   }),
 });
-export class PatientTimelineResponseDto extends createZodDto(PatientTimelineResponseSchema) {}
+export class PatientTimelineResponseDto extends createZodDto(
+  PatientTimelineResponseSchema,
+) {}

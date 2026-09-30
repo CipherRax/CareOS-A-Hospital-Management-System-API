@@ -58,6 +58,12 @@ export const EventTypes = {
    * can hang off this the way coding-import does (ADR-046).
    */
   ProviderOnboarded: 'Directory.ProviderOnboarded',
+  /**
+   * A patient record was given a portal login. Payload: patient + user ids
+   * only — no name, email or phone number, since the outbox is read by
+   * operators and by consumers that have no need for them (ADR-046, ADR-051).
+   */
+  PatientPortalAccessProvisioned: 'Identity.PatientPortalAccessProvisioned',
   /** Clinical core (brief Phase 4). Payloads carry IDs only. */
   EncounterCreated: 'Clinical.EncounterCreated',
   EncounterStarted: 'Clinical.EncounterStarted',
@@ -225,6 +231,7 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.DisplayDeviceRepairInitiated]: 1,
   [EventTypes.PublicListingChanged]: 1,
   [EventTypes.ProviderOnboarded]: 1,
+  [EventTypes.PatientPortalAccessProvisioned]: 1,
   [EventTypes.EncounterCreated]: 1,
   [EventTypes.EncounterStarted]: 1,
   [EventTypes.EncounterCompleted]: 1,
