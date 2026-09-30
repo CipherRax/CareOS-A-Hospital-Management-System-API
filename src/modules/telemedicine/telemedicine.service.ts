@@ -14,6 +14,7 @@ import type {
   ListVirtualSessionsQueryDto,
   ScheduleVirtualSessionDto,
 } from './dto/virtual-session.dto';
+import { ELIGIBILITY_SELECT, ineligibilityReason, notBookableError } from '../providers/domain/provider-eligibility';
 
 type VirtualSessionDb = TenantClient | TxContext['db'];
 
@@ -47,9 +48,14 @@ export class TelemedicineService {
 
       const provider = await ctx.db.user.findFirst({
         where: { id: input.providerId, organizationId },
-        select: { id: true },
+        select: ELIGIBILITY_SELECT,
       });
       if (!provider) throw notFound('Provider not found in this organization');
+      // Telemedicine puts a live session in front of a patient, so a suspended
+      // or terminated account is the sharpest case of the missing gate
+      // (ADR-050).
+      const reason = ineligibilityReason(provider);
+      if (reason) throw notBookableError(reason);
 
       if (input.appointmentId) {
         const appointment = await ctx.db.appointment.findFirst({

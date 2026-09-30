@@ -24,6 +24,7 @@ import { RolesModule } from '../modules/roles/roles.module';
 import { BranchesModule } from '../modules/branches/branches.module';
 import { DepartmentsModule } from '../modules/departments/departments.module';
 import { StaffModule } from '../modules/staff/staff.module';
+import { ProvidersModule } from '../modules/providers/providers.module';
 import { BreakGlassModule } from '../modules/break-glass/break-glass.module';
 import { DocumentsModule } from '../modules/documents/documents.module';
 import { PatientsModule } from '../modules/patients/patients.module';
@@ -106,6 +107,7 @@ import { newId } from '../common/lib/uuidv7';
     BranchesModule,
     DepartmentsModule,
     StaffModule,
+    ProvidersModule,
     BreakGlassModule,
     DocumentsModule,
     PatientsModule,

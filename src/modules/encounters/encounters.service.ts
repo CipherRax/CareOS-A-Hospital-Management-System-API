@@ -15,6 +15,7 @@ import type {
   ListEncountersQueryDto,
   TransitionEncounterDto,
 } from './dto/encounter.dto';
+import { ELIGIBILITY_SELECT, ineligibilityReason, notBookableError } from '../providers/domain/provider-eligibility';
 
 /**
  * Clinical encounters (brief Phase 4 §6.6). A completed encounter is locked;
@@ -61,7 +62,7 @@ export class EncountersService {
       if (input.providerId) {
         const provider = await ctx.db.user.findFirst({
           where: { id: input.providerId, organizationId },
-          select: { id: true },
+          select: ELIGIBILITY_SELECT,
         });
         if (!provider) {
           throw new AppError({
@@ -70,6 +71,10 @@ export class EncountersService {
             silent: true,
           });
         }
+        // A suspended or terminated clinician must not end up on the encounter
+        // (ADR-050); previously only existence was checked.
+        const reason = ineligibilityReason(provider);
+        if (reason) throw notBookableError(reason);
         providerId = input.providerId;
       }
 

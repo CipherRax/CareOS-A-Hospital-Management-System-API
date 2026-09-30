@@ -3,6 +3,84 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-050 — A provider is identity plus eligibility, not a new aggregate; and eligibility is one shared predicate
+
+**Status:** accepted (Phase P12)
+
+**Context:** the roadmap carried a "provider directory + onboarding" item
+described as "`Provider`/`ProviderSchedule` back tenant scheduling data". That
+description is wrong, and finding out why is the whole decision.
+
+There is no `Provider` model. A provider is a `users` row — usually with a
+`staff_profiles` row — and `ProviderSchedule.providerId` points at
+`users.id`, as do `Appointment`, `Encounter`, `Prescription`, `VirtualSession`,
+`Diagnosis` and `Referral`. "Provider" is a role a person holds, not a thing.
+
+That matters because the *actual* defect the directory was meant to expose is
+worse than a missing screen. Every booking path validated only that the
+`providerId` resolved to a row in the same organization:
+
+- `appointments.assertPatientAndProvider` — `select: { id: true }`
+- `encounters` — the same
+- `telemedicine` — the same
+- `schedules.assertRefs` — the same
+
+So a `SUSPENDED` user, a `DEACTIVATED` user, a staff member whose
+`employmentStatus` is `TERMINATED`, or a clinician who set
+`StaffProfile.availability = false` could all be booked for patients, and
+`GET /schedules/slots` would cheerfully publish their availability. In a
+hospital that is a patient-safety and records-integrity problem, not a UX gap.
+Separately, `appointments.providerForDepartment` hardcoded
+`['DOCTOR', 'CLINICAL_OFFICER']` — the only place in the codebase that encoded
+"who counts as a clinician".
+
+**Decision:**
+
+1. *No `Provider` table.* Identity stays one aggregate. A parallel provider row
+   would duplicate the person, orphan every existing `providerId` foreign key,
+   and create a second source of truth for "who is this clinician" — the exact
+   split-identity problem the tenancy model exists to prevent. The directory is a
+   *projection* over `User` + `StaffProfile` + assignments, and onboarding is a
+   composite write over the tables that already own those facts.
+2. *One shared eligibility predicate, in one file.* `provider-eligibility.ts` owns
+   the only definition of bookable and the only Prisma `where` fragment that
+   expresses it. The directory filters with it, slot listing filters with it, and
+   every booking path asserts with it. Three copies of this rule is how the
+   original defect happened.
+3. *Eligibility is status and employment, not role.* Bookable means
+   `User.status = ACTIVE` and, where a staff profile exists,
+   `employmentStatus ∈ {ACTIVE, CONTRACT}` with `availability = true`. A missing
+   staff profile does not disqualify. Role is deliberately *not* a gate: this
+   codebase books nurses, pharmacists and clinicians, and requiring a clinician
+   role would refuse legitimate work while still not catching the real hazard
+   (an active user who cannot see patients). Role drives directory *filtering*
+   and labelling instead.
+4. *A non-bookable provider is a conflict, not a 404.* They exist; the caller
+   needs a different next action. `PROVIDER_NOT_BOOKABLE` carries a safe reason
+   enum (`USER_NOT_ACTIVE`, `TERMINATED`, `UNAVAILABLE`) and never the person's
+   name. A 404 would also leak that the id exists in the organization.
+5. *The gate is on new work, not on history.* An appointment already booked by a
+   provider who has since been suspended stays valid and stays visible. Only new
+   bookings are refused, and the directory still lists non-bookable providers —
+   with `bookable: false` and the reason — because staff need to see who they
+   stopped being able to book.
+6. *Onboarding is one transaction.* `POST /providers` creates the user, the staff
+   profile, role assignments, branch/department links, and an optional weekly
+   availability template, with the audit record and lifecycle event in the same
+   transaction. It is not a thin wrapper over `POST /users` because that call
+   owns its own transaction, and a provider half-created with no schedule is
+   worse than one not created. The new user is `INVITED`, as with any invite:
+   activation is the identity proof, and the directory reports an invited
+   provider as not-yet-bookable rather than pretending otherwise.
+
+**Consequences:** booking a suspended provider now fails where it previously
+succeeded, which is a deliberate behaviour change and the point of the exercise.
+Directory reads are projections, so they need no migration and no backfill. Role
+is not enforced on booking, so a deployment that wants stricter rules still has
+to add it — stated here rather than implied. A future credentialing status
+(license verification, expiry) belongs on `StaffProfile` and slots into the same
+predicate without a new table.
+
 ## ADR-049 — Report exports are asynchronous artifacts in object storage, downloaded through the API
 
 **Status:** accepted (Phase P11)

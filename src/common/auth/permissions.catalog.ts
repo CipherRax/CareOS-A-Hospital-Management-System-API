@@ -32,6 +32,17 @@ export const PERMISSION_GROUPS = {
     read: 'staff.read',
     manage: 'staff.manage',
   },
+  /**
+   * The provider directory and onboarding. Separate from `staff.*` on purpose:
+   * a staffing permission answers "may I read the staff roster / change a
+   * staff record", while these answer "may I browse who is taking patients, and
+   * may I bring a new one on". Booking already needed `appointments.create`, and
+   * conflating the two would let a read-only scheduling clerk onboard staff.
+   */
+  providers: {
+    read: 'providers.read',
+    manage: 'providers.manage',
+  },
   breakGlass: {
     request: 'break_glass.request',
     manage: 'break_glass.manage',

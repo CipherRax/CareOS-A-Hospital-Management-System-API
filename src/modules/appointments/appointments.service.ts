@@ -10,6 +10,13 @@ import { ErrorCodes } from '../../common/errors/codes';
 import { EventTypes } from '../../events/catalog';
 import type { Appointment, AppointmentMode, Prisma, WaitlistEntry } from '@prisma/client';
 import { resolveSlotWindow } from '../schedules/schedules.service';
+import {
+  bookableUserWhere,
+  ELIGIBILITY_SELECT,
+  ineligibilityReason,
+  notBookableError,
+  PROVIDER_ROLE_KEYS,
+} from '../providers/domain/provider-eligibility';
 import { assertAppointmentTransition, TERMINAL_APPOINTMENT_STATUSES } from './domain/appointment-flow';
 import { parseOrgSettings } from './domain/org-settings';
 import type {
@@ -740,7 +747,7 @@ export class AppointmentsService {
     await this.assertPatient(db, organizationId, patientId);
     const provider = await db.user.findFirst({
       where: { id: providerId, organizationId },
-      select: { id: true },
+      select: ELIGIBILITY_SELECT,
     });
     if (!provider) {
       throw new AppError({
@@ -749,6 +756,10 @@ export class AppointmentsService {
         silent: true,
       });
     }
+    // Existence is not eligibility: this used to be the whole check, which let a
+    // suspended or terminated user be booked (ADR-050).
+    const reason = ineligibilityReason(provider);
+    if (reason) throw notBookableError(reason);
   }
 
   private async assertPatient(
@@ -793,8 +804,11 @@ export class AppointmentsService {
       where: {
         organizationId,
         departmentId,
+        // Eligibility, not just existence: auto-assignment must not pick someone
+        // who cannot take the patient (ADR-050). The role list is the shared one.
         user: {
-          userRoles: { some: { role: { key: { in: ['DOCTOR', 'CLINICAL_OFFICER'] } } } },
+          ...bookableUserWhere(),
+          userRoles: { some: { role: { key: { in: [...PROVIDER_ROLE_KEYS] } } } },
         },
       },
       select: { userId: true },

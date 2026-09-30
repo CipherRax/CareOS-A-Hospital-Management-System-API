@@ -87,9 +87,13 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–046.
   they omit. Image input is not exposed over HTTP: it is available to
   server-built documents, and the request-facing endpoints stay bounded
   (≤12 columns, ≤300 rows, ≤200 lines).
-- [ ] **Async + streamed report exports.** Move export out of the request path
-  (kick task object + outbox event, poll/status) and stream large payloads
-  instead of building the whole artifact in memory.
+- [x] **Async + streamed report exports.** `POST /reports/export` returns `202`
+  with a `PENDING` row and a `Reports.ExportRequested` consumer generates it
+  off the request path (payload is `{ exportId }` only). The artifact is stored
+  in S3 under a tenant-scoped key and downloaded as a stream through the
+  authorized API — not a presigned GET, which would be an unaudited bearer
+  capability over patient data. Generation streams into a multipart upload
+  rather than building the artifact in memory (P11, ADR-049).
 - [x] **Consumers for `Storage.DocumentUploaded`.** `document-scan` subscribes to
   the event, reads the object under a byte cap, and records a verdict (P8,
   ADR-047). It runs off the request path in the outbox dispatcher, so a slow or
@@ -117,9 +121,37 @@ Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–046.
   (nearest-rank, so p90 misses a lone outlier and `max` is published for that);
   and there is no alerting or paging on a late acknowledgement — the metric is
   pull-only, and wiring it to the notification system is a separate decision.
-- [ ] **Provider directory + onboarding.** `Provider`/`ProviderSchedule` back
-  tenant scheduling data but there is no provider-facing directory or onboarding
-  surface yet.
+- [x] **Provider directory + onboarding.** `GET /providers` is a provider-only
+  view (clinician role or a published template) filterable by branch,
+  department, specialization and free text, with a bookable flag and a
+  PHI-safe reason; `GET /providers/:id` adds weekly availability and upcoming
+  appointments; `POST /providers` onboards identity, staff profile, roles,
+  assignments and an optional availability template in one transaction, and
+  `PATCH /providers/:id` maintains the clinical profile and booking
+  eligibility. There is deliberately no `Provider` model — a provider is a
+  `users` row (ADR-050) — so onboarding starts the account `INVITED` and
+  activation is what makes it bookable.
+
+  The point of the patch is the gate, not the CRUD. All four booking paths
+  (appointments, encounters, telemedicine start, schedule templates and slot
+  discovery) previously checked only that a `providerId` existed in the
+  organization, so a suspended, terminated or opted-out clinician stayed
+  bookable and kept publishing availability. They now share one predicate:
+  `ACTIVE`, and — where a staff profile exists — not terminated and not
+  opted out. A missing profile is still allowed, because plenty of legitimate
+  providers here carry only a user row. Roles stay a *filter*, never a gate:
+  this codebase books nurses, pharmacists and clinical officers, and a role
+  gate would refuse legitimate work while missing the real hazard.
+
+  Refusals are `409 PROVIDER_NOT_BOOKABLE` with the reason, and non-bookable
+  providers stay visible in the directory — an empty slot list reads as "try
+  another date", which is how a terminated clinician keeps getting booked.
+  Existing appointments are deliberately left intact. Onboarding emails no
+  invite token: it follows the user invite flow, so activation and token
+  delivery remain one mechanism rather than two. Open: the invite token is
+  minted and hashed but delivery is not yet surfaced here, and the directory
+  is read-only to non-managers.
+
 - [ ] **Patient-portal real JWT auth.** Self-scoped patients currently ride the
   test-principal header seam (`x-careos-test-patient-id`); replace with real
   patient-facing JWT/session auth.

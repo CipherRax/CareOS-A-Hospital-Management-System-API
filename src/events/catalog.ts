@@ -52,6 +52,12 @@ export const EventTypes = {
   DisplayDeviceRepairInitiated: 'Display.DeviceRepairInitiated',
   /** Public facility directory (brief §6.14, patch P2). Payload: identifier + slug only. */
   PublicListingChanged: 'Directory.PublicListingChanged',
+  /**
+   * A provider was onboarded. Payload: organization + role keys only — no name,
+   * no email, no license number. A "reference set changed" style notification
+   * can hang off this the way coding-import does (ADR-046).
+   */
+  ProviderOnboarded: 'Directory.ProviderOnboarded',
   /** Clinical core (brief Phase 4). Payloads carry IDs only. */
   EncounterCreated: 'Clinical.EncounterCreated',
   EncounterStarted: 'Clinical.EncounterStarted',
@@ -218,6 +224,7 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.DisplayDeviceRotated]: 1,
   [EventTypes.DisplayDeviceRepairInitiated]: 1,
   [EventTypes.PublicListingChanged]: 1,
+  [EventTypes.ProviderOnboarded]: 1,
   [EventTypes.EncounterCreated]: 1,
   [EventTypes.EncounterStarted]: 1,
   [EventTypes.EncounterCompleted]: 1,

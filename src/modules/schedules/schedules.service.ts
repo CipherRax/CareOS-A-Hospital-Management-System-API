@@ -15,6 +15,7 @@ import type {
   UpdateProviderScheduleDto,
   UpdateScheduleOverrideDto,
 } from './dto/schedule.dto';
+import { ELIGIBILITY_SELECT, ineligibilityReason, notBookableError } from '../providers/domain/provider-eligibility';
 
 /**
  * Schedules (brief Phase 3). Weekly provider templates + per-date overrides
@@ -270,6 +271,23 @@ export class SchedulesService {
     const db = this.prisma.tenantFor(organizationId);
     const date = startOfBusinessDay(query.date);
 
+    // A receptionist picking a slot must not be offered the availability of a
+    // suspended or terminated clinician, so the read is gated too — not just
+    // the write (ADR-050).
+    const provider = await db.user.findFirst({
+      where: { id: query.providerId, organizationId },
+      select: ELIGIBILITY_SELECT,
+    });
+    if (!provider) {
+      throw new AppError({
+        code: ErrorCodes.RESOURCE_NOT_FOUND,
+        message: 'Provider not found in this organization.',
+        silent: true,
+      });
+    }
+    const reason = ineligibilityReason(provider);
+    if (reason) throw notBookableError(reason);
+
     const [templates, overrides, bookings] = await Promise.all([
       db.providerSchedule.findMany({
         where: {
@@ -318,7 +336,10 @@ export class SchedulesService {
     const [branch, department, provider] = await Promise.all([
       db.branch.findFirst({ where: { id: branchId, organizationId }, select: { id: true } }),
       db.department.findFirst({ where: { id: departmentId, organizationId }, select: { id: true } }),
-      db.user.findFirst({ where: { id: providerId, organizationId }, select: { id: true } }),
+      db.user.findFirst({
+        where: { id: providerId, organizationId },
+        select: ELIGIBILITY_SELECT,
+      }),
     ]);
     if (!branch || !department || !provider) {
       throw new AppError({
@@ -327,6 +348,11 @@ export class SchedulesService {
         silent: true,
       });
     }
+    // Publishing a template for someone who cannot take the work is how a
+    // terminated clinician's slots stayed bookable in the first place
+    // (ADR-050).
+    const reason = ineligibilityReason(provider);
+    if (reason) throw notBookableError(reason);
   }
 }
 

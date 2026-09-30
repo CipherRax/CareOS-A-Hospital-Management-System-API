@@ -17,6 +17,14 @@ export const ErrorCodes = {
   CONFLICT: 'CONFLICT',
   UNPROCESSABLE_ENTITY: 'UNPROCESSABLE_ENTITY',
 
+  /**
+   * A provider exists in the organization but cannot take new work — suspended,
+   * deactivated, terminated, or marked unavailable. A distinct code from CONFLICT
+   * because the caller's fix is different: it is not "retry later" but "pick
+   * someone else", and a client can offer that without parsing prose.
+   */
+  PROVIDER_NOT_BOOKABLE: 'PROVIDER_NOT_BOOKABLE',
+
   // tenancy / identity
   TENANT_ACCESS_DENIED: 'TENANT_ACCESS_DENIED',
   TENANT_REQUIRED: 'TENANT_REQUIRED',
@@ -144,6 +152,7 @@ export const ERROR_CODE_HTTP: Record<ErrorCode, ErrorCodeMeta> = {
   [ErrorCodes.FORBIDDEN]: { httpStatus: 403 },
   [ErrorCodes.METHOD_NOT_ALLOWED]: { httpStatus: 405 },
   [ErrorCodes.CONFLICT]: { httpStatus: 409 },
+  [ErrorCodes.PROVIDER_NOT_BOOKABLE]: { httpStatus: 409 },
   [ErrorCodes.UNPROCESSABLE_ENTITY]: { httpStatus: 422 },
 
   [ErrorCodes.TENANT_ACCESS_DENIED]: { httpStatus: 403 },

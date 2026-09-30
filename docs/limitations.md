@@ -68,10 +68,23 @@ working code with a caveat.
   `PdfRenderer` provider returns a placeholder payload — no real PDF bytes are
   produced. `health.os` still returns wall-clock time: healthcheck versioning is
   explicitly not implemented.
-- **Provider directory is not built yet.** `[stub]` `Provider`, `ProviderSchedule`
-  and integration tokens back tenant-scoped scheduling data used by Phase 4 and
-  Phase 10 e2e, but there is no provider-facing onboarding/directory surface
-  yet — that lands in a later phase.
+- **The provider directory has no UI and no invite delivery.** `[partial]` The
+  API surface exists (`GET /providers`, `GET /providers/:id`, `POST /providers`,
+  `PATCH /providers/:id`) but there is no frontend for it, and onboarding mints
+  and hashes an invite token without surfacing delivery — activation goes
+  through the ordinary user invite flow, so the two paths can disagree about who
+  holds the token. `PATCH` also only maintains the clinical profile and
+  eligibility: roles, branch and department assignments cannot be changed after
+  onboarding, so a provider who moves department needs a second onboarding
+  path. The directory is read-only to anyone without `providers.manage`.
+- **Bookability is checked at write time only.** `[design]` Appointments,
+  encounters, telemedicine sessions and slot discovery all refuse a
+  non-bookable provider, but nothing re-evaluates existing work when a provider
+  is suspended or terminated — their upcoming appointments stay in place and
+  each shows `PROVIDER_NOT_BOOKABLE` on the next write. There is no
+  cancellation or reassignment sweep, because destroying confirmed patient
+  appointments is a clinical decision, not a database cascade.
+
 - **The M-PESA Daraja adapter is a structural stub.** `[stub]` The
   `MpesaStkProvider` seam (`src/integrations/mpesa`) has a fully functional in-
   process mock (STK push, callback webhook recording, statement listing) that

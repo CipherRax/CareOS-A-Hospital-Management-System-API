@@ -20,9 +20,9 @@ Status: **GREEN.**
 | `lint`       | pass   |
 | `typecheck`  | pass   |
 | `boundaries` | pass   |
-| `npm test`   | 677/677 unit (72 suites) |
+| `npm test`   | 693/693 unit (73 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 248/248 (20 suites, fresh Testcontainers infra) |
+| `test:e2e`   | 266/266 (21 suites, fresh Testcontainers infra) |
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -1782,3 +1782,77 @@ Notes:
 - Report export is now the one flow that hard-requires S3. Without it the
   request is still accepted and the export lands in `FAILED` with
   `S3_UNAVAILABLE`.
+
+## Phase P12 — Provider directory + onboarding (COMPLETE)
+
+There was no `Provider` model, so this was never a missing-CRUD patch. A
+provider is a `users` row with a clinician role, and `ProviderSchedule.providerId`
+points at `users.id` — which meant all four booking paths resolved a provider by
+checking only that the id existed somewhere in the organization. A suspended,
+terminated or opted-out clinician was fully bookable, and worse, the scheduling
+surface would still publish their availability. The directory was the visible
+symptom; the booking gate was the defect (ADR-050).
+
+Done:
+
+- **One definition of bookable.** `src/modules/providers/domain/provider-eligibility.ts`
+  owns both forms the rule needs: `ineligibilityReason()` for in-memory checks
+  and `bookableUserWhere()` for the Prisma fragment. They are adjacent in one
+  file on purpose — the same rule expressed twice, in two languages, is how the
+  hazard returns. Bookable means `ACTIVE`, and where a staff profile exists,
+  not terminated and not opted out. A *missing* profile is allowed, because
+  plenty of legitimate providers in this schema carry only a user row, and
+  refusing them would break real bookings to fix a hazard the status check
+  already covers.
+- **All four booking paths now share it.** Appointment creation and
+  auto-assignment, encounter creation, telemedicine session start, and schedule
+  template publishing and slot discovery. The last one is the subtle fix: a
+  receptionist browsing slots is a *read*, and an unbookable provider returning
+  an empty array reads as "free, try another date" — which is how a terminated
+  clinician keeps getting booked. It now refuses with a reason.
+- **Roles are a filter, never a gate.** The provider role list is
+  `DOCTOR`/`CLINICAL_OFFICER`/`NURSE`/`PHARMACIST`/`LAB_TECHNICIAN`/
+  `RADIOLOGY_TECHNICIAN`, because this codebase books nurses, pharmacists and
+  clinical officers. A role gate would refuse legitimate work while still
+  missing the real hazard — an active user who cannot see patients.
+- **The directory is a provider view, not a user list.** `GET /providers` lists
+  users holding a clinician role *or* a published template, filterable by branch,
+  department, specialization, role and free text, with a `bookable` flag and a
+  PHI-safe reason. `bookableOnly` defaults to true; passing `false` shows
+  non-bookable providers, still only providers. The same membership rule gates
+  `GET /providers/:id` and `PATCH /providers/:id`, so a receptionist's detail
+  view is a 404 rather than a directory of everyone.
+- **Onboarding is one transaction.** `POST /providers` creates the user, staff
+  profile, role assignments, branch and department links, an optional
+  availability template, an audit row and a `Directory.ProviderOnboarded` (v1)
+  event, or it creates nothing — a half-onboarded provider with a profile and no
+  role is the exact failure mode this avoids. Availability windows must name a
+  branch and department the provider was actually given, or the template would
+  point somewhere they do not practise and no slot would be reachable.
+  The account starts `INVITED` and activation is what makes it bookable, which
+  is also why the duplicate-email conflict points at `PATCH /providers/:id`.
+- **`providers.read` and `providers.manage` are separate.** Read is enough to
+  browse the roster; onboarding and profile maintenance need manage. Neither
+  grants booking, which still requires `appointments.create` — directory access
+  must not imply the ability to assign work to someone.
+
+Notes:
+
+- The free-text search initially *overwrote* the provider-view filter instead of
+  combining with it, because Prisma allows one `OR` per level and the query
+  needed three. The three disjunctions are now ANDed as sibling groups.
+- `dayOfWeek` on `ProviderSchedule` is a `WorkdayIndex` with **Monday = 0**, not
+  `Date.getDay()`. The e2e fixture assumed Monday = 1 and found zero slots; the
+  DTO comment now says so explicitly, because the mismatch is an
+  off-by-three-days bug that only surfaces once someone is booked wrongly.
+- Existing appointments are deliberately left intact when a provider becomes
+  ineligible, and the refusal is a `409 PROVIDER_NOT_BOOKABLE` naming the
+  reason rather than a name. Cancelling a patient's confirmed appointment is a
+  clinical decision, not a cascade; it belongs in a reassignment sweep.
+- `branchIds`/`departmentIds` are required with at least one entry. A provider
+  assigned to neither can never be offered a slot — onboarded but unusable.
+  The `.default([])` that used to sit there was rejected by its own `.min(1)`,
+  so removing it is a clarity change, not a contract change.
+- Onboarding mints and hashes an invite token but does not surface delivery;
+  activation goes through the ordinary user invite flow. Recorded in
+  `docs/limitations.md` rather than papered over with a second mechanism.
