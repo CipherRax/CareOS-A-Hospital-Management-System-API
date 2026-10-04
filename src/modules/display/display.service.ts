@@ -12,6 +12,7 @@ import { AppError } from '../../common/errors/app-error';
 import { ErrorCodes } from '../../common/errors/codes';
 import { EventTypes } from '../../events/catalog';
 import { startOfBusinessDay } from '../schedules/domain/workweek';
+import { NotificationService } from '../notifications/notifications.service';
 import { ACTIVE_QUEUE_STATUSES } from '../queue/domain/queue-flow';
 import { queueSortKey } from '../queue/domain/metrics';
 import {
@@ -28,7 +29,50 @@ import type {
 } from './dto/display.dto';
 
 const PAIR_MAX_ATTEMPTS = 8;
-const PAIR_WINDOW_SECONDS = 15 * 60;
+/** Brief §5.16: the pairing code expires 10 minutes after it is issued. */
+const PAIR_WINDOW_SECONDS = 10 * 60;
+
+/**
+ * Minimum gap between two token rotations on the same device. Long enough that a
+ * double-click or two concurrent admins cannot orphan the first-issued token,
+ * short enough that a genuine second rotation after a suspected compromise is
+ * never blocked.
+ */
+const TOKEN_ROTATION_COOLDOWN_MS = 30_000;
+
+/**
+ * How long the OUTGOING token keeps working after a rotation (brief §5.16,
+ * "rotatable with an overlap window"). A screen being redeployed mid-rotation
+ * would otherwise present a token the new build has already thrown away and show
+ * a bare pairing error. One generation only, so an older token cannot be kept
+ * alive indefinitely by repeated rotation.
+ */
+const TOKEN_OVERLAP_MS = 10 * 60_000;
+
+/**
+ * An ACTIVE device that has not checked in for this long is almost certainly
+ * offline (crashed browser, pulled network, powered off). Surfaced so the admin
+ * list can flag it rather than leaving staff to assume the board is current.
+ */
+const DEVICE_STALE_AFTER_MS = 10 * 60_000;
+
+/** Cap on one sweep pass, matching the other scheduler sweeps. */
+const STALE_SWEEP_BATCH = 100;
+
+/**
+ * Permission that identifies who should hear about a dead waiting-room screen:
+ * whoever already administers devices is the person who can fix one.
+ */
+const DEVICE_MANAGE_PERMISSION = 'display.devices.manage';
+
+export interface DisplayStaleSweepResult {
+  /** Devices that crossed the staleness threshold since the last pass. */
+  detected: number;
+  /** Alerts actually raised — lower than `detected` when a concurrent pass won. */
+  alerted: number;
+  /** Organizations that threw. One bad org never stops the rest (ADR-044). */
+  failed: number;
+}
 
 /**
  * Waiting-room display devices (brief §5.16). Registration issues a one-time
@@ -43,6 +87,7 @@ export class DisplayService {
     private readonly tenantContext: TenantContext,
     private readonly txRunner: TxRunner,
     private readonly realtime: RealtimeService,
+    private readonly notifications: NotificationService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -171,7 +216,16 @@ export class DisplayService {
       }
       const updated = await ctx.db.displayDevice.update({
         where: { id },
-        data: { status: 'REVOKED', tokenHash: null, pairingCodeHash: null, pairingExpiresAt: null },
+        // Revocation clears BOTH token digests: leaving the overlap hash behind would
+        // keep a revoked device reachable for the remainder of the overlap window.
+        data: {
+          status: 'REVOKED',
+          tokenHash: null,
+          previousTokenHash: null,
+          previousTokenExpiresAt: null,
+          pairingCodeHash: null,
+          pairingExpiresAt: null,
+        },
       });
       await this.audit(ctx, organizationId, 'display.device_revoked', id, { from: current.status });
       ctx.emit({
@@ -206,10 +260,38 @@ export class DisplayService {
           silent: true,
         });
       }
+      // Rotation is single-use in a short window. Two rotations back to back (a
+      // double-click, or two admins reacting to the same alert) would leave the
+      // first operator holding a token that is already dead, and the device shows
+      // a pairing error with no obvious cause. `rescan` is the deliberate way to
+      // replace a token that was just issued.
+      //
+      // The cooldown exists because rotation hands out the new token ONCE; the
+      // overlap window only preserves the OUTGOING token. Rotating twice inside
+      // the window would silently invalidate the token the first operator was
+      // just handed, which is the exact failure the overlap is meant to prevent.
+      const rotatedMsAgo = current.tokenRotatedAt
+        ? Date.now() - current.tokenRotatedAt.getTime()
+        : Number.POSITIVE_INFINITY;
+      if (rotatedMsAgo < TOKEN_ROTATION_COOLDOWN_MS) {
+        throw new AppError({
+          code: ErrorCodes.CONFLICT,
+          message:
+            'This device token was rotated moments ago. Wait before rotating again, or use rescan to re-pair.',
+          silent: true,
+        });
+      }
       const token = generateDeviceToken(current.organizationId);
+      // The current token becomes the overlap token. Only one generation of
+      // overlap is retained, so a third rotation fully retires the original.
       const updated = await ctx.db.displayDevice.update({
         where: { id },
-        data: { tokenHash: hashSecret(token), tokenRotatedAt: new Date() },
+        data: {
+          tokenHash: hashSecret(token),
+          tokenRotatedAt: new Date(),
+          previousTokenHash: current.tokenHash,
+          previousTokenExpiresAt: new Date(Date.now() + TOKEN_OVERLAP_MS),
+        },
       });
       await this.audit(ctx, organizationId, 'display.device_token_rotated', id, null);
       ctx.emit({
@@ -251,6 +333,10 @@ export class DisplayService {
           status: 'PENDING_PAIRING',
           tokenHash: null,
           tokenRotatedAt: null,
+          // Re-pairing invalidates the previous generation immediately; an
+          // overlap window must not carry an old device token across a re-pair.
+          previousTokenHash: null,
+          previousTokenExpiresAt: null,
           pairingCodeHash: hashSecret(pairingCode),
           pairingExpiresAt: new Date(Date.now() + PAIRING_CODE_TTL_MS),
         },
@@ -332,6 +418,9 @@ export class DisplayService {
             pairingExpiresAt: null,
             tokenRotatedAt: null,
             lastSeenAt: new Date(),
+            // A re-pair is a fresh start: any alert raised against the previous
+            // incarnation of this screen must not suppress the next one.
+            staleNotifiedAt: null,
           },
         });
         await ctx.db.auditLog.create({
@@ -466,10 +555,135 @@ export class DisplayService {
     return count;
   }
 
+  /**
+ * Is this device still authorised to stream? Used by the SSE heartbeat, because a
+ * device token is only verified when the stream opens: a device revoked while
+ * connected would otherwise keep receiving the board indefinitely.
+ */
+async isStillActive(deviceId: string): Promise<boolean> {
+  const row = await this.prisma
+    .unscoped()
+    .displayDevice.findFirst({
+      where: { id: deviceId, status: 'ACTIVE' },
+      select: { id: true },
+    })
+    .catch(() => null);
+// If the liveness check itself fails we cannot prove the device is still
+  // authorised, and a stream is not worth failing open.
+  return row !== null;
+  }
+
+  /**
+   * Raise an alert for every ACTIVE display that has stopped checking in.
+   *
+   * The admin list already *derived* a `stale` flag, which meant a dead
+   * waiting-room board was only visible to someone who happened to open the
+   * device list. A screen that silently stops updating is a safety problem —
+   * visitors keep reading a queue that no longer reflects reality — so it has to
+   * page someone rather than sit in a list.
+   *
+   * Properties:
+   * - Once per outage. `staleNotifiedAt` is claimed with a guarded `updateMany`
+   *   before anyone is notified, so two concurrent passes cannot both alert, and
+   *   a device that stays offline does not re-alert on every tick.
+   * - Re-armed by `touchDevice` and by re-pairing, so a device that recovers and
+   *   dies again is heard about again.
+   * - Cross-organization, like every other scheduler sweep. Per-org failures are
+   *   counted, not thrown, so one broken tenant cannot stop the fleet's sweep.
+   * - Device name and branch name only. The board the device was showing is
+   *   patient-facing data and never enters a notification body.
+   */
+  async sweepStaleDevices(now = new Date()): Promise<DisplayStaleSweepResult> {
+    const cutoff = new Date(now.getTime() - DEVICE_STALE_AFTER_MS);
+    const db = this.prisma.unscoped();
+    const stale = await db.displayDevice.findMany({
+      where: {
+        status: 'ACTIVE',
+        // A device that has never checked in was just paired, not lost.
+        lastSeenAt: { lt: cutoff },
+        staleNotifiedAt: null,
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        branchId: true,
+        name: true,
+        lastSeenAt: true,
+      },
+      orderBy: { lastSeenAt: 'asc' },
+      take: STALE_SWEEP_BATCH,
+    });
+
+    const result: DisplayStaleSweepResult = { detected: stale.length, alerted: 0, failed: 0 };
+    for (const device of stale) {
+      try {
+        // Claim first, notify second. A lost race (another process claimed this
+        // device between the read and this write) is a silent no-op rather than
+        // a duplicate page.
+        const claimed = await this.prisma.unscoped().displayDevice.updateMany({
+          where: { id: device.id, organizationId: device.organizationId, staleNotifiedAt: null },
+          data: { staleNotifiedAt: now },
+        });
+        if (claimed.count !== 1) continue;
+
+        await this.notifyDeviceManagers(device, now);
+        result.alerted += 1;
+      } catch {
+        // Isolation: a device we cannot notify must not abort the pass. The
+        // claim stands, so this device is not retried — releasing it would let
+        // a permanently broken tenant row alert forever.
+        result.failed += 1;
+      }
+    }
+    return result;
+  }
+
+  private async notifyDeviceManagers(
+    device: { organizationId: string; branchId: string; name: string; lastSeenAt: Date | null },
+    now: Date,
+  ): Promise<void> {
+    // Recipients are resolved from the organization's own role rows, not the
+    // default matrix: role permissions are editable per tenant, so whoever
+    // actually administers devices here is who should be told.
+    const recipients = await this.prisma.unscoped().user.findMany({
+      where: {
+        organizationId: device.organizationId,
+        status: 'ACTIVE',
+        userRoles: { some: { role: { permissions: { has: DEVICE_MANAGE_PERMISSION } } } },
+      },
+      select: { id: true },
+    });
+    if (recipients.length === 0) return;
+
+    const branch = await this.prisma.unscoped().branch.findFirst({
+      where: { id: device.branchId, organizationId: device.organizationId },
+      select: { name: true },
+    });
+
+    const minutes = Math.round(
+      ((now.getTime() - (device.lastSeenAt?.getTime() ?? now.getTime())) / 60_000) || 0,
+    );
+    for (const recipient of recipients) {
+      await this.notifications.createForUser({
+        organizationId: device.organizationId,
+        userId: recipient.id,
+        channel: 'IN_APP',
+        templateKey: 'display.device_stale',
+        variables: {
+          deviceName: device.name,
+          branchName: branch?.name ?? 'its branch',
+          minutes: Math.max(1, minutes),
+        },
+      });
+    }
+  }
+
   private async touchDevice(deviceId: string): Promise<unknown> {
     return this.prisma.unscoped().displayDevice.update({
       where: { id: deviceId },
-      data: { lastSeenAt: new Date() },
+      // Clearing `staleNotifiedAt` re-arms the sweep: a device that came back
+      // after an outage is allowed to raise a fresh alert if it goes stale again.
+      data: { lastSeenAt: new Date(), staleNotifiedAt: null },
       select: { id: true },
     });
   }
@@ -531,7 +745,25 @@ function serializeDevice(d: DisplayDevice) {
     status: d.status,
     pairingExpiresAt: d.pairingExpiresAt,
     tokenRotatedAt: d.tokenRotatedAt,
+    // Overlap state, never a digest: an operator needs to know a previous token is
+    // still accepted and until when, which is what makes a rotation look like a
+    // suspected compromise during the window.
+    previousTokenValidUntil: d.previousTokenExpiresAt?.toISOString() ?? null,
     lastSeenAt: d.lastSeenAt,
+    // Derived so operators can see a dead screen in the admin list without doing
+    // timestamp arithmetic. Only meaningful for a paired device: a device still
+    // awaiting pairing has not had the chance to check in.
+    lastSeenAgeSeconds:
+      d.lastSeenAt === null
+        ? null
+        : Math.max(0, Math.round((Date.now() - d.lastSeenAt.getTime()) / 1000)),
+    stale:
+      d.status === 'ACTIVE'
+        ? d.lastSeenAt !== null && Date.now() - d.lastSeenAt.getTime() > DEVICE_STALE_AFTER_MS
+        : false,
+    // When the staleness alert was last raised, so an operator can tell "nobody
+    // has been told" from "we told them an hour ago and it is still down".
+    staleNotifiedAt: d.staleNotifiedAt,
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
   };

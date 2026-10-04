@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseFilters } from '@nestjs/common';
+import { Body, Controller, Post, UseFilters } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiEndpoint } from '../../common/decorators/api-endpoint.decorator';
 import { EmergencyRateLimitFilter } from './emergency-rate-limit.filter';
@@ -11,38 +11,38 @@ import {
   UpdateCallerEmergencyRequestDto,
 } from './dto/emergency-intake.dto';
 
-// Named throttlers (defined in DatabaseModule) so these limits are scoped to
-// the anonymous surface instead of overriding the staff-wide `default` budget.
+// Identical to the throttles on PublicEmergencyController. An alias must not be a
+// way around a limit, so the aliasing is additive and never weakens a throttle.
 const SUBMIT_THROTTLE = { publicEmergencySubmit: { limit: 5, ttl: 60_000 } };
 const TRACK_THROTTLE = { publicEmergencyTrack: { limit: 30, ttl: 60_000 } };
 
 /**
- * Anonymous public emergency help surface (brief §6.15). Every route is
- * `@Public`, IP-rate-limited, and reads only the PUBLISHED projection or the
- * cross-tenant reference tables — never tenant data. Caller PII is encrypted
- * at rest; the tracking token is returned once as a bearer capability.
+ * Brief §6.15's flat emergency namespace, aliased onto the same service as the
+ * deployed `/public/emergency/*` controller (ADR-052).
+ *
+ * Every method delegates to `EmergencyIntakeService` — there is no second
+ * implementation of intake, tracking, or cancellation here. The 429 filter is
+ * applied at class level exactly as on the primary controller, so a caller who
+ * exhausts the limit on either path gets EMERGENCY_CALL_NOW and the national
+ * numbers rather than a bare "try again later".
+ *
+ * `operationId`s are suffixed `Alias` to stay unique in Swagger; both spellings
+ * are documented, and the alias is marked deprecated so the deployed layout is
+ * what a new integrator is steered toward.
  */
-// Brief §6.15 spells the surface `/public/emergency-requests` (flat: the submit
-// is the bare POST and the token operations hang off it). The deployed contract is
-// `/public/emergency/requests`, `/public/emergency/requests/track`, and so on.
-// Both are registered — the deployed layout must not break, and the brief's
-// namespace is served by the same handlers, throttles, and 429 filter rather than
-// a second implementation. See PublicEmergencyRequestsController for the flat
-// layout: a prefix array on this controller would have produced the nonsensical
-// `/public/emergency-requests/requests` instead of the brief's paths.
-@Controller('public/emergency')
-// A 429 here replaces "try again later" with "call now" plus national numbers.
+@Controller('public/emergency-requests')
 @UseFilters(EmergencyRateLimitFilter)
-export class PublicEmergencyController {
+export class PublicEmergencyRequestsController {
   constructor(private readonly intake: EmergencyIntakeService) {}
 
-  @Post('requests')
+  @Post()
   @Throttle(SUBMIT_THROTTLE)
   @ApiEndpoint({
-    summary: 'Request emergency help anonymously from a published facility',
-    operationId: 'emergencyIntakeSubmit',
+    summary: 'Request emergency help anonymously from a published facility (brief §6.15 path)',
+    operationId: 'emergencyIntakeSubmitAlias',
     public: true,
     statusCode: 201,
+    deprecated: true,
     errors: [
       { status: 404, description: 'Facility not found for that slug', code: 'PUBLIC_LISTING_NOT_PUBLISHED' },
       { status: 422, description: 'Facility not accepting requests', code: 'FACILITY_NOT_ACCEPTING_REQUESTS' },
@@ -66,12 +66,13 @@ export class PublicEmergencyController {
     return this.intake.submitPublic(body);
   }
 
-  @Post('requests/update')
+  @Post('update')
   @Throttle(TRACK_THROTTLE)
   @ApiEndpoint({
     summary: 'Update details on a request you opened (correct a number or location)',
-    operationId: 'emergencyIntakeUpdateCaller',
+    operationId: 'emergencyIntakeUpdateCallerAlias',
     public: true,
+    deprecated: true,
     errors: [
       { status: 404, description: 'No request for that token', code: 'RESOURCE_NOT_FOUND' },
       {
@@ -88,12 +89,13 @@ export class PublicEmergencyController {
     return this.intake.updateByCaller(body);
   }
 
-  @Post('requests/track')
+  @Post('track')
   @Throttle(TRACK_THROTTLE)
   @ApiEndpoint({
     summary: 'Track a previously submitted request with its token',
-    operationId: 'emergencyIntakeTrack',
+    operationId: 'emergencyIntakeTrackAlias',
     public: true,
+    deprecated: true,
     errors: [{ status: 404, description: 'No request for that token', code: 'RESOURCE_NOT_FOUND' }],
     example: {
       data: {
@@ -111,13 +113,14 @@ export class PublicEmergencyController {
     return this.intake.trackPublic(body);
   }
 
-  @Post('requests/cancel')
+  @Post('cancel')
   @Throttle(TRACK_THROTTLE)
   @ApiEndpoint({
     summary: 'Cancel a non-terminal request the caller opened',
-    operationId: 'emergencyIntakeCancel',
+    operationId: 'emergencyIntakeCancelAlias',
     public: true,
     statusCode: 201,
+    deprecated: true,
     errors: [
       { status: 404, description: 'No request for that token', code: 'RESOURCE_NOT_FOUND' },
       { status: 409, description: 'Responder on the way — do not cancel', code: 'EMERGENCY_CALL_NOW' },
@@ -126,32 +129,5 @@ export class PublicEmergencyController {
   })
   cancel(@Body() body: CancelEmergencyRequestDto) {
     return this.intake.cancelPublic(body);
-  }
-
-  @Get('numbers')
-  @ApiEndpoint({
-    summary: 'National/regional emergency numbers (reference data, fallback built-in)',
-    operationId: 'emergencyIntakeNumbers',
-    public: true,
-    example: {
-      data: {
-        numbers: [{ country: 'KE', purpose: 'ambulance', label: '…', phone: '199', hours: '24/7' }],
-        source: 'reference',
-      },
-    },
-  })
-  numbers() {
-    return this.intake.listPublicNumbers();
-  }
-
-  @Get('notice')
-  @ApiEndpoint({
-    summary: 'Active public service notice (or a safe default)',
-    operationId: 'emergencyIntakeNotice',
-    public: true,
-    example: { data: { notice: { title: '…', message: '…', severity: 'INFO' } } },
-  })
-  notice() {
-    return this.intake.getPublicNotice();
   }
 }

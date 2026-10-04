@@ -809,7 +809,7 @@ export class AuthService {
       }),
       db.userRole.findMany({
         where: { userId },
-        select: { role: { select: { key: true, name: true } } },
+        select: { role: { select: { id: true, key: true, name: true } } },
       }),
       // The patient record this login may reach, if any. Resolved from the link
       // rather than from the scope so `/auth/me` is correct for a session that
@@ -841,7 +841,7 @@ export class AuthService {
       sessionId
         ? db.session.findUnique({
             where: { id: sessionId },
-            select: { id: true, mfaVerifiedAt: true },
+            select: { id: true, mfaVerifiedAt: true, createdAt: true },
           })
         : Promise.resolve(null),
       db.userPreference.findUnique({ where: { userId } }),
@@ -865,6 +865,11 @@ export class AuthService {
 
     const roleSummary = roleRows.map((r) => r.role);
 
+    // Brief §5.15 asks for roles as objects (`[{ id, key, name }]`) so a client
+    // can label a permission from role metadata without a second lookup. The
+    // scalar key list is kept alongside it for existing consumers.
+    const roleObjects = roleRows.map((r) => ({ id: r.role.id, key: r.role.key, name: r.role.name }));
+
     // Security staging (ADR-042): a weak/strong signal the client can act on.
     // It is advisory — permissions still come from roles, both below.
     const mfaEnabled = mfaCredential !== null;
@@ -882,7 +887,14 @@ export class AuthService {
     if (user.passwordChangeRequired) userStaging.push('password_change_required');
 
     const allowed = branchRows.map((r) => r.branch);
-    let currentBranchId = this.tenantContext.scope.branchId ?? null;
+    // `branch.current` is echoed straight back to the client, so it must only ever
+    // name a branch this account actually holds. The tenant guard already rejects
+    // an unassigned X-Branch-Id with TENANT_ACCESS_DENIED; this is the second
+    // check, so a scope that reached here by any other route cannot have the
+    // client bootstrap onto a branch it does not hold.
+    let currentBranchId = allowed.some((b) => b.id === this.tenantContext.scope.branchId)
+      ? this.tenantContext.scope.branchId
+      : null;
     if (
       currentBranchId === null &&
       preference?.defaultBranchId &&
@@ -891,12 +903,36 @@ export class AuthService {
       currentBranchId = preference.defaultBranchId;
     }
 
+    const sessionCreatedAt = session?.createdAt ?? null;
+    const sessionExpiresAt =
+      session && sessionCreatedAt
+        ? new Date(sessionCreatedAt.getTime() + this.env.SESSION_ABS_TTL_SECONDS * 1000)
+        : null;
+
     return {
       user: {
         ...user,
         organizationId,
         roleSummary,
+        // Brief §5.15 puts role objects on the user (`user.roles`). Nothing named
+        // `roles` existed inside `user`, so this is additive and cannot collide:
+        // `roleSummary` carries the full role rows, this is the contract shape.
+        roles: roleObjects,
         securityStaging: userStaging,
+        // Brief §5.15 nests MFA under the user rather than only in the session
+        // block, so a client can render the enrolment prompt from one object.
+        mfa: {
+          enabled: mfaEnabled,
+          required: user.mfaEnrolmentRequired,
+          verifiedThisSession: mfaVerifiedThisSession,
+        },
+      },
+      // Brief §5.15 exposes these as a top-level `security` object; the older
+      // `user.securityStaging` array is retained for existing consumers.
+      security: {
+        passwordChangeRequired: user.passwordChangeRequired,
+        mfaEnrolmentRequired: user.mfaEnrolmentRequired,
+        staging: userStaging,
       },
       organization: organization
         ? {
@@ -909,10 +945,13 @@ export class AuthService {
             currency: organization.currency,
             logoUrl: organization.logoUrl,
             status: organization.status,
+            featureFlags: organization.featureFlags ?? {},
+            // `features` retained: it is what the existing clients read.
             features: organization.featureFlags ?? {},
           }
         : null,
       roles: roleSummary.map((r) => r.key),
+      roleDetails: roleObjects,
       // Resolved at request time from role assignments (never from the JWT).
       // The parity guarantee with the permission guard is that both read this
       // same scope; the identity e2e asserts the deep-equal against role union.
@@ -922,6 +961,9 @@ export class AuthService {
       // a record yet, which is a real state between role assignment and
       // provisioning and should read as "no record" rather than erroring.
       patient: linkedPatient ? toPublicPatient(linkedPatient) : null,
+      // Brief §5.15 exposes only the link (`patientId`) rather than the whole
+      // record. A client that needs demographics fetches it through the portal.
+      patientLink: linkedPatient ? { patientId: linkedPatient.id } : null,
       breakGlass: activeBreakGlass
         ? {
             id: activeBreakGlass.id,
@@ -932,6 +974,20 @@ export class AuthService {
             expiresAt: activeBreakGlass.expiresAt.toISOString(),
           }
         : null,
+      // Brief §5.15 models break-glass as a list. Only one active grant can exist
+      // per requester today, but the array shape is what the contract specifies.
+      breakGlassGrants: activeBreakGlass
+        ? [
+            {
+              id: activeBreakGlass.id,
+              resourceType: activeBreakGlass.resourceType,
+              resourceId: activeBreakGlass.resourceId,
+              patientId:
+                activeBreakGlass.resourceType === 'PATIENT' ? activeBreakGlass.resourceId : null,
+              expiresAt: activeBreakGlass.expiresAt.toISOString(),
+            },
+          ]
+        : [],
       session: {
         id: session?.id ?? null,
         mfaVerifiedAt: session?.mfaVerifiedAt?.toISOString() ?? null,
@@ -939,12 +995,19 @@ export class AuthService {
         securityStaging: sessionStaging,
         // These are fixed by configuration in this release (see limitations).
         idleTimeoutSeconds: this.env.JWT_ACCESS_TTL,
+        // Brief §5.15 specifies seconds, not minutes.
+        lockAfterSeconds: this.env.SESSION_ABS_TTL_SECONDS,
+        expiresAt: sessionExpiresAt ? sessionExpiresAt.toISOString() : null,
         lockAfterMinutes: Math.floor(this.env.SESSION_ABS_TTL_SECONDS / 60),
       },
       branch: {
         current: currentBranchId,
         allowed: allowed.map((b) => ({ id: b.id, name: b.name, code: b.code })),
       },
+      // Brief §5.15 names these `branches` / `activeBranchId`; the `branch` object
+      // above is the existing shape and is kept in step with them.
+      branches: allowed.map((b) => ({ id: b.id, name: b.name, code: b.code })),
+      activeBranchId: currentBranchId,
       preferences: preference
         ? {
             locale: preference.locale,

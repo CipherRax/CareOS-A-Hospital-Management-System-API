@@ -147,6 +147,10 @@ export const envSchema = z.object({
   // Flips READY report exports to EXPIRED at `expiresAt` (read-side already
   // enforces expiry; this keeps listings honest).
   REPORT_EXPIRY_INTERVAL_MS: z.coerce.number().int().positive().default(300_000),
+  // Alerts on waiting-room displays that stopped checking in (brief §5.16).
+  // Deliberately longer than the 10-minute staleness threshold: a sweep faster
+  // than that could only re-scan rows the previous pass already claimed.
+  DISPLAY_STALE_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(900_000),
   // Row cap per sweep pass — a pass only ever handles this many rows, so a huge
   // backlog drains over several ticks instead of one long transaction.
   SCHEDULER_SWEEP_BATCH: z.coerce.number().int().positive().default(500),

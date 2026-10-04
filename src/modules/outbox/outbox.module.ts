@@ -19,6 +19,8 @@ import { CodingModule } from '../coding/coding.module';
 import { CodingReferenceConsumer } from '../coding/coding.consumer';
 import { DocumentsModule } from '../documents/documents.module';
 import { DocumentScanConsumer } from '../documents/document-scan.consumer';
+import { EmergencyIntakeModule } from '../emergency-intake/emergency-intake.module';
+import { EmergencyNotificationConsumer } from '../emergency-intake/emergency-notifications.consumer';
 
 /**
  * Composition root for the transactional outbox.
@@ -40,6 +42,7 @@ import { DocumentScanConsumer } from '../documents/document-scan.consumer';
     DirectoryModule,
     CodingModule,
     DocumentsModule,
+    EmergencyIntakeModule,
   ],
   providers: [
     {
@@ -54,6 +57,7 @@ import { DocumentScanConsumer } from '../documents/document-scan.consumer';
         coding: CodingReferenceConsumer,
         documentScan: DocumentScanConsumer,
         reportExport: ReportExportConsumer,
+        emergency: EmergencyNotificationConsumer,
       ): OutboxConsumer[] => [
         timeline,
         pharmacyTasks,
@@ -64,6 +68,7 @@ import { DocumentScanConsumer } from '../documents/document-scan.consumer';
         coding,
         documentScan,
         reportExport,
+        emergency,
       ],
       inject: [
         TimelineProjectionConsumer,
@@ -75,6 +80,7 @@ import { DocumentScanConsumer } from '../documents/document-scan.consumer';
         CodingReferenceConsumer,
         DocumentScanConsumer,
         ReportExportConsumer,
+        EmergencyNotificationConsumer,
       ],
     },
     ConsumerOutboxDispatcher,

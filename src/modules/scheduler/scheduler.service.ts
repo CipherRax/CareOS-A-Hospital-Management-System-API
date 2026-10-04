@@ -5,6 +5,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { NotificationDeliveryService } from '../notifications/notifications-delivery.service';
 import { MaintenanceService } from '../operations/maintenance.service';
 import { ReportsService } from '../insights/reports.service';
+import { DisplayService, type DisplayStaleSweepResult } from '../display/display.service';
 
 /** Queue carrying every time-based duty (ADR-044). */
 export const SCHEDULER_QUEUE = 'scheduler';
@@ -13,6 +14,7 @@ export const MAINTENANCE_REMINDER_JOB = 'maintenance-reminders';
 export const IDEMPOTENCY_SWEEP_JOB = 'idempotency-sweep';
 export const REPORT_EXPIRY_JOB = 'report-expiry';
 export const NOTIFICATION_DELIVERY_JOB = 'notification-delivery';
+export const DISPLAY_STALE_SWEEP_JOB = 'display-stale-sweep';
 
 /**
  * Row cap for one outbox claim, matching the batch the retired `worker.ts`
@@ -88,8 +90,18 @@ export class SchedulerService {
     private readonly publisher: OutboxPublisherService,
     private readonly notifications: NotificationDeliveryService,
     private readonly reports: ReportsService,
+    private readonly display: DisplayService,
     @Inject(ENV) private readonly env: Env,
   ) {}
+
+  /**
+   * Alert on waiting-room screens that have stopped checking in. The rule lives
+   * in DisplayService with the rest of device liveness; this module only decides
+   * when it runs.
+   */
+  async sweepStaleDisplayDevices(now = new Date()): Promise<DisplayStaleSweepResult> {
+    return this.display.sweepStaleDevices(now);
+  }
 
   /**
    * Drain committed outbox events. Claims at most one batch per call so a tick

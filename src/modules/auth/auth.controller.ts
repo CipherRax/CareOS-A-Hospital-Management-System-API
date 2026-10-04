@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Patch, Post, Req } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { Throttle } from '@nestjs/throttler';
 import { ApiEndpoint } from '../../common/decorators/api-endpoint.decorator';
@@ -190,8 +190,12 @@ export class AuthController {
   }
 
   @Get('mfa/status')
+  // Remaining recovery codes are a live credential. Same reasoning as /auth/me:
+  // never leave a copy in a cache.
+  @Header('cache-control', 'no-store')
   @ApiEndpoint({
     summary: 'Current MFA state + remaining recovery codes',
+    description: 'Sent with Cache-Control: no-store.',
     operationId: 'authMfaStatus',
     authenticatedOnly: true,
   })
@@ -200,12 +204,17 @@ export class AuthController {
   }
 
   @Get('me')
+  // Session bootstrap returns profile, contact details, the linked patient record
+  // and any active break-glass grant. None of that may sit in a browser disk cache
+  // or a shared proxy after the session ends, so it is explicitly uncacheable.
+  @Header('cache-control', 'no-store')
   @ApiEndpoint({
     summary: 'Effective identity: profile, org, roles and resolved permissions',
     description:
       'Session bootstrap: profile + organization (feature flags), branch context (X-Branch-Id), ' +
       'session MFA staging, break-glass grant, patient link and preferences. ' +
-      'Permissions are re-resolved from role assignments on every request, not from the JWT.',
+      'Permissions are re-resolved from role assignments on every request, not from the JWT. ' +
+      'Sent with Cache-Control: no-store.',
     operationId: 'authMe',
     authenticatedOnly: true,
   })
@@ -232,8 +241,12 @@ export class AuthController {
   }
 
   @Get('sessions')
+  // Device/IP/fingerprint inventory for the account: who is signed in and from
+  // where. Not something a shared cache should ever hold.
+  @Header('cache-control', 'no-store')
   @ApiEndpoint({
     summary: 'List your active sessions (current one flagged)',
+    description: 'Sent with Cache-Control: no-store.',
     operationId: 'authMySessions',
     authenticatedOnly: true,
   })

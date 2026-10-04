@@ -155,7 +155,7 @@ model Organization {
   bedAssignments    BedAssignment[]
   admissions        Admission[]
   discharges        Discharge[]
-  emergencyVisits   EmergencyVisit[]
+emergencyVisits EmergencyVisit[]
 
   notifications            Notification[]
   notificationTemplates    NotificationTemplate[]
@@ -501,6 +501,10 @@ model User {
   bedAssignmentsReleasedBy BedAssignment[] @relation("BedReleasedBy")
   admissionsAdmittedBy     Admission[]     @relation("AdmissionAdmittedBy")
   dischargesDischargedBy   Discharge[]     @relation("DischargeDischargedBy")
+
+  // Emergency-intake escalation contacts that resolve to this user, so a
+  // contact's reachable number has a single source of truth.
+  emergencyContactRoles EmergencyContact[] @relation("EmergencyContactUser")
 
   notificationTemplatesEdited NotificationTemplate[]    @relation("NotificationTemplateEditor")
   notificationsReceived       Notification[]            @relation("NotificationRecipientUser")
@@ -1578,8 +1582,19 @@ model DisplayDevice {
   pairingExpiresAt DateTime?
   tokenHash        String?
   tokenRotatedAt   DateTime?
-  lastSeenAt       DateTime?
-  createdByUserId  String?
+  // Brief §5.16 requires rotation "with an overlap window": after a rotation the
+  // PREVIOUS token stays valid until this instant so a device redeploying in the
+  // gap is not stranded with a token the app has already discarded. Once the
+  // window closes only `tokenHash` authenticates.
+  previousTokenHash      String?
+  previousTokenExpiresAt DateTime?
+  lastSeenAt             DateTime?
+  // Set by the stale sweep the moment it raises a staleness alert, and cleared
+  // whenever the device next checks in. Without it the sweep would re-alert on
+  // every tick for a device that is simply offline, and an admin would learn to
+  // ignore the notification.
+  staleNotifiedAt DateTime?
+  createdByUserId        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3630,6 +3645,11 @@ model EmergencyVisit {
   visitNumber         String
   branchId            String
   patientId           String
+  // Anonymous caller request this arrival was linked to by staff, if any.
+  // Soft pointer: the public request may be anonymized by retention before the
+  // ED record is closed.
+  emergencyRequestId  String?
+  emergencyRequest    EmergencyRequest?     @relation("EmergencyArrivalVisit", fields: [emergencyRequestId], references: [id])
   status              EmergencyVisitStatus  @default(ARRIVED)
   priority            EmergencyPriority?
   registeredById      String?
@@ -3659,6 +3679,7 @@ model EmergencyVisit {
   patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
 
   @@unique([organizationId, visitNumber])
+  @@index([organizationId, emergencyRequestId])
   @@index([organizationId, branchId, status, arrivedAt])
   @@index([organizationId, patientId, arrivedAt])
   @@map("emergency_visits")
@@ -3673,11 +3694,20 @@ model EmergencyVisit {
 // the anonymous public path (NOT in TENANT_MODELS).
 // ---------------------------------------------------------------------------
 
+// Caller-visible and staff lifecycle states (brief §6.15). `CLOSED` is the
+// facility-closed terminal state and `CANCELLED` is the caller-withdrawn one;
+// docs/limitations.md records the brief's CLOSED_BY_FACILITY /
+// CANCELLED_BY_CALLER aliases so operators can map between them.
 enum EmergencyRequestStatus {
   RECEIVED
   ACKNOWLEDGED
+  CONTACTED
   RESPONDING
   ESCALATED
+  REDIRECTED
+  UNREACHABLE
+  DUPLICATE
+  NOT_ACTIONABLE
   CLOSED
   CANCELLED
 }
@@ -3685,11 +3715,45 @@ enum EmergencyRequestStatus {
 enum EmergencyRequestEventType {
   RECEIVED
   ACKNOWLEDGED
+  CONTACTED
   RESPONDING
   ESCALATED
+  REDIRECTED
   CLOSED
   CANCELLED
   RETENTION
+  NOTE
+  CALLBACK
+  STATUS_CHANGED
+  CALLER_UPDATED
+  MERGED
+  LINKED_ARRIVAL
+  DUPLICATE
+  FLAGGED
+}
+
+// What the caller told us. Deliberately NOT a clinical assessment: careOS does
+// not triage, and every value is a plain-language, caller-stated category with
+// NOT_SURE as the default so nothing infers urgency from caller input.
+enum EmergencyCallerCategory {
+  NOT_SURE
+  BREATHING_DIFFICULTY
+  SEVERE_INJURY
+  UNCONSCIOUS
+  CHEST_PAIN
+  HEAVY_BLEEDING
+  OTHER
+}
+
+enum EmergencyPreferredContact {
+  PHONE
+  SMS
+}
+
+enum EmergencyLocationSource {
+  NONE
+  DEVICE_GPS
+  MANUAL
 }
 
 enum PublicNoticeSeverity {
@@ -3714,6 +3778,16 @@ model EmergencyIntakePolicy {
   levelSeconds         Json
   // Display phone for this branch; falls back to the branch/listings phone.
   emergencyPhone       String?
+  // Seconds a staff member has to acknowledge before level 1 escalates. Null
+  // falls back to the first escalation level's `levelSeconds`.
+  ackSlaSeconds        Int?
+  // Whether the facility runs its own ambulances. Purely informational for the
+  // caller copy — careOS never dispatches or promises a response.
+  ambulanceAvailable   Boolean  @default(false)
+  // Plain-language description of the area this branch serves.
+  serviceArea          String?
+  // Extra caller-facing guidance (accessibility, languages, where to wait).
+  autoReplyTemplate    String?
   updatedAt            DateTime @updatedAt
   version              Int      @default(0)
 
@@ -3731,11 +3805,23 @@ model EmergencyContact {
   branchId       String
   name           String
   // Staff escalation phone (org-internal; not caller PII, stored plaintext).
-  phone          String
+  // At least one of `phone` / `userId` must be set — see the CHK in the
+  // migration — so a contact can be a staff member, a phone line, or both.
+  phone          String?
+  // When set, escalation resolves to this user's own phone (a single source of
+  // truth) instead of the free-text `phone` field.
+  userId         String?
   role           String
   // Escalation chain position (1-based). Attempted in order per level.
   order          Int
   active         Boolean  @default(true)
+  // Whether the contact is reachable right now. A disabled contact is never
+  // counted toward the intake-enable guard and never notified.
+  onCall         Boolean  @default(true)
+  // Per-shift availability windows (`[{ day, start, end }]`, facility-local time).
+  // Empty means always on call. See domain/on-call-window.ts; a contact is
+  // reachable when `onCall` is true AND the current time falls in a window.
+  onCallWindows  Json?
   notes          String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -3743,9 +3829,10 @@ model EmergencyContact {
 
   organization Organization @relation("EmergencyContactOrg", fields: [organizationId], references: [id], onDelete: Restrict)
   branch       Branch       @relation("EmergencyContactBranch", fields: [branchId], references: [id], onDelete: Restrict)
+  user         User?        @relation("EmergencyContactUser", fields: [userId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, branchId, order])
-  @@index([organizationId, branchId, active])
+  @@index([organizationId, branchId, active, onCall])
   @@map("emergency_contacts")
 }
 
@@ -3756,6 +3843,12 @@ model EmergencyRequest {
   referenceNumber   String
   // sha256 hex of the caller's tracking token; only hashes are persisted.
   trackingTokenHash String                 @unique
+  // Absolute expiry for the tracking token. The caller-facing copy stops
+  // promising updates after this even if the row is still retained.
+  trackingTokenExpiresAt DateTime?
+  // Caller-supplied idempotency key. Scoped per org, so a retried submit from
+  // the same browser returns the original request instead of paging twice.
+  clientRequestId  String?
   status            EmergencyRequestStatus @default(RECEIVED)
   // 0 = not escalated; N = escalated to contact N (order). Read model
   // convenience over the event history (ADR-040).
@@ -3771,10 +3864,37 @@ model EmergencyRequest {
   // (approximate, never a home address).
   locationLat       Float?
   locationLng       Float?
+  // Caller-stated accuracy of locationLat/locationLng in metres, and how the
+  // point was obtained. Approximate only: never a home address (brief §6.15).
+  locationAccuracyM Float?
+  locationSource    EmergencyLocationSource @default(NONE)
   landmarkEnc       String?
   staffNoteEnc      String?
   source            String                 @default("PUBLIC")
 
+  // Plain-language, caller-stated category. Not a clinical assessment and
+  // never used to rank or delay a request.
+  callerCategory    EmergencyCallerCategory @default(NOT_SURE)
+  // Whether the caller is asking for themselves or on someone else's behalf.
+  forSelf           Boolean                  @default(true)
+  peopleCount       Int                      @default(1)
+  preferredContact  EmergencyPreferredContact @default(PHONE)
+  locale            String?
+  // Caller consent capture (version + timestamp) for the copied disclosure
+  // text. Absent means the request predates consent capture.
+  consentVersion    String?
+  consentAt         DateTime?
+  // True when the caller cannot be reached on the number supplied.
+  flagged           Boolean                  @default(false)
+  flagReason        String?
+  // Set on REDIRECTED / NOT_ACTIONABLE so the caller copy can name the reason
+  // without deriving it from the free-text event payload.
+  statusReason      String?
+  // Set on UNREACHABLE the first time a callback attempt fails.
+  firstCallbackAt   DateTime?
+  // Set when a DUPLICATE request is merged into this canonical request.
+  mergedCount       Int                      @default(0)
+  mergedIntoId      String?
   acknowledgedById String?
   acknowledgedAt   DateTime?
   respondedById    String?
@@ -3787,6 +3907,12 @@ model EmergencyRequest {
   // `retainedAt` is stamped so the job is idempotent and the incident history
   // (events) outlives the caller's PII (ADR-043).
   retainedAt       DateTime?
+  // When the request reached a disposition the facility is finished with.
+  // Distinct from `closedAt`: UNREACHABLE / REDIRECTED / NOT_ACTIONABLE / DUPLICATE
+  // are finished for the facility but are not "closed", and staff may still read
+  // the row. The retention sweep keys off this so those four are reaped too — the
+  // alternative was caller PII being kept indefinitely (ADR-055).
+  dispositionAt    DateTime?
 
   version   Int      @default(0)
   createdAt DateTime @default(now())
@@ -3794,13 +3920,22 @@ model EmergencyRequest {
 
   organization Organization @relation("EmergencyRequestOrg", fields: [organizationId], references: [id], onDelete: Restrict)
   branch       Branch       @relation("EmergencyRequestBranch", fields: [branchId], references: [id], onDelete: Restrict)
+  mergedInto   EmergencyRequest?  @relation("EmergencyRequestMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom   EmergencyRequest[] @relation("EmergencyRequestMerge")
 
   events EmergencyRequestEvent[]
+  // ED arrivals linked to this request by staff (brief §6.15) — the only join
+  // between an anonymous public request and a clinical workflow.
+  linkedArrivals EmergencyVisit[] @relation("EmergencyArrivalVisit")
 
   @@unique([organizationId, referenceNumber])
+  // Idempotency: one request per org per caller-supplied key. Nullable, so
+  // requests submitted without a key are unconstrained (Postgres NULLs).
+  @@unique([organizationId, clientRequestId])
   @@index([organizationId, status, createdAt])
   @@index([organizationId, branchId, createdAt])
   @@index([status, retainedAt])
+  @@index([organizationId, branchId, status])
   @@map("emergency_requests")
 }
 
@@ -3837,9 +3972,21 @@ model EmergencyNumber {
   phone     String
   hours     String?
   public    Boolean  @default(true)
-  updatedAt DateTime @updatedAt
+  // Reference data, not an integration. `verified` stays false until an
+  // operator confirms the number against the official source, and the caller
+  // copy always pairs it with "call now" framing (brief §6.15).
+  verified  Boolean  @default(false)
+  // Brief §6.15 names `channel`, `active` and `verifiedAt`. `verified` stays as a
+  // denormalised flag so existing callers/tests keep working; `verifiedAt` records
+  // when an operator confirmed the number against the official source.
+  channel    String   @default("VOICE")
+  active     Boolean  @default(true)
+  verifiedAt DateTime?
+  note       String?
+  updatedAt  DateTime @updatedAt
 
   @@index([country, purpose, public])
+  @@index([country, purpose, active])
   @@map("emergency_numbers")
 }
 
@@ -3852,6 +3999,11 @@ model PublicNotice {
   active    Boolean              @default(true)
   startsAt  DateTime             @default(now())
   endsAt    DateTime?
+  // Brief §6.14: a published notice must carry who reviewed it and when. No
+  // notice ships pre-populated — the table starts empty and operators write
+  // reviewed copy themselves.
+  reviewedBy  String?
+  reviewedAt  DateTime?
   updatedAt DateTime             @updatedAt
 
   @@index([active, startsAt, endsAt])
@@ -4643,6 +4795,7 @@ model PublicFacilityListing {
   departments   Json?
   insurance     String[]
   accessibility String[]
+  languages     String[]
   services      Json?
   feeNote       Json?
 
@@ -4655,6 +4808,10 @@ model PublicFacilityListing {
 
   locationLat Float?
   locationLng Float?
+  // PostGIS point for index-assisted radius search. Populated by the writer
+  // when the PostGIS extension is present; the haversine fallback covers
+  // databases without it (ADR-039).
+  location Unsupported("geography(Point,4326)")?
 
   status               PublicListingStatus      @default(DRAFT)
   verificationStatus   PublicVerificationStatus @default(UNVERIFIED)

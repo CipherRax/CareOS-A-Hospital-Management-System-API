@@ -13,16 +13,37 @@ npm run test:unit   # same as npm test (base config is pinned to test/unit)
 npm run test:e2e    # containerized infra (Postgres + Redis via Testcontainers)
 ```
 
-Status: **GREEN.**
+Status: **GREEN** (static + unit + build). E2E unverified this pass — Docker is
+unavailable in this environment, so `test:e2e` and the un-applied migration
+below have not been exercised.
 
 | Check        | Result |
 | ------------ | ------ |
 | `lint`       | pass   |
 | `typecheck`  | pass   |
-| `boundaries` | pass   |
-| `npm test`   | 699/699 unit (74 suites) |
+| `boundaries` | pass (401 modules, 1,967 deps) |
+| `npm test`   | 916/916 unit (87 suites) |
 | `build`      | pass   |
-| `test:e2e`   | 283/283 (22 suites, fresh Testcontainers infra) |
+| `test:e2e`   | **not run** — Docker unavailable |
+
+### Unverified this pass
+
+- `prisma/migrations/20261006090000_patch_emergency_contract_closure/` has not
+  been applied. It now also carries `emergency_numbers.channel/active/verifiedAt`,
+  `public_notices.reviewedBy/reviewedAt`, `emergency_contacts.onCallWindows`,
+  `display_devices.previousTokenHash/previousTokenExpiresAt`,
+  `display_devices.staleNotifiedAt`, and `emergency_requests.dispositionAt`. All
+  are additive and `IF NOT EXISTS`, but
+  PostGIS, the enum/check constraints, the ADR-055 `dispositionAt` backfill, and
+  the `careos_public` grants still need a real Postgres run.
+- The new `DeviceAuthGuard` overlap path and the SSE `reply.raw.end()` teardown
+  are unit-tested only; the latter in particular needs a live Redis subscriber
+  to prove a revoked stream actually closes.
+- The ADR-055 retention widening (`applyRetention` now covers all six finished
+  dispositions via `dispositionAt`) is unit-tested against the query, but has
+  never run against a live sweep. The migration backfill for pre-existing
+  non-closed rows is an inference (`COALESCE(closedAt, cancelledAt, updatedAt)`)
+  and has not been exercised on real data.
 
 ## Phase 0 — Foundations (COMPLETE)
 
@@ -1951,3 +1972,133 @@ Notes:
   org- and record-based and shares nothing with this patch's changes, so this was
   read as first-run container warm-up rather than a regression — recorded here
   rather than quietly dropped.
+
+## Phase 12 closure — contract parity for emergency, directory, and display
+
+Continued after the Phase 12 audit. The audit had recorded several brief
+requirements as "documented deviations"; this pass closes them rather than
+writing them down.
+
+Emergency (§6.15):
+
+- `EmergencyNumber` gains the fields the brief names and the code lacked:
+  `channel`, `active`, `verifiedAt`. `active: false` retires a number from the
+  caller surface without deleting its audit trail, and is filtered in
+  `listPublicNumbers`. Setting `verifiedAt` sets `verified` in the same write, so
+  an operator can confirm a number with one field and the audit row still records
+  when.
+- `EmergencyContact` gains `onCallWindows` (`[{ day, start, end }]`,
+  facility-local) plus `domain/on-call-window.ts`. See ADR-054: windows decide
+  who gets paged and never gate whether a caller can submit — the naive reading
+  of the requirement would refuse a 03:00 caller to a night-only roster.
+- `PublicNotice` gains `reviewedBy`/`reviewedAt` (§6.14), stamped from the
+  session rather than the body. Deactivating a notice preserves its provenance.
+- Route aliases registered on the same controller, throttles, and 429 filter
+  included: `/public/emergency-requests` alongside `/public/emergency` (ADR-052).
+
+Public directory (§6.14):
+
+- `GET /public/config` and `GET /public/locations/suggest?q=` added as first-class
+  endpoints, alongside the existing `facilities/config` and `geocode`.
+
+Display (§5.16):
+
+- Pairing attempt window corrected from 15 to the brief's 10 minutes.
+- Token rotation now implements the overlap window the brief asks for: the
+  outgoing digest is retained for ten minutes and accepted by
+  `DeviceAuthGuard`, which also checks expiry so an un-cleaned row cannot extend a
+  token's life. Revoke and re-pair clear both digests (ADR-053).
+- `serializeDevice` exposes `previousTokenValidUntil` (never a digest) so a
+  rotation in progress is legible to an operator.
+
+`/auth/me` (§5.15): every field the brief names is now present —
+`featureFlags`, `roleDetails` (`{id,key,name}`), `user.roles` (same objects,
+nested on the user), `branches`, `activeBranchId`, `patientLink`, `user.mfa`,
+`security`, `session.lockAfterSeconds`/`expiresAt` — added alongside the existing
+spellings, which are retained. `activeBranchId` is asserted equal to
+`branch.current` (ADR-052).
+
+One name could not be satisfied additively: the brief models break-glass as an
+array, but the deployed API already had `breakGlass` as a single object|null, so
+the two shapes cannot coexist under one key. Per ADR-052 the deployed field was
+left alone and the array published as `breakGlassGrants`. An earlier pass wrote
+that "every field the brief names is now present"; that overstated it — the brief
+array is reachable under a different name until the old field is deprecated in a
+later phase.
+
+Bug found and fixed while verifying the above: all three SSE handlers
+(`display`, `emergency-request`, `realtime`) cleared their heartbeat and quit
+their Redis subscriber on revoke, but never called `reply.raw.end()`. The socket
+stayed open, so each revocation leaked a connection and a revoked screen sat on a
+blank board with no error. All three now end the response, guarded against a
+double teardown, and the emergency and realtime handlers emit an `error` frame
+before closing so a dead stream is not indistinguishable from a quiet one.
+
+Tests: 886 unit across 85 suites (+187 from this pass). New suites:
+`on-call-window.spec.ts`, `device-auth-guard.spec.ts`, `token-rotation.spec.ts`,
+`disposition.spec.ts`, plus contract and reference-data cases added to
+`auth-me.spec.ts`, `intake-readiness.spec.ts`, `emergency-intake.service.spec.ts`,
+and `emergency-reference-admin.spec.ts`. Three real defects were caught by these
+tests and fixed: `isValidOnCallWindow` dereferenced a `null` from an untrusted
+JSON column, `EmergencyNumber` writes were spreading a DTO whose `userId` conflicts
+with Prisma's relation typing, and the retention sweep's age test indexed its
+mock's argument list instead of the write payload (a test bug, which had been
+masking the real one below).
+
+Privacy defect found and fixed (ADR-055): the retention sweep matched only
+`CLOSED`/`CANCELLED` via `closedAt`/`cancelledAt`, so the four other finished
+dispositions — `UNREACHABLE`, `REDIRECTED`, `NOT_ACTIONABLE`, `DUPLICATE` —
+kept their encrypted caller name, phone, description, and landmark forever. All
+four are terminal (`isTerminalStatus` blocks reopening) but none of the first
+three ever wrote a timestamp the sweep could see. A dedicated `dispositionAt`
+now records when the facility became done, write-once so re-triaging cannot
+restart the clock, and `closedAt` stays a factual "staff closed this" stamp
+rather than being overloaded for four states it does not describe. Migration
+backfills pre-existing rows with
+`COALESCE(closedAt, cancelledAt, updatedAt)`; the sweep prefers `dispositionAt`
+and falls back to the old columns only where it is `NULL`, so nothing is
+stranded. The existing reap already retires the tracking token, so a stale
+token cannot resurrect a redacted request.
+
+The pre-existing retention tests mocked `findMany` and were handed the
+candidates they asserted against, so they never inspected the query that held
+the bug — and passed against it. The new cases assert the sweep filter itself.
+
+Second pass over the same list, closing three more gaps:
+
+- **The emergency alias did not exist.** ADR-052 and this file both recorded
+  `/public/emergency-requests` as delivered. It was not: a prefix array plus
+  `@Post('requests')` registers `/public/emergency-requests/requests`, not the
+  brief's flat path. Fixed with a dedicated alias controller
+  (`PublicEmergencyRequestsController`) registering `POST
+  /public/emergency-requests` and its `update`/`track`/`cancel` siblings against
+  the same service, same throttles, and the same class-level 429 filter.
+  `POST /display/pair` was missing entirely and now has
+  `DisplayPairAliasController`. Both are marked `deprecated` in Swagger so the
+  deployed spellings stay the ones a new integrator is steered to.
+  `test/unit/routing/brief-routes.spec.ts` reads Nest's actual path metadata, so
+  a route claimed in an ADR but absent from the router now fails a test. It was
+  verified to fail when the prefix array is restored.
+- **`user.roles` was missing.** The brief puts role objects on the user; only
+  `roleDetails` (top-level) and `roleSummary` existed. `user.roles` is now the
+  contract shape, asserted equal to `roleDetails`.
+  `breakGlass` remains the one name that could not be satisfied additively — see
+  the correction above.
+- **Stale displays now alert (ADR-056).** They were derived as a flag in the
+  admin list, which meant a waiting room could stare at a dead board with nothing
+  saying so. `DisplayService.sweepStaleDevices` runs on the platform scheduler
+  and pages the org's `display.devices.manage` holders. Claims `staleNotifiedAt`
+  with a guarded update before notifying (once per outage), re-armed by heartbeat
+  and re-pairing, cross-org with per-device failure isolation. Only device name,
+  branch name, and elapsed minutes are interpolated — the board is patient-facing
+  data.
+
+Tests: 916 unit across 87 suites. New this pass: `brief-routes.spec.ts` (11
+cases, route-table derived), `stale-alert.spec.ts` (16), plus display-stale
+template cases and the scheduler duty. The scheduler's own test caught the new
+duty by hardcoding the expected registration count, which is the behaviour you
+want from that suite.
+
+Still open, unchanged: `careos_public` has no integration test proving it cannot
+read tenant tables, and outbound SMS/push for emergency escalation does not exist
+(recorded in `docs/limitations.md`).

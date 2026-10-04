@@ -667,6 +667,59 @@ describe('session bootstrap & display devices (Phase P1)', () => {
     expect(data.preferences).toBeNull();
   });
 
+  it('GET /auth/me exposes the brief §5.15 field names alongside the originals', async () => {
+    const token = await login();
+    const res = await app.inject({ method: 'GET', url: url('/auth/me'), headers: bearer(token) });
+    expect(res.statusCode).toBe(200);
+    const data = res.json().data;
+
+    // Roles as objects, with the scalar key list still present.
+    expect(data.roleDetails).toEqual([{ id: adminRoleId, key: 'SUPER_ADMIN', name: 'Super Admin' }]);
+    expect(data.roles).toEqual(['SUPER_ADMIN']);
+
+    // featureFlags mirrors features; branches/activeBranchId mirror branch.
+    expect(data.organization.featureFlags).toEqual(data.organization.features);
+    expect(data.branches).toEqual(data.branch.allowed);
+    // Two spellings of one fact must not drift apart.
+    expect(data.activeBranchId).toBe(data.branch.current);
+
+    // Nested MFA state and the top-level security object.
+    expect(data.user.mfa).toEqual({
+      enabled: false,
+      required: false,
+      verifiedThisSession: false,
+    });
+    expect(data.security.passwordChangeRequired).toBe(data.user.passwordChangeRequired);
+
+    // Seconds, not minutes: a client multiplying this by 1000 would lock out
+    // almost immediately.
+    expect(data.session.lockAfterSeconds).toBeGreaterThan(0);
+    expect(data.session.lockAfterSeconds).toBe(data.session.lockAfterMinutes * 60);
+
+    expect(data.patientLink).toBeNull();
+    expect(data.breakGlassGrants).toEqual([]);
+  });
+
+  it('GET /auth/me is not cacheable', async () => {
+    // The payload carries a user's permissions and MFA state; a shared cache must
+    // never be able to hand one session's bootstrap payload to another.
+    const token = await login();
+    const res = await app.inject({ method: 'GET', url: url('/auth/me'), headers: bearer(token) });
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+
+  it('sends session bootstrap with Cache-Control: no-store', async () => {
+    // The bootstrap payload carries profile, contact details and the patient
+    // link. No copy may survive in a browser cache or a shared proxy.
+    const token = await login();
+
+    for (const path of ['/auth/me', '/auth/mfa/status', '/auth/sessions']) {
+      const res = await app.inject({ method: 'GET', url: url(path), headers: bearer(token) });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['cache-control']).toBe('no-store');
+    }
+  });
+
   it('sets preferences and reflects the default branch in /auth/me', async () => {
     const token = await login();
 
@@ -718,6 +771,62 @@ describe('session bootstrap & display devices (Phase P1)', () => {
     });
     expect(denied.statusCode).toBe(403);
     expect(denied.json().error.code).toBe('TENANT_ACCESS_DENIED');
+  });
+
+  it('never reports a current branch the account does not hold', async () => {
+    // Second line of defence behind the guard above: `branch.current` drives the
+    // client's navigation, so it must only ever name an assigned branch even if
+    // the scope somehow carried another.
+    const token = await login();
+
+    const otherBranch = await prisma.unscoped().branch.create({
+      data: {
+        id: newId(),
+        organizationId: orgA,
+        name: 'Unassigned Branch',
+        code: 'UNASSIGNED',
+      },
+    });
+
+    const scoped = await app.inject({
+      method: 'GET',
+      url: url('/auth/me'),
+      headers: { ...bearer(token), 'x-branch-id': otherBranch.id },
+    });
+    // The guard rejects an unassigned branch outright, so the client never
+    // bootstraps onto it.
+    expect(scoped.statusCode).toBe(403);
+
+    // And a branch that was assigned at bootstrap but since revoked is dropped
+    // from `current` rather than echoed back.
+    const assigned = await prisma.unscoped().userBranch.create({
+      data: {
+        id: newId(),
+        organizationId: orgA,
+        userId: await prisma
+          .unscoped()
+          .user.findFirstOrThrow({
+            where: { organizationId: orgA, email: 'bootstrap-admin@identity.test' },
+            select: { id: true },
+          })
+          .then((u) => u.id),
+        branchId: otherBranch.id,
+      },
+    });
+    const ok = await app.inject({
+      method: 'GET',
+      url: url('/auth/me'),
+      headers: { ...bearer(token), 'x-branch-id': otherBranch.id },
+    });
+    expect(ok.json().data.branch.current).toBe(otherBranch.id);
+
+    await prisma.unscoped().userBranch.delete({ where: { id: assigned.id } });
+    const revoked = await app.inject({
+      method: 'GET',
+      url: url('/auth/me'),
+      headers: { ...bearer(token), 'x-branch-id': otherBranch.id },
+    });
+    expect(revoked.statusCode).toBe(403);
   });
 
   it('registers a display device, rescans it, and serves the queue to the device', async () => {

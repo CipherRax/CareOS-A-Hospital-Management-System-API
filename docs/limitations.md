@@ -207,14 +207,19 @@ working code with a caveat.
   location or an explicit caller location; a publish re-enable
   (SUSPENDED→PUBLISHED) does not resubmit background jobs already scheduled
   under the previous policy.
-- **P4 retention anonymization is snowballing but not distributed (ADR-043).**
-  `applyRetention` (P4) stamps `retainedAt`, retires the tracking token and
-  nulls caller PII for CLOSED/CANCELLED requests past `EMERGENCY_RETENTION_DAYS`
-  on a guarded, per-tenant tx; the reference number, append-only event history,
-  and outbox/audit rows are NOT rewritten (by design — the request stays
-  traceable for audit without caller PII). The sweep is an in-process tick, not a
-  TTL/partitioned storage strategy, and emergency numbers / notices are never
-  purged.
+- **P4 retention anonymization is snowballing but not distributed (ADR-043,
+  ADR-055).** `applyRetention` (P4) stamps `retainedAt`, retires the tracking
+  token and nulls caller PII for *every finished disposition* — `CLOSED`,
+  `CANCELLED`, `UNREACHABLE`, `REDIRECTED`, `NOT_ACTIONABLE`, `DUPLICATE` —
+  past `EMERGENCY_RETENTION_DAYS` on a guarded, per-tenant tx; the reference
+  number, append-only event history, and outbox/audit rows are NOT rewritten
+  (by design — the request stays traceable for audit without caller PII). The
+  age test prefers `dispositionAt` and falls back to `closedAt`/`cancelledAt`
+  only where `dispositionAt IS NULL`, so rows predating that column still age
+  out; for those rows the timestamp is a `COALESCE(closedAt, cancelledAt,
+  updatedAt)` inference, not a recorded fact. The sweep is an in-process tick,
+  not a TTL/partitioned storage strategy, and emergency numbers / notices are
+  never purged.
 - **`patient-experience` composite needs populated cohorts to be meaningful, and
   an all-unknown weights set yields `null`.** Components with zero samples are
   dropped from the weighted average (never computed as 0), so early histories
@@ -252,6 +257,29 @@ working code with a caveat.
 
 ## Known caveats in shipped code
 
+- **Emergency auto-reply and final escalation have no outbound SMS/push.** §6.15
+  asks for a neutral SMS to on-call contacts, an auto-reply SMS to the caller,
+  and a final nudge to the caller. In-app notifications and the realtime stream
+  are implemented and PHI-free; SMS/push are queued and logged instead of being
+  silently dropped. `NOTIFICATION_CHANNELS` therefore cannot deliver
+  `emergency.*` events off-system yet, so a caller who has walked away from a
+  browser learns nothing further. Every caller-facing payload still carries the
+  national numbers and the "call now" action.
+- **On-call windows are facility-local and evaluated per notification.** They are
+  compared against the server clock in the facility's configured timezone, so a
+  facility whose DST rules are wrong will page the wrong shift. Windows never
+  gate intake (ADR-054), so a window error cannot refuse a caller — the failure
+  mode is a mis-page, not a refusal.
+- **`EmergencyNumber.channel` is descriptive only.** It records how a number
+  should be used (`VOICE`/`SMS`/`WHATSAPP`/`MOBILE`) and is not wired to a
+  provider. `active: false` retires a number from the caller surface without
+  deleting its audit trail; the built-in fallbacks still apply for a purpose the
+  table does not cover, so retiring a local number re-exposes the built-in
+  national one for that purpose only if no row remains.
+- **`PublicNotice.reviewedBy`/`reviewedAt` are stamped from the session, not a
+  submitted value.** A client cannot publish copy on someone else's behalf. The
+  table ships empty by design, and the default notice is generated in code, so no
+  unreviewed operator copy can reach a caller.
 - **A patient login is one-to-one with a record.** `patients.userId` is
   `UNIQUE`, because `TenantScope.patientId` is a single value and eight services
   plus the notifications principal identity assume one. A parent or carer
@@ -301,7 +329,19 @@ working code with a caveat.
   for the rows themselves.
 - **Display `GET /display/queue` and `POST /admin/display-devices*` alias the
   existing `POST /display/devices*` surface (P1).** Both route families call
-  the same `DisplayService`; there is one implementation, not two.
+  the same `DisplayService`; there is one implementation, not two. The brief's
+  own paths — `POST /display/pair` and the flat `POST /public/emergency-requests`
+  namespace — are registered alongside the deployed ones on alias controllers
+  that delegate to the same service methods (ADR-052).
+- **Stale display alerting is in-app only and fires at most once per outage
+  (ADR-056).** A screen that stops checking in raises one notification to the
+  org's `display.devices.manage` holders, and `staleNotifiedAt` is cleared only
+  when the device checks in again or is re-paired. Two consequences: an outage
+  that begins during a sweep interval waits up to
+  `DISPLAY_STALE_SWEEP_INTERVAL_MS` (default 15 min) plus the 10-minute
+  staleness threshold, and a device that cannot be notified is counted in
+  `failed` and logged but not retried — a broken tenant row must not become an
+  alert loop. No off-system channel is used for this alert.
 - **RLS is a backstop, not the primary control.** `app.current_org` is set via
   `SELECT set_config(...)` inside interactive transactions. Because Prisma may
   open multiple logical connections per transaction, the setting is not

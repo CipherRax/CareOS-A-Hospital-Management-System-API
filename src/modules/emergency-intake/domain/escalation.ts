@@ -59,16 +59,12 @@ export function escalationDepth(levelSeconds: Prisma.JsonValue | undefined): num
  * Caller-facing guidance derived from the request read model. ADR-040: only a
  * staff-set RESPONDING implies help is coming; everything short of that while
  * the final escalation level is reached is CALL_NOW.
+ *
+ * A caller who could not be reached, whose request was closed without action, or
+ * whose request was a duplicate must not be told to keep waiting: nothing more
+ * will happen on our side and no responder is confirmed, so the safe action is a
+ * phone call.
+ *
+ * The message table lives with the other caller copy in `./caller-copy`.
  */
-export function callerAction(request: {
-  status: string;
-  escalationLevel: number;
-  acknowledgedAt: Date | null;
-  respondedAt: Date | null;
-}): 'WAIT' | 'CALL_NOW' | 'HELP_ON_WAY' {
-  if (request.respondedAt) return 'HELP_ON_WAY';
-  if (request.status === 'CANCELLED' || request.status === 'CLOSED') return 'WAIT';
-  if (request.acknowledgedAt) return 'WAIT';
-  if (request.escalationLevel > 0) return 'CALL_NOW';
-  return 'WAIT';
-}
+export { callerAction } from './caller-copy';

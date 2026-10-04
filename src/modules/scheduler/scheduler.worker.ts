@@ -3,6 +3,7 @@ import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
 import { ENV, type Env } from '../../config/config.module';
 import {
+  DISPLAY_STALE_SWEEP_JOB,
   IDEMPOTENCY_SWEEP_JOB,
   MAINTENANCE_REMINDER_JOB,
   NOTIFICATION_DELIVERY_JOB,
@@ -74,6 +75,13 @@ export class SchedulerWorker extends WorkerHost implements OnApplicationBootstra
         every: this.env.NOTIFICATION_DELIVERY_INTERVAL_MS,
         jobId: 'careos-scheduler-notification-delivery',
       },
+      {
+        // Cadence is the staleness window plus slack: anything faster would only
+        // re-scan rows the previous pass already claimed.
+        name: DISPLAY_STALE_SWEEP_JOB,
+        every: this.env.DISPLAY_STALE_SWEEP_INTERVAL_MS,
+        jobId: 'careos-scheduler-display-stale',
+      },
     ];
   }
 
@@ -139,6 +147,15 @@ export class SchedulerWorker extends WorkerHost implements OnApplicationBootstra
         this.logger.log(
           `notification delivery: ${result.sent} sent, ${result.suppressed} suppressed, ${result.retrying} retrying, ${result.failed} failed of ${result.attempted} due`,
         );
+        return;
+      }
+      case DISPLAY_STALE_SWEEP_JOB: {
+        const result = await this.scheduler.sweepStaleDisplayDevices();
+        if (result.alerted > 0 || result.failed > 0) {
+          this.logger.log(
+            `display stale sweep: ${result.alerted} alerted of ${result.detected} detected${result.failed ? `, ${result.failed} failed` : ''}`,
+          );
+        }
         return;
       }
       default:

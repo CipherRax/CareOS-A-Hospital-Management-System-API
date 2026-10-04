@@ -5,11 +5,15 @@ import { ENV } from '../../config/config.module';
 import { FieldEncryption } from '../../common/security/crypto';
 import { BullQueuesModule } from '../../jobs/bull-queues.module';
 import { PublicEmergencyController } from './public-emergency.controller';
+import { PublicEmergencyRequestsController } from './public-emergency-requests.controller';
 import { EmergencyRequestController } from './emergency-request.controller';
 import { IntakeSettingsController } from './intake-settings.controller';
 import { EmergencyAdminController } from './emergency-admin.controller';
 import { EmergencyIntakeService, ESCALATION_QUEUE } from './emergency-intake.service';
 import { EmergencyIntakeWorker } from './emergency-escalation.worker';
+import { EmergencyNotificationConsumer } from './emergency-notifications.consumer';
+import { EmergencyRateLimitFilter } from './emergency-rate-limit.filter';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 /**
  * Public emergency intake (brief §6.15). The anonymous surface reads only the
@@ -21,9 +25,14 @@ import { EmergencyIntakeWorker } from './emergency-escalation.worker';
  * (ADR-043), registered only outside NODE_ENV=test.
  */
 @Module({
-  imports: [BullQueuesModule, BullModule.registerQueue({ name: ESCALATION_QUEUE })],
+  imports: [
+    BullQueuesModule,
+    BullModule.registerQueue({ name: ESCALATION_QUEUE }),
+    NotificationsModule,
+  ],
   controllers: [
     PublicEmergencyController,
+    PublicEmergencyRequestsController,
     EmergencyRequestController,
     IntakeSettingsController,
     EmergencyAdminController,
@@ -31,6 +40,11 @@ import { EmergencyIntakeWorker } from './emergency-escalation.worker';
   providers: [
     EmergencyIntakeService,
     EmergencyIntakeWorker,
+    // Pages on-call contacts when a request arrives or escalates. Bodies are
+    // reference-only so no caller PHI reaches an SMS/email channel.
+    EmergencyNotificationConsumer,
+    // Turns a 429 on the anonymous surface into EMERGENCY_CALL_NOW + numbers.
+    EmergencyRateLimitFilter,
     {
       provide: FieldEncryption,
       useFactory: (env: Env) => new FieldEncryption(env.KEY_ENCRYPTION_SECRET),

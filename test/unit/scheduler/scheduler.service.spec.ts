@@ -48,6 +48,7 @@ function makeService(mocks: Mocks, env: Record<string, unknown> = {}) {
     publisher as never,
     notifications as never,
     reports as never,
+    { sweepStaleDevices: jest.fn().mockResolvedValue({ detected: 0, alerted: 0, failed: 0 }) } as never,
     {
       SCHEDULER_SWEEP_BATCH: 500,
       SCHEDULER_ORG_BATCH: 2,

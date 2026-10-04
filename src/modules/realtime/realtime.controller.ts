@@ -71,9 +71,17 @@ export class RealtimeController {
       reply.raw.write(': ping\n\n');
     }, 15_000);
     const closed = () => {
+      if (finished) return;
+      finished = true;
       clearInterval(heartbeat);
       sub.quit().catch(() => {});
+      try {
+        reply.raw.end();
+      } catch {
+        // Already torn down by the client.
+      }
     };
+    let finished = false;
     req.raw.on('close', closed);
     reply.raw.on('error', closed);
 
@@ -82,6 +90,12 @@ export class RealtimeController {
         { channels, err: err instanceof Error ? err.message : String(err) },
         'realtime subscribe failed',
       );
+      // A failed subscribe must not leave the caller connected to nothing: the
+      // stream would look live while never delivering another event.
+      reply.raw.write(
+        `event: error\ndata: ${JSON.stringify({ error: err instanceof Error ? err.message : String(err) })}\n\n`,
+      );
+      closed();
     });
     sub.on('message', (_ch: string, raw: string) => {
       try {

@@ -30,6 +30,45 @@ export const BUILT_IN_TEMPLATES: Record<
       'A coding reference set was imported. Codes added: [inserted] of [total]. Reference: [codingSystemId].',
     allowlistedVariables: ['codingSystemId', 'inserted', 'total'],
   },
+  // Emergency intake (brief §6.15). These pages a human; they are deliberately
+  // reference-only — no caller name, phone number, location, or description is
+  // ever interpolated into a notification body. Staff open the request to see
+  // caller detail. Keeping PHI out of the body also keeps it out of SMS/email
+  // payloads on off-system channels.
+  'emergency.request_received': {
+    subjectTemplate: 'New emergency help request [referenceNumber]',
+    bodyTemplate:
+      'A new emergency help request was received at [branchName]. Reference: [referenceNumber]. Open the emergency inbox for details.',
+    allowlistedVariables: ['referenceNumber', 'branchName'],
+  },
+  'emergency.escalation': {
+    subjectTemplate: 'Emergency request [referenceNumber] escalated to level [level]',
+    bodyTemplate:
+      'Emergency request [referenceNumber] at [branchName] reached escalation level [level] with no responder confirmed. Open the emergency inbox.',
+    allowlistedVariables: ['referenceNumber', 'branchName', 'level'],
+  },
+  'emergency.final_escalation': {
+    subjectTemplate: 'Emergency request [referenceNumber] reached final escalation',
+    bodyTemplate:
+      'Emergency request [referenceNumber] at [branchName] reached its final escalation level and no responder has confirmed. This is the last automated step — act now in the emergency inbox.',
+    allowlistedVariables: ['referenceNumber', 'branchName'],
+  },
+  'emergency.request_unreachable': {
+    subjectTemplate: 'Emergency request [referenceNumber] could not reach the caller',
+    bodyTemplate:
+      'A callback attempt for emergency request [referenceNumber] at [branchName] did not reach the caller. The request is flagged as unreachable.',
+    allowlistedVariables: ['referenceNumber', 'branchName'],
+  },
+  // Display devices (brief §5.16). A screen that stops checking in leaves a
+  // waiting room looking at a board that silently stopped updating. Only the
+  // device's own name and its branch are interpolated — the queue board is
+  // patient-facing data and never travels in a notification body.
+  'display.device_stale': {
+    subjectTemplate: 'Display "[deviceName]" at [branchName] has stopped checking in',
+    bodyTemplate:
+      'Display "[deviceName]" at [branchName] has not checked in for [minutes] minutes while still marked active. Waiting-room visitors may be seeing an out-of-date board. Check the device and the display device list.',
+    allowlistedVariables: ['deviceName', 'branchName', 'minutes'],
+  },
 };
 
 export function renderTemplate(

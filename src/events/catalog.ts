@@ -139,6 +139,25 @@ export const EventTypes = {
   EmergencyRequestClosed: 'Emergency.RequestClosed',
   EmergencyRequestCancelled: 'Emergency.RequestCancelled',
   EmergencyRequestRetained: 'Emergency.RequestRetained',
+  /**
+   * A staff member attempted a callback. Carries only the attempt outcome, never
+   * the caller phone number, so downstream consumers cannot page a phone number
+   * into a notification body (brief §6.15, PHI rules).
+   */
+  EmergencyRequestCallback: 'Emergency.RequestCallback',
+  /** Caller corrected their own details on an open request. */
+  EmergencyRequestCallerUpdated: 'Emergency.RequestCallerUpdated',
+  /** A duplicate was merged into a canonical request. */
+  EmergencyRequestMerged: 'Emergency.RequestMerged',
+  /** A duplicate was detected and marked as such. */
+  EmergencyRequestDuplicate: 'Emergency.RequestDuplicate',
+  /** Staff linked the request to an ED arrival. */
+  EmergencyRequestArrivalLinked: 'Emergency.RequestArrivalLinked',
+  /**
+   * Escalation reached its final level with no responder. This is the trigger
+   * for the final "call now" nudge to the caller and the on-call contacts.
+   */
+  EmergencyRequestFinalEscalation: 'Emergency.RequestFinalEscalation',
   /** Communication & documents (brief Phase 9). Payloads carry IDs only. */
   NotificationsQueued: 'Communications.NotificationsQueued',
   ConversationCreated: 'Communications.ConversationCreated',
@@ -301,6 +320,12 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.EmergencyRequestClosed]: 1,
   [EventTypes.EmergencyRequestCancelled]: 1,
   [EventTypes.EmergencyRequestRetained]: 1,
+  [EventTypes.EmergencyRequestCallback]: 1,
+  [EventTypes.EmergencyRequestCallerUpdated]: 1,
+  [EventTypes.EmergencyRequestMerged]: 1,
+  [EventTypes.EmergencyRequestDuplicate]: 1,
+  [EventTypes.EmergencyRequestArrivalLinked]: 1,
+  [EventTypes.EmergencyRequestFinalEscalation]: 1,
   [EventTypes.NotificationsQueued]: 1,
   [EventTypes.ConversationCreated]: 1,
   [EventTypes.ConversationMessageSent]: 1,

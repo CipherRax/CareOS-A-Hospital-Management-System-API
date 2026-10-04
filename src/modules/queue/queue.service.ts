@@ -457,15 +457,22 @@ export class QueueService {
     this.publish(organizationId, {
       event: EventTypes.QueueEntryPriorityChanged,
       aggregateId: id,
-      payload: { ticketNumber: result.previous.ticketNumber, priority: input.operationalPriority },
+      // departmentId is part of the payload because the display SSE stream scopes
+      // events by department (ADR-023). Omitting it made this event fall through
+      // to every device in the org, not just the ones showing that department.
+      payload: {
+        ticketNumber: result.previous.ticketNumber,
+        priority: input.operationalPriority,
+        departmentId: result.previous.departmentId,
+      },
     });
     return { priority: input.operationalPriority };
   }
 
-  async updateVisitStatus(visitId: string, input: UpdateVisitStatusDto) {
+async updateVisitStatus(visitId: string, input: UpdateVisitStatusDto) {
     const organizationId = this.tenantContext.requireOrg();
 
-    await this.txRunner.run(async (ctx: TxContext) => {
+    const { visit } = await this.txRunner.run(async (ctx) => {
       const visit = await ctx.db.visit.findFirst({ where: { id: visitId, organizationId } });
       if (!visit) {
         throw new AppError({ code: ErrorCodes.RESOURCE_NOT_FOUND, message: 'Visit not found.', silent: true });
@@ -503,7 +510,9 @@ export class QueueService {
     this.publish(organizationId, {
       event: EventTypes.VisitStatusChanged,
       aggregateId: visitId,
-      payload: { visitId, status: input.status },
+      // Scoped like the queue events above: without departmentId this reached
+      // every display device in the org (ADR-023).
+      payload: { visitId, status: input.status, departmentId: visit.departmentId },
     });
     return { visitId, status: input.status };
   }

@@ -29,6 +29,15 @@ const GeocodeQuerySchema = z.object({
 });
 export class GeocodeQueryDto extends createZodDto(GeocodeQuerySchema) {}
 
+/**
+ * Brief §6.14 address autocomplete is `/public/locations/suggest?q=`, so the
+ * query parameter is named `q` rather than `query`.
+ */
+const LocationSuggestQuerySchema = z.object({
+  q: z.string().trim().min(1).max(200),
+});
+export class LocationSuggestQueryDto extends createZodDto(LocationSuggestQuerySchema) {}
+
 const SuggestFacilitySchema = z.object({
   facilityName: z.string().trim().min(1).max(200),
   address: z.string().trim().max(400).optional(),

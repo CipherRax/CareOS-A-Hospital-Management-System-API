@@ -165,13 +165,35 @@ export class DisplayController {
     reply.raw.write(`event: connected\ndata: ${JSON.stringify({ deviceId: scope.deviceId })}\n\n`);
 
     const channel = this.realtime.channel(this.tenantContext.requireOrg(), 'queue');
+    // Revoking a device must also cut a stream that is ALREADY open: the token is
+    // only checked at connect time, so without this a revoked screen would keep
+    // receiving queue updates over its existing connection.
+    const lifecycleChannel = this.realtime.channel(this.tenantContext.requireOrg(), 'display');
     const sub = this.realtime.subscriber();
+    // Guards against a double teardown: the client 'close' event and our own
+    // revocation path can both fire for the same stream.
+    let finished = false;
     const heartbeat = setInterval(() => {
       reply.raw.write(': ping\n\n');
+      // Re-check liveness as well as listening for the event: a missed event (or
+      // a Redis restart mid-stream) must not leave a dead device streaming.
+      void this.display.isStillActive(scope.deviceId).then((active) => {
+        if (!active) closed();
+      });
     }, 15_000);
     const closed = () => {
+      if (finished) return;
+      finished = true;
       clearInterval(heartbeat);
       sub.quit().catch(() => {});
+      // The socket has to be closed, not just silenced. Without this the HTTP
+      // connection stays open after a revoke, holding a connection per revoked
+      // screen, and the device shows a blank board with no error to explain it.
+      try {
+        reply.raw.end();
+      } catch {
+        // Already torn down by the client; nothing left to release.
+      }
     };
     req.raw.on('close', closed);
     reply.raw.on('error', closed);
@@ -182,8 +204,22 @@ export class DisplayController {
         'device stream subscribe failed',
       );
     });
-    sub.on('message', (_ch: string, raw: string) => {
+    sub.subscribe(lifecycleChannel).catch(() => {});
+    sub.on('message', (ch: string, raw: string) => {
       try {
+        if (ch === lifecycleChannel) {
+          // A revoke/rotate/rescan targeting THIS device ends the stream at once.
+          const evt = JSON.parse(raw) as {
+            aggregateId?: string;
+            payload?: { deviceId?: string };
+          };
+          const target = evt.payload?.deviceId ?? evt.aggregateId;
+          if (target === scope.deviceId) {
+            reply.raw.write(`event: revoked\ndata: ${JSON.stringify({ deviceId: scope.deviceId })}\n\n`);
+            closed();
+          }
+          return;
+        }
         if (!this.forScopes(raw, scope.departmentIds)) return;
         reply.raw.write(`data: ${raw}\n\n`);
       } catch {
@@ -197,10 +233,19 @@ export class DisplayController {
     });
   }
 
-  /** A device may only see events for its own departments (payload-driven). */
+  /**
+   * A device may only see events for its own departments (payload-driven, ADR-023).
+   *
+   * Fails CLOSED: an event whose payload carries no department is not shown. Every
+   * event published to the `queue` channel is department-scoped by contract, so an
+   * unscoped payload means an event type that has not been wired up for display —
+   * and broadcasting it would leak another department's queue state to every
+   * screen in the organization. Passing such an event is the bug, not hiding it.
+   */
   private forScopes(raw: string, departmentIds: string[]): boolean {
     const parsed = JSON.parse(raw) as { payload?: { departmentId?: string } };
-    if (!parsed.payload?.departmentId) return true;
-    return departmentIds.includes(parsed.payload.departmentId);
+    const departmentId = parsed.payload?.departmentId;
+    if (typeof departmentId !== 'string' || departmentId.length === 0) return false;
+    return departmentIds.includes(departmentId);
   }
 }

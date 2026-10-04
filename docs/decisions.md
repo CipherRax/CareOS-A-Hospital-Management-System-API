@@ -3,6 +3,201 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-056 — A display that stops checking in alerts once per outage, and re-arms on recovery
+
+**Status:** accepted (Phase 12)
+
+**Context:** brief §5.16 asks for display-device management including stale
+devices. The admin list *derived* a `stale` flag from `lastSeenAt`, which meant
+the requirement was technically met and practically useless: a waiting-room
+screen that had died an hour ago was still showing a queue board that no longer
+reflected reality, and nothing said so. Visitors keep reading it. The only
+symptom was an entry in a list nobody was obliged to open.
+
+**Decision:** make staleness page someone, on the platform scheduler.
+
+- The rule lives in `DisplayService.sweepStaleDevices`, with the rest of device
+  liveness; the scheduler module only decides *when* it runs (ADR-044). Cadence
+  is `DISPLAY_STALE_SWEEP_INTERVAL_MS`, deliberately longer than the 10-minute
+  staleness threshold — a faster sweep could only re-scan rows the previous pass
+  already claimed.
+- **Once per outage.** `staleNotifiedAt` is claimed with a guarded `updateMany`
+  (`organizationId` included) *before* anyone is notified, so concurrent passes
+  cannot both alert and an offline device does not page on every tick. This is
+  the property that decides whether the alert survives contact with operators: a
+  notification that repeats until it is ignored has negative value.
+- **Re-armed on recovery.** `touchDevice` (every board poll and SSE heartbeat)
+  and re-pairing both clear `staleNotifiedAt`, so a screen that recovers and dies
+  again is heard about again. Without this the first alert would be the only one
+  a device ever receives.
+- Recipients are resolved from the organization's own `Role.permissions` rows,
+  not the default matrix: role permissions are editable per tenant, so whoever
+  actually administers devices here is who gets told.
+- Cross-organization like every other sweep, batched and oldest-first, with
+  per-device failures counted rather than thrown.
+
+**Consequences:** one nullable column plus a partial index. A notification
+failure leaves the claim in place, so a permanently broken tenant row is not
+retried forever — it is counted in `failed` and shows up in the scheduler log
+rather than becoming an alert loop. `serializeDevice` exposes
+`staleNotifiedAt` so an operator can tell "nobody told" from "told an hour ago
+and still down".
+
+The body interpolates the device name, branch name, and elapsed minutes only.
+The queue board is patient-facing data; notification bodies also travel to
+off-system channels, so the template's allowlist keeps it out.
+
+## ADR-055 — A dedicated `dispositionAt` starts the retention clock; `closedAt` stays a factual close stamp
+
+**Status:** accepted (Phase 13)
+
+**Context:** ADR-043 added a PII-retention sweep keyed on `closedAt` /
+`cancelledAt` and `status IN ('CLOSED','CANCELLED')`. That covered only two of
+the six finished dispositions. `UNREACHABLE`, `REDIRECTED`, and
+`NOT_ACTIONABLE` (set via `setRequestStatus`) and `DUPLICATE` (set on merge)
+are all terminal — `isTerminalStatus` blocks reopening any of them — but none
+of the first three ever wrote a terminal timestamp. Their encrypted caller name,
+phone, description, and landmark were therefore never eligible for the sweep
+and were retained indefinitely. This is a privacy defect, not a cosmetic one:
+the brief requires emergency caller PII to age out, and "the facility stopped
+working on it" is not a lawful reason to keep it forever.
+
+The obvious fix — stamp `closedAt` on all four — was rejected. `closedAt` is
+reported to staff as "staff closed this request". Marking a redirected caller
+closed would misreport what happened, and the four states are genuinely
+different from a close.
+
+**Decision:** a separate `dispositionAt` records *when the facility became done
+with the request*, orthogonal to *who closed it*.
+
+- `dispositionAt` is stamped on every terminal transition: close, caller
+  cancellation, `setRequestStatus`, and duplicate merge.
+- It is write-once (`current.dispositionAt ?? new Date()`). Re-triaging a
+  request must not restart the clock and defeat the window.
+- `closedAt`/`cancelledAt` remain unchanged and factual; `closedAt` is still
+  set on merge because a duplicate *is* closed by the merge, and is still the
+  staff-facing close stamp everywhere else.
+- The sweep matches `status IN (all six)` plus an age test that prefers
+  `dispositionAt` and falls back to `closedAt`/`cancelledAt` **only when
+  `dispositionAt IS NULL`**, so rows predating the column still age out. The
+  partial index covers the live-eligible set.
+- Caller-facing locking is unchanged: `CALLER_LOCKED` already blocked edits
+  and actions on these statuses, so no new caller path was exposed.
+
+**Consequences:** one new nullable column and a migration backfill
+(`COALESCE(closedAt, cancelledAt, updatedAt)`), which is an inference for
+pre-existing non-closed rows rather than a recorded fact — acceptable because
+it only ever retains *earlier* than a conservative reading would, and the
+fallback clause keeps those rows in scope. The reap continues to retire the
+tracking token (`retired:<id>`), so a stale token cannot resurrect a redacted
+request. Test coverage asserts the sweep's query, not just its effects: the
+pre-existing suite mocked `findMany` and so never inspected the filter that had
+the bug.
+
+## ADR-054 — On-call windows select who is paged; they never gate whether a caller can submit
+
+**Status:** accepted (Phase 12)
+
+**Context:** brief §6.15 gives `EmergencyContact` "on-call windows". The obvious
+implementation is to reuse the intake-readiness guard: if nobody is inside a
+window, refuse intake. That reading is wrong, and dangerously so. A caller
+submitting at 03:00 to a night-only roster would be told the facility is not
+accepting requests and pushed to dial elsewhere — the exact outcome a help
+request surface exists to prevent. `onCall` as a hand-flipped boolean has the
+opposite failure: it goes stale at handover and pages whoever is awake.
+
+**Decision:** two separate questions, answered separately.
+
+- *Can this branch accept a request?* Configuration only: at least one active
+  contact with a reachable channel, an escalation chain, auto-escalate on
+  (`domain/intake-readiness.ts`). On-call windows never make a branch unready.
+- *Who gets paged?* `active && onCall && within a window`
+  (`domain/on-call-window.ts`, applied in the notification consumer).
+
+Off-shift contacts are reported as `offShiftContacts` so an operator sees
+"nobody on shift" rather than the misleading "no contacts configured".
+
+Two safety properties in the window helper, both chosen for the failure that is
+less harmful:
+
+- A malformed window (including the whole list being malformed) resolves to
+  *always on call*. A typo must not silently take a shift off the chain.
+- Only one window list is retained, and a night shift is expressed as a window
+  whose end is not after its start, so `20:00 → 06:00` covers the small hours.
+
+**Consequences:** the readiness reason set is unchanged, so no existing operator
+copy or test had to move. Windows are compared in facility-local time because
+that is the clock a roster is written against. Empty windows stay backward
+compatible for single-site deployments.
+
+## ADR-053 — Display token rotation uses a real overlap window, with a cooldown to prevent accidental double rotation
+
+**Status:** accepted (Phase 12)
+
+**Context:** brief §5.16 asks for a device token "automatically rotated with an
+overlap window". An earlier revision of this repo implemented the opposite: a
+rotation cooldown. A cooldown alone means the first-issued token dies instantly,
+so a screen redeploying during the handover presents a token the new build has
+already discarded and shows a bare pairing error with no obvious cause.
+
+**Decision:** both properties, because they solve different problems.
+
+- `previousTokenHash` / `previousTokenExpiresAt` retain the outgoing digest for
+  ten minutes; `DeviceAuthGuard` accepts either digest and rejects the overlap
+  token once the window closes (checked explicitly, so an un-cleaned row cannot
+  extend a token's life).
+- The 30-second cooldown stays, because rotation returns the new token exactly
+  once. Rotating twice inside the window would invalidate the token the first
+  operator was just handed — the precise failure the overlap exists to prevent.
+- Revoke and re-pair clear **both** digests. Revocation is not time-limited, so
+  leaving the overlap hash behind would keep a revoked device reachable.
+
+**Consequences:** one more column pair on `display_devices` and an `OR` in the
+device lookup. `previousTokenValidUntil` is exposed to admins (never a digest) so
+a rotation does not look like a compromise in progress.
+
+## ADR-052 — Contract-named fields are added alongside existing ones, not renamed
+
+**Status:** accepted (Phase 12)
+
+**Context:** the brief fixes response shapes (`/auth/me`, `EmergencyNumber`,
+`PublicNotice`, public routes) that the deployed API spelled differently
+(`features` vs `featureFlags`, `branch.allowed` vs `branches`,
+`patient` vs `patientLink`). Renaming in place breaks every existing consumer for
+a naming gain only.
+
+**Decision:** publish the brief's names as additional fields, keep the old ones,
+and assert they cannot disagree. `/auth/me` now carries `featureFlags`,
+`roleDetails`, `branches`, `activeBranchId`, `patientLink`, `user.mfa`,
+`security`, `session.lockAfterSeconds`/`expiresAt`, and `breakGlassGrants`
+alongside `features`, `roles`, `branch`, `patient`, and `breakGlass`.
+`activeBranchId` is asserted equal to `branch.current` in tests, because two
+spellings of one fact that drift is worse than either shape alone.
+
+Route changes go the other way — the brief's path is registered *in addition*
+to the deployed one (`/public/config`, `/public/locations/suggest`,
+`/public/emergency-requests`, `/display/pair` all alias existing handlers,
+throttles, and the emergency 429 filter). Alias controllers delegate to the same
+service method; there is no second implementation of intake, tracking,
+cancellation, or pairing, so a throttle or window cannot drift between paths.
+
+**Consequences:** responses carry some redundancy. That is the price of not
+breaking callers mid-phase; deprecating the old spellings can happen in a later
+phase with a changelog entry.
+
+One name could not be satisfied additively: the brief models break-glass as an
+array while the deployed API already returns `breakGlass` as a single
+object|null, and one key cannot hold both shapes. The deployed field was left
+as-is and the array published as `breakGlassGrants`. Until the old field is
+deprecated, a client written to the brief must read `breakGlassGrants`.
+
+**Correction:** this ADR originally claimed the prefix array on the emergency
+controller delivered `/public/emergency-requests`. It did not — a prefix array
+plus `@Post('requests')` produces `/public/emergency-requests/requests`, so the
+brief's flat path was never registered. Both claims are covered by
+`test/unit/routing/brief-routes.spec.ts`, which reads Nest's actual path
+metadata and fails if a route is documented but absent.
+
 ## ADR-051 — A patient login is an ordinary `User` holding the `PATIENT` role; `patientId` is derived per request, never claimed
 
 **Status:** accepted (Phase P13)

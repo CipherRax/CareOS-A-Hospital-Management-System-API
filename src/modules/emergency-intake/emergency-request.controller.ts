@@ -5,7 +5,14 @@ import { PERMISSION_GROUPS } from '../../common/auth/permissions.catalog';
 import { RealtimeService } from '../../database/realtime.service';
 import { TenantContext } from '../../database/tenant-context';
 import { EmergencyIntakeService, REQUESTS_TOPIC } from './emergency-intake.service';
-import { ListEmergencyRequestsQueryDto, StaffNoteDto } from './dto/emergency-intake.dto';
+import {
+  LinkArrivalVisitDto,
+  ListEmergencyRequestsQueryDto,
+  MergeRequestDto,
+  RecordCallbackDto,
+  SetRequestStatusDto,
+  StaffNoteDto,
+} from './dto/emergency-intake.dto';
 
 /**
  * Staff emergency-request inbox (brief §6.15). Reads/actions are audited and
@@ -67,21 +74,35 @@ export class EmergencyRequestController {
 
     const channel = this.realtime.channel(organizationId, REQUESTS_TOPIC);
     const sub = this.realtime.subscriber();
+    // Guards against a double teardown when both the subscribe failure and the
+    // client 'close' event fire.
+    let finished = false;
     const heartbeat = setInterval(() => {
       reply.raw.write(': ping\n\n');
     }, 15_000);
     const closed = () => {
+      if (finished) return;
+      finished = true;
       clearInterval(heartbeat);
       sub.quit().catch(() => {});
+      // Release the connection rather than only silencing it: a half-closed SSE
+      // stream holds a socket per open inbox tab.
+      try {
+        reply.raw.end();
+      } catch {
+        // Already torn down by the client.
+      }
     };
     req.raw.on('close', closed);
     reply.raw.on('error', closed);
 
     sub.subscribe(channel).catch((err: unknown) => {
-      closed();
+      // Tell the client first: closing without a reason shows an inbox that
+      // silently stops updating, which looks identical to "no new requests".
       reply.raw.write(
         `event: error\ndata: ${JSON.stringify({ error: err instanceof Error ? err.message : String(err) })}\n\n`,
       );
+      closed();
     });
     sub.on('message', (_ch: unknown, raw: string) => {
       reply.raw.write(`event: emergency\ndata: ${raw}\n\n`);
@@ -121,6 +142,98 @@ export class EmergencyRequestController {
   })
   respond(@Param('id') id: string) {
     return this.intake.respondRequest(id);
+  }
+
+  @Post(':id/contacted')
+  @ApiEndpoint({
+    summary: 'Mark that a staff member reached the caller (not that help is coming)',
+    operationId: 'contactedEmergencyRequest',
+    statusCode: 201,
+    permissions: [PERMISSION_GROUPS.emergencyRequests.manage],
+    errors: [
+      { status: 404, description: 'Request not found', code: 'RESOURCE_NOT_FOUND' },
+      {
+        status: 409,
+        description: 'Request already finished (closed, cancelled, redirected, unreachable)',
+        code: 'EMERGENCY_INVALID_TRANSITION',
+      },
+    ],
+  })
+  contacted(@Param('id') id: string) {
+    return this.intake.markContacted(id);
+  }
+
+  @Post(':id/callback')
+  @ApiEndpoint({
+    summary: 'Record a callback attempt and whether it reached the caller',
+    operationId: 'recordEmergencyCallback',
+    statusCode: 201,
+    permissions: [PERMISSION_GROUPS.emergencyRequests.manage],
+    errors: [
+      { status: 404, description: 'Request not found', code: 'RESOURCE_NOT_FOUND' },
+      {
+        status: 409,
+        description: 'Request already closed',
+        code: 'EMERGENCY_INVALID_TRANSITION',
+      },
+    ],
+  })
+  callback(@Param('id') id: string, @Body() body: RecordCallbackDto) {
+    return this.intake.recordCallback(id, body);
+  }
+
+  @Post(':id/status')
+  @ApiEndpoint({
+    summary: 'Set unreachable / redirected / not-actionable (a reason is required except when unreachable)',
+    operationId: 'setEmergencyRequestStatus',
+    statusCode: 201,
+    permissions: [PERMISSION_GROUPS.emergencyRequests.manage],
+    errors: [
+      { status: 400, description: 'Reason required for redirected / not actionable', code: 'VALIDATION_ERROR' },
+      { status: 404, description: 'Request not found', code: 'RESOURCE_NOT_FOUND' },
+      { status: 409, description: 'Request already closed', code: 'EMERGENCY_INVALID_TRANSITION' },
+    ],
+  })
+  status(@Param('id') id: string, @Body() body: SetRequestStatusDto) {
+    return this.intake.setRequestStatus(id, body);
+  }
+
+  @Post(':id/link-arrival')
+  @ApiEndpoint({
+    summary: 'Link this request to the emergency-department arrival it produced',
+    operationId: 'linkEmergencyRequestArrival',
+    statusCode: 201,
+    permissions: [PERMISSION_GROUPS.emergencyRequests.manage],
+    errors: [
+      { status: 404, description: 'Request or visit not found', code: 'RESOURCE_NOT_FOUND' },
+      {
+        status: 409,
+        description: 'Visit is from another branch, or the request is already linked',
+        code: 'EMERGENCY_INVALID_TRANSITION',
+      },
+    ],
+  })
+  linkArrival(@Param('id') id: string, @Body() body: LinkArrivalVisitDto) {
+    return this.intake.linkArrivalVisit(id, body);
+  }
+
+  @Post(':id/merge')
+  @ApiEndpoint({
+    summary: 'Merge a duplicate request into the canonical request',
+    operationId: 'mergeEmergencyRequest',
+    statusCode: 201,
+    permissions: [PERMISSION_GROUPS.emergencyRequests.manage],
+    errors: [
+      { status: 404, description: 'Request or target not found', code: 'RESOURCE_NOT_FOUND' },
+      {
+        status: 409,
+        description: 'Already merged, or requests are from different branches',
+        code: 'EMERGENCY_INVALID_TRANSITION',
+      },
+    ],
+  })
+  merge(@Param('id') id: string, @Body() body: MergeRequestDto) {
+    return this.intake.mergeRequest(id, body);
   }
 
   @Post(':id/note')

@@ -54,3 +54,33 @@ describe('notification templates', () => {
     expect(tokens).toEqual(['0712 345 678']);
   });
 });
+
+describe('display stale template', () => {
+  it('renders the device name and branch without any board data', () => {
+    const template = BUILT_IN_TEMPLATES['display.device_stale']!;
+    const rendered = renderTemplate(template, {
+      deviceName: 'Waiting Room A',
+      branchName: 'Main Hospital',
+      minutes: 30,
+    });
+
+    expect(rendered.subject).toContain('Waiting Room A');
+    expect(rendered.subject).toContain('Main Hospital');
+    expect(rendered.body).toContain('30 minutes');
+    expect(ensureNeutralBody(rendered.subject, rendered.body)).toEqual([]);
+  });
+
+  it('refuses a caller name or patient identifier', () => {
+    // The board a display shows is patient-facing data; the notification body
+    // travels to in-app, email, and SMS adapters, so it must not carry it.
+    const template = BUILT_IN_TEMPLATES['display.device_stale']!;
+    expect(() =>
+      renderTemplate(template, {
+        deviceName: 'Waiting Room A',
+        branchName: 'Main Hospital',
+        minutes: 30,
+        patientName: 'Jane Wanjiru',
+      }),
+    ).toThrow();
+  });
+});

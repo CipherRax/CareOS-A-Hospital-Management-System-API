@@ -33,9 +33,32 @@ import { PharmacyTaskConsumer } from '../events/consumers/pharmacy-tasks.consume
       inject: [REDIS_CLIENT],
       useFactory: (redis: Redis) => ({
         storage: new RedisThrottlerStorage(redis),
+        // `default`/`short` apply to every authenticated route. The named
+        // throttlers below exist so the anonymous/public surfaces and the
+        // device/display surfaces can carry limits appropriate to their risk
+        // (brief §5.16, §6.14, §6.15) instead of inheriting the staff-wide
+        // budget. A route opts in with `@Throttle({ publicSearch: {...} })`.
         throttlers: [
           { name: 'default', ttl: 60_000, limit: 120 },
           { name: 'short', ttl: 5_000, limit: 30 },
+          // Directory search/browse: read-only and cacheable, but must not be
+          // scrapeable into an exhaustive dump.
+          { name: 'publicSearch', ttl: 60_000, limit: 60 },
+          // Reverse geocoding: costlier per call (provider quota) and a common
+          // abuse target for coordinate fuzzing.
+          { name: 'publicGeocode', ttl: 60_000, limit: 30 },
+          // Anonymous emergency submit. Deliberately tight: a duplicate submit
+          // is a real safety problem (split response), and the response always
+          // carries EMERGENCY_CALL_NOW + national numbers (429 body).
+          { name: 'publicEmergencySubmit', ttl: 60_000, limit: 5 },
+          // Token tracking/cancel: caller-facing polling, so looser than submit
+          // but still bounded.
+          { name: 'publicEmergencyTrack', ttl: 60_000, limit: 30 },
+          // Device pairing: exchanges a staff-read one-time code for a long-lived
+          // token, so it is additionally IP-attempt-limited in DisplayService.
+          { name: 'displayPair', ttl: 60_000, limit: 10 },
+          // Public onboarding enquiry (public lead capture).
+          { name: 'onboardingInquiry', ttl: 60_000, limit: 5 },
         ],
       }),
     }),

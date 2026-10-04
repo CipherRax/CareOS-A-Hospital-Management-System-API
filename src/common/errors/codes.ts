@@ -135,6 +135,12 @@ export const ErrorCodes = {
   FACILITY_NOT_ACCEPTING_REQUESTS: 'FACILITY_NOT_ACCEPTING_REQUESTS',
   LOCATION_REQUIRED: 'LOCATION_REQUIRED',
   EMERGENCY_CALL_NOW: 'EMERGENCY_CALL_NOW',
+  /** Intake cannot be enabled/used without a live escalation chain (brief §6.15). */
+  EMERGENCY_INTAKE_NOT_READY: 'EMERGENCY_INTAKE_NOT_READY',
+  /** A staff action was refused for the request's current state. */
+  EMERGENCY_INVALID_TRANSITION: 'EMERGENCY_INVALID_TRANSITION',
+  /** Caller attempted to update a request that can no longer be changed. */
+  EMERGENCY_REQUEST_LOCKED: 'EMERGENCY_REQUEST_LOCKED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -241,4 +247,7 @@ export const ERROR_CODE_HTTP: Record<ErrorCode, ErrorCodeMeta> = {
   [ErrorCodes.FACILITY_NOT_ACCEPTING_REQUESTS]: { httpStatus: 422 },
   [ErrorCodes.LOCATION_REQUIRED]: { httpStatus: 422 },
   [ErrorCodes.EMERGENCY_CALL_NOW]: { httpStatus: 409 },
+  [ErrorCodes.EMERGENCY_INTAKE_NOT_READY]: { httpStatus: 422 },
+  [ErrorCodes.EMERGENCY_INVALID_TRANSITION]: { httpStatus: 409 },
+  [ErrorCodes.EMERGENCY_REQUEST_LOCKED]: { httpStatus: 409 },
 } as const;

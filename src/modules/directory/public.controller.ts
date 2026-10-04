@@ -4,6 +4,7 @@ import { ApiEndpoint } from '../../common/decorators/api-endpoint.decorator';
 import { DirectoryService } from './directory.service';
 import {
   GeocodeQueryDto,
+  LocationSuggestQueryDto,
   NearbyFacilitiesQueryDto,
   SearchFacilitiesQueryDto,
   SuggestFacilityDto,
@@ -78,14 +79,49 @@ export class PublicDirectoryController {
     return this.directory.profile(slug);
   }
 
+  @Get('config')
+  @ApiEndpoint({
+    summary: 'Public directory configuration/intro (brief §6.14)',
+    operationId: 'publicConfig',
+    public: true,
+  })
+  config() {
+    return this.directory.config();
+  }
+
+  /**
+   * Brief §6.14 spells this route `/public/config`; `/public/facilities/config` is
+   * kept as an alias because the facility-scoped form is what the seeded clients
+   * and the existing contract tests use.
+   */
   @Get('facilities/config')
   @ApiEndpoint({
     summary: 'Public directory configuration/intro',
     operationId: 'publicFacilityConfig',
     public: true,
   })
-  config() {
+  configAlias() {
     return this.directory.config();
+  }
+
+  /**
+   * Brief §6.14 spells address autocomplete `/public/locations/suggest?q=`. Same
+   * geocoder, same throttle, same honest `supported: false` contract as
+   * `/public/geocode`.
+   */
+  @Get('locations/suggest')
+  @ApiEndpoint({
+    summary: 'Suggest addresses for a location search',
+    operationId: 'publicLocationSuggest',
+    public: true,
+    errors: [
+      { status: 422, description: 'Geocoding unavailable', code: 'GEOCODING_UNAVAILABLE' },
+      { status: 429, description: 'Rate limited', code: 'RATE_LIMITED' },
+    ],
+  })
+  @Throttle(GEOCODE_THROTTLE)
+  locationSuggest(@Query() query: LocationSuggestQueryDto) {
+    return this.directory.geocode({ query: query.q });
   }
 
   @Get('geocode')

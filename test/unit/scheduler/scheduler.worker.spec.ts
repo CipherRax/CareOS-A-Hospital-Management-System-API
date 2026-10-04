@@ -1,5 +1,6 @@
 import { SchedulerWorker } from '../../../src/modules/scheduler/scheduler.worker';
 import {
+  DISPLAY_STALE_SWEEP_JOB,
   IDEMPOTENCY_SWEEP_JOB,
   MAINTENANCE_REMINDER_JOB,
   NOTIFICATION_DELIVERY_JOB,
@@ -26,6 +27,7 @@ function makeWorker(env: Record<string, unknown> = {}) {
       retrying: 0,
       failed: 0,
     }),
+    sweepStaleDisplayDevices: jest.fn().mockResolvedValue({ detected: 0, alerted: 0, failed: 0 }),
   };
   const worker = new SchedulerWorker(scheduler as never, queue as never, {
     NODE_ENV: 'production',
@@ -35,6 +37,7 @@ function makeWorker(env: Record<string, unknown> = {}) {
     IDEMPOTENCY_SWEEP_INTERVAL_MS: 3_600_000,
     REPORT_EXPIRY_INTERVAL_MS: 300_000,
     NOTIFICATION_DELIVERY_INTERVAL_MS: 15_000,
+    DISPLAY_STALE_SWEEP_INTERVAL_MS: 900_000,
     ...env,
   } as never);
   return { worker, queue, scheduler };
@@ -47,7 +50,7 @@ describe('SchedulerWorker', () => {
 
       await worker.onApplicationBootstrap();
 
-      expect(queue.add).toHaveBeenCalledTimes(5);
+      expect(queue.add).toHaveBeenCalledTimes(6);
       const calls = queue.add.mock.calls.map((call) => call as [string, unknown, Record<string, unknown>]);
       for (const [name, , opts] of calls) {
         expect(typeof name).toBe('string');
@@ -64,6 +67,8 @@ describe('SchedulerWorker', () => {
       expect(byName.get(NOTIFICATION_DELIVERY_JOB)?.jobId).toBe(
         'careos-scheduler-notification-delivery',
       );
+      expect(byName.get(DISPLAY_STALE_SWEEP_JOB)?.repeat).toEqual({ every: 900_000 });
+      expect(byName.get(DISPLAY_STALE_SWEEP_JOB)?.jobId).toBe('careos-scheduler-display-stale');
     });
 
     it('registers nothing under NODE_ENV=test so e2e stays deterministic', async () => {
@@ -85,7 +90,7 @@ describe('SchedulerWorker', () => {
       queue.add.mockRejectedValueOnce(new Error('redis unavailable'));
 
       await expect(worker.onApplicationBootstrap()).resolves.toBeUndefined();
-      expect(queue.add).toHaveBeenCalledTimes(5);
+      expect(queue.add).toHaveBeenCalledTimes(6);
     });
   });
 
@@ -98,12 +103,14 @@ describe('SchedulerWorker', () => {
       await worker.process({ name: IDEMPOTENCY_SWEEP_JOB } as never);
       await worker.process({ name: REPORT_EXPIRY_JOB } as never);
       await worker.process({ name: NOTIFICATION_DELIVERY_JOB } as never);
+      await worker.process({ name: DISPLAY_STALE_SWEEP_JOB } as never);
 
       expect(scheduler.drainOutbox).toHaveBeenCalledTimes(1);
       expect(scheduler.queueMaintenanceReminders).toHaveBeenCalledTimes(1);
       expect(scheduler.sweepIdempotencyRecords).toHaveBeenCalledTimes(1);
       expect(scheduler.expireReportExports).toHaveBeenCalledTimes(1);
       expect(scheduler.deliverDueNotifications).toHaveBeenCalledTimes(1);
+      expect(scheduler.sweepStaleDisplayDevices).toHaveBeenCalledTimes(1);
     });
 
     it('ignores an unknown job name instead of running the wrong duty', async () => {

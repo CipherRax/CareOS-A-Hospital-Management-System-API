@@ -53,16 +53,24 @@ export class DeviceAuthGuard implements CanActivate {
     const organizationId = token.slice(0, dot);
 
     const db = this.prisma.tenantFor(organizationId);
+    const digest = hashSecret(token);
     const results = await db.$transaction([
       db.$executeRaw`SELECT set_config('app.current_org', ${organizationId}, true)`,
+      // The overlap window (brief §5.16) means the outgoing token stays valid for
+      // ten minutes after a rotation, so a device redeploying in that gap is not
+      // stranded. Both digests are checked here; only the digests are stored.
       db.displayDevice.findFirst({
-        where: { tokenHash: hashSecret(token) },
+        where: {
+          OR: [{ tokenHash: digest }, { previousTokenHash: digest }],
+        },
         select: {
           id: true,
           organizationId: true,
           branchId: true,
           departmentIds: true,
           status: true,
+          tokenHash: true,
+          previousTokenExpiresAt: true,
         },
       }),
     ]);
@@ -72,6 +80,8 @@ export class DeviceAuthGuard implements CanActivate {
       branchId: string;
       departmentIds: string[];
       status: string;
+      tokenHash: string | null;
+      previousTokenExpiresAt: Date | null;
     } | null;
 
     if (!device) {
@@ -85,6 +95,19 @@ export class DeviceAuthGuard implements CanActivate {
       throw new AppError({
         code: ErrorCodes.DEVICE_REVOKED,
         message: 'Display device is not active.',
+        silent: true,
+      });
+    }
+    // A match on the overlap hash only counts while that window is open. The
+    // digest column is cleared when the window closes, but the expiry is checked
+    // too so an un-cleaned row cannot extend a token's life.
+    if (
+      device.tokenHash !== digest &&
+      (!device.previousTokenExpiresAt || device.previousTokenExpiresAt.getTime() <= Date.now())
+    ) {
+      throw new AppError({
+        code: ErrorCodes.DEVICE_TOKEN_INVALID,
+        message: 'This display-device token has expired. Pair the device again.',
         silent: true,
       });
     }

@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { BullQueuesModule } from '../../jobs/bull-queues.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { InsightsModule } from '../insights/insights.module';
+import { DisplayModule } from '../display/display.module';
 import { OperationsModule } from '../operations/operations.module';
 import { SCHEDULER_QUEUE, SchedulerService } from './scheduler.service';
 import { SchedulerWorker } from './scheduler.worker';
@@ -22,6 +23,8 @@ import { SchedulerWorker } from './scheduler.worker';
     NotificationsModule,
     // For the export-expiry duty, which now also removes the stored artifact.
     InsightsModule,
+    // For the display-stale duty: a dead waiting-room screen has to page someone.
+    DisplayModule,
   ],
   providers: [SchedulerService, SchedulerWorker],
   exports: [SchedulerService],
