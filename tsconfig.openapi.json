@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist-openapi",
+    "incremental": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*.ts", "scripts/export-openapi.ts"],
+  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "**/*.e2e-spec.ts"]
+}

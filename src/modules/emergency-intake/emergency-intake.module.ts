@@ -51,6 +51,10 @@ import { NotificationsModule } from '../notifications/notifications.module';
       inject: [ENV],
     },
   ],
-  exports: [EmergencyIntakeService],
+  // EmergencyNotificationConsumer must be exported, not just provided:
+  // OutboxModule imports this module and injects the consumer into the
+  // OUTBOX_CONSUMERS bus. Without the export, Nest cannot resolve it and the
+  // whole application fails to bootstrap.
+  exports: [EmergencyIntakeService, EmergencyNotificationConsumer],
 })
 export class EmergencyIntakeModule {}

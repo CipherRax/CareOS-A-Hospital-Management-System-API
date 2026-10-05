@@ -3,15 +3,15 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Logger as PinoNestLogger } from 'nestjs-pino';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import { ZodValidationPipe } from 'nestjs-zod';
-import { patchNestJsSwagger } from 'nestjs-zod';
 import { AppModule } from './app/app.module';
 import { ENV } from './config/config.module';
 import type { Env } from './config/config.module';
 import { envSummary } from './config/env.schema';
+import { buildOpenApiDocument } from './openapi';
 
 const logger = new Logger('Bootstrap');
 
@@ -39,17 +39,7 @@ export async function bootstrap(): Promise<void> {
 
   // --- OpenAPI (Swagger) ---
   if (env.ENABLE_SWAGGER) {
-    patchNestJsSwagger();
-    const config = new DocumentBuilder()
-      .setTitle('careOS API')
-      .setDescription('Auditable multi-tenant healthcare operations API')
-      .setVersion('1.0.0')
-      .addBearerAuth()
-      .addTag('health', 'Operational health')
-      .addTag('organizations', 'Tenant root entity')
-      .build();
-    const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('docs', app, document);
+    SwaggerModule.setup('docs', app, buildOpenApiDocument(app));
   }
 
   await app.listen(env.PORT, '0.0.0.0');
