@@ -1,0 +1,7 @@
+.next/
+node_modules/
+out/
+coverage/
+package-lock.json
+next-env.d.ts
+src/app/tokens.generated.css

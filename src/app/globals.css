@@ -1,26 +1,155 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+@import './tokens.generated.css';
+@import './tokens.scale.css';
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* careOS global stylesheet.
+ *
+ * Order matters: tailwind, then generated colour, then authored scale. Tailwind
+ * v4 layers its own base styles, so these rules sit above `base` and below
+ * utilities unless marked otherwise.
+ */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+@layer base {
+  *,
+  *::before,
+  *::after {
+    /* Density only ever scales metrics, never type size. Compressing text to
+       gain density defeats the point of a text-first clinical UI. */
+    box-sizing: border-box;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  html {
+    /* Density must apply before first paint; the cookie is written server-side
+       onto <html data-density> to avoid a reflow on hydration. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--c-canvas);
+    color: var(--c-primary);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: 1.45;
+    /* Tabular figures are the default, not an opt-in: clinical data is mostly
+       numbers, and proportional digits make columns ragged. */
+    font-variant-numeric: tabular-nums;
+    font-feature-settings:
+      'tnum' 1,
+      'cv05' 1;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* The patient-facing layer is a distinct surface, not just a route. It swaps
+     the canvas warmth, type scale and target sizes in one place so a component
+     cannot accidentally render at staff density on a patient page. */
+  [data-surface='public'] {
+    background-color: var(--c-public-canvas);
+    font-size: var(--text-public-body);
+    line-height: 1.6;
+  }
+
+  /* Prose copy on the public layer gets the serif, which is why Source Serif 4
+     is loaded at all. Data, numbers and controls never do. */
+  [data-surface='public'] [data-prose] {
+    font-family: var(--font-serif);
+    font-size: var(--text-public-body);
+    line-height: 1.65;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin: 0;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-normal);
+    text-wrap: balance;
+  }
+
+  p {
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  /* One focus treatment for the entire product. Components never restate it;
+     they only position the ring, so it cannot drift between screens. */
+  :focus-visible {
+    outline: var(--focus-ring-width) solid var(--c-focus-ring);
+    outline-offset: var(--focus-ring-offset);
+    border-radius: var(--radius-xs);
+  }
+
+  /* Keyboard focus only — pointer interaction must not draw a ring. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Headings, labels and buttons must never inherit the UA default blue. */
+  ::selection {
+    background-color: var(--c-brand-subtle);
+    color: var(--c-brand-ink);
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+    letter-spacing: inherit;
+  }
+
+  /* Number inputs: the stepper arrows are a pointer affordance that breaks
+     tabular alignment and can be hit accidentally on touch. */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    appearance: textfield;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  /* Respect the density cookie for the rare places a component needs to read
+     the current value rather than just inherit it (e.g. telling a tooltip
+     whether to flip). */
+  .density-compact {
+    font-size: calc(1rem * var(--density-font-scale));
+  }
+
+  /* Screen-reader-only text that becomes visible when focused (skip links). */
+  .focusable-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .focusable-sr-only:focus-visible {
+    position: fixed;
+    top: var(--stack-gap);
+    left: var(--stack-gap);
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: var(--control-px) calc(var(--control-px) * 1.5);
+    overflow: visible;
+    clip-path: none;
+    background-color: var(--c-surface);
+    color: var(--c-primary);
+    border: 1px solid var(--c-control);
+    border-radius: var(--radius-md);
+    z-index: 100;
+  }
 }
+
+/* Tailwind v4 registers the breakpoints; the staff layer is wide-only (no
+   tablet breakpoint, per the brief) so only the sm breakpoint is removed. */

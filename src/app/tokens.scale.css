@@ -1,0 +1,167 @@
+/* careOS scale tokens — authored, not generated.
+ *
+ * Unlike colour, these are design decisions rather than data, so they live here
+ * by hand. The rules the brief fixes:
+ *
+ *   - Radius 2-3px by default, 4px max, 8px only on the patient-facing layer.
+ *     So a single `--radius-*` set must not contain anything above 4px, and the
+ *     8px public radius has to be opt-in per component.
+ *   - Motion limited to 120ms / 180ms. The brief bans 400-600ms, so those values
+ *     are simply not expressible: nothing here is longer than 180ms.
+ *   - Elevation from borders and surface value, never shadow. The only shadow in
+ *     the system is the one overlay lift, for popovers and dialogs.
+ *   - Numbers are tabular everywhere so columns of clinical data align.
+ */
+
+/* ------------------------------------------------------------------ fonts */
+
+@theme inline {
+  --font-sans:
+    'IBM Plex Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:
+    'IBM Plex Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+  /* Reserved for patient-facing prose and pull quotes. Not for staff UI data. */
+  --font-serif: 'Source Serif 4 Variable', ui-serif, Georgia, serif;
+}
+
+/* ------------------------------------------------------- staff type scale */
+
+@theme {
+  /* Staff layer: dense, 16px root, tuned for long shift-length sessions. */
+  --text-caption: 0.75rem; /* 12px — legal line, axis labels */
+  --text-caption--line-height: 1.333;
+  --text-meta: 0.8125rem; /* 13px — timestamps, counts, units */
+  --text-meta--line-height: 1.385;
+  --text-body: 0.875rem; /* 14px — default staff body copy */
+  --text-body--line-height: 1.45;
+  --text-input: 0.875rem; /* 14px — never below 16px on touch, see public layer */
+  --text-input--line-height: 1.45;
+  --text-heading-xs: 1rem; /* 16px — card and panel titles */
+  --text-heading-xs--line-height: 1.4;
+  --text-heading-sm: 1.125rem; /* 18px — section headings */
+  --text-heading-sm--line-height: 1.35;
+  --text-heading: 1.375rem; /* 22px — page titles */
+  --text-heading--line-height: 1.3;
+  --text-heading-lg: 1.75rem; /* 28px — reserved for public layer h1 */
+  --text-heading-lg--line-height: 1.2;
+
+  /* ------------------------------------------------------ public type scale */
+  /* Brief 2.6: 18px base, 17px on small phones. Larger because the audience
+     includes patients and family on shared and older devices. */
+  --text-public-body: 1.125rem; /* 18px */
+  --text-public-body--line-height: 1.6;
+  --text-public-small: 1.0625rem; /* 17px */
+  --text-public-small--line-height: 1.6;
+  --text-public-caption: 0.9375rem; /* 15px */
+  --text-public-caption--line-height: 1.5;
+  --text-public-heading: 1.5rem; /* 24px */
+  --text-public-heading--line-height: 1.3;
+  --text-public-display: 2rem; /* 32px */
+  --text-public-display--line-height: 1.2;
+
+  /* ---------------------------------------------------------------- weights */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* ------------------------------------------------------------ letterform */
+  /* Brief: no uppercase labels or letter-spaced small text. Tracking is only
+     permitted on genuinely large text where it aids legibility, so it exists
+     here and nowhere else. */
+  --tracking-display: -0.01em;
+  --tracking-normal: 0;
+
+  /* ------------------------------------------------------------------ radius */
+  /* Nothing above 4px here. --radius-public lives outside @theme so it cannot be
+     reached by accident from a shared staff component. */
+  --radius-xs: 2px;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-full: 9999px; /* status dots and shape swatches only, never a card */
+
+  /* ------------------------------------------------------------------ motion */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --duration-instant: 0ms;
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
+
+  /* --------------------------------------------------------------- elevation */
+  /* One shadow in the system, for overlays that must read as floating. */
+  --shadow-overlay: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.12);
+  /* Focus ring geometry. 2px satisfies WCAG 2.4.11; the offset keeps it off the
+     control edge so it stays visible against adjacent fills. */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+}
+
+/* Public layer radii, opt-in only. Brief 2.6 permits 8px for patient-facing
+   surfaces; staff surfaces stay at 3px. */
+:root {
+  --radius-public: 8px;
+}
+
+/* ------------------------------------------------------------------ density */
+
+/* Two densities only. Comfortable is the default; compact is for shift-length
+   list and table work. Values are consumed through the `--control-*` and
+   `--row-*` custom properties so no component hard-codes a pixel height.
+   Density is persisted in a cookie (see src/design/theme) so it survives a
+   reload and applies before first paint, avoiding a layout shift. */
+[data-density='comfortable'] {
+  --control-height-sm: 32px;
+  --control-height: 40px;
+  --control-height-lg: 48px;
+  --control-px: 12px;
+  --control-gap: 8px;
+  --row-height: 44px;
+  --row-px: 16px;
+  --section-gap: 24px;
+  --stack-gap: 16px;
+  --field-gap: 20px;
+  --density-font-scale: 1;
+}
+
+[data-density='compact'] {
+  --control-height-sm: 28px;
+  --control-height: 32px;
+  --control-height-lg: 40px;
+  --control-px: 10px;
+  --control-gap: 6px;
+  --row-height: 34px;
+  --row-px: 12px;
+  --section-gap: 16px;
+  --stack-gap: 12px;
+  --field-gap: 16px;
+  --density-font-scale: 0.97;
+}
+
+/* Public layer ignores staff density: 18px base copy and 56px primary targets
+   are accessibility floors for touch, not preferences. */
+[data-surface='public'] {
+  --control-height: 56px;
+  --control-height-lg: 60px;
+  --control-px: 18px;
+  --row-height: 56px;
+}
+
+/* ------------------------------------------------------------ reduced motion */
+
+/* Brief: honour prefers-reduced-motion. Transitions collapse rather than
+   animate, so state changes still register without vestibular triggers. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+  }
+}
+
+/* ------------------------------------------------------------ forced colours */
+
+/* Windows High Contrast. Author colours are dropped, so borders that were
+   carrying structure must be re-asserted explicitly. */
+@media (forced-colors: active) {
+  :root {
+    --shadow-overlay: none;
+  }
+}

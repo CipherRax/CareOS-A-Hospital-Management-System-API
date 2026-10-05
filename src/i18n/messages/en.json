@@ -1,0 +1,68 @@
+{
+  "common": {
+    "appName": "careOS",
+    "loading": "Loading",
+    "retry": "Try again",
+    "cancel": "Cancel",
+    "close": "Close",
+    "save": "Save",
+    "saving": "Saving",
+    "required": "(required)",
+    "language": "Language"
+  },
+  "theme": {
+    "label": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System",
+    "density": "Density",
+    "comfortable": "Comfortable",
+    "compact": "Compact"
+  },
+  "error": {
+    "validation": {
+      "title": "Check the form",
+      "body": "Some details are missing or invalid. Review the highlighted fields and try again."
+    },
+    "unauthenticated": {
+      "title": "Please sign in again",
+      "body": "Your session has ended. Sign in to continue where you left off."
+    },
+    "forbidden": {
+      "title": "You do not have access",
+      "body": "Your role does not permit this action. Ask an administrator if you believe this is wrong."
+    },
+    "notFound": {
+      "title": "Not found",
+      "body": "This record does not exist, or it is no longer available."
+    },
+    "conflict": {
+      "title": "Someone else changed this",
+      "body": "The record was updated by someone else. Refresh to see the current version before continuing."
+    },
+    "unprocessable": {
+      "title": "Cannot process this",
+      "body": "The request was understood but could not be completed as submitted."
+    },
+    "rateLimited": {
+      "title": "Too many requests",
+      "body": "Wait a moment before trying again."
+    },
+    "internal": {
+      "title": "Something went wrong",
+      "body": "The problem has been recorded. Try again, and tell your administrator if it continues."
+    },
+    "unavailable": {
+      "title": "Service temporarily unavailable",
+      "body": "The system is not responding. Wait a moment and try again."
+    },
+    "network": {
+      "title": "No connection",
+      "body": "Your device could not reach the server. Check the network and try again. If this happened after you submitted something, check its status before resubmitting."
+    },
+    "timeout": {
+      "title": "The request timed out",
+      "body": "The server took too long to respond. The request may still have been processed — check before resubmitting."
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "common": {
+    "appName": "careOS",
+    "loading": "Inapakia",
+    "retry": "Jaribu tena",
+    "cancel": "Ghairi",
+    "close": "Funga",
+    "save": "Hifadhi",
+    "saving": "Inahifadhi",
+    "required": "(inahitajika)",
+    "language": "Lugha"
+  },
+  "theme": {
+    "label": "Mandhari",
+    "light": "Nyepesi",
+    "dark": "Giza",
+    "system": "Ya mfumo",
+    "density": "Udensiti",
+    "comfortable": "Furahisi",
+    "compact": "Bonyeza"
+  },
+  "error": {
+    "validation": {
+      "title": "Angalia fomu",
+      "body": "Baadhi ya taarifa zimebaki au si sahihi. Pitia sehemu zilizowekwa alama na jaribu tena."
+    },
+    "unauthenticated": {
+      "title": "Tafadhali ingia tena",
+      "body": "Kifungu chako kimekwisha. Ingia ili kuendelea ulipoachia."
+    },
+    "forbidden": {
+      "title": "Huna ruhusa",
+      "body": "Jukumu lako haliruhusu kitendo hiki. Omba usaidizi kama unafikiri hilo si sahihi."
+    },
+    "notFound": {
+      "title": "Haikupatikana",
+      "body": "Rekodi hii haipo, au haipatikani tena."
+    },
+    "conflict": {
+      "title": "Mtu mwingine ameibadilisha",
+      "body": "Rekodi ilibadilishwa na mtu mwingine. Onyesha upya ili kuona toleo la sasa kabla ya kuendelea."
+    },
+    "unprocessable": {
+      "title": "Hawezi kushughulikiwa",
+      "body": "Ombi limeeleweka lakini halikuweza kukamilishwa kama ilivyowasilishwa."
+    },
+    "rateLimited": {
+      "title": "Ombi mengi sana",
+      "body": "Subiri kidha mwezi mmoja kisha jaribu tena."
+    },
+    "internal": {
+      "title": "Hitilafu imetokea",
+      "body": "Shida imerekodiwa. Jaribu tena, na umwambie msimamizi ikiendelea."
+    },
+    "unavailable": {
+      "title": "Huduma imepatikana kwa muda",
+      "body": "Mfumo haujibu. Subiri kidha na jaribu tena."
+    },
+    "network": {
+      "title": "Hakuna muunganisho",
+      "body": "Kifaa chako hakijafika kwenye seva. Angalia muunganisho na jaribu tena. Ikiwa hili lilikuwa baada ya kuwasilisha taarifa, angalia hali yake kabla ya kuwasilisha tena."
+    },
+    "timeout": {
+      "title": "Ombi limechukua muda mrefu",
+      "body": "Seva haijajibu kwa wakati. Huenda ombi umepokelewa — angalia kabla ya kuwasilisha tena."
+    }
+  }
+}

@@ -1,0 +1,163 @@
+/* GENERATED FILE — do not edit by hand.
+ * Source: src/design/tokens/palette.mts
+ * Regenerate: npm run tokens:build
+ * Verify:     npm run tokens:verify   (fails the gate on any contrast regression)
+ */
+
+:root,
+[data-theme="light"] {
+  /* Surfaces. Elevation is expressed by surface value and a 1px rule, never by shadow. */
+  --c-canvas: #F4F5F3;
+  --c-surface: #FFFFFF;
+  --c-surface-sunken: #EDEFEC;
+  --c-surface-raised: #FFFFFF;
+  --c-surface-hover: #F0F2EF;
+  --c-surface-selected: #E3F1EE;
+
+  /* Borders. `border`/`border-strong` are rules only; `border-control` identifies interactive controls at 3:1. */
+  --c-border: #D9DDD8;
+  --c-strong: #B9C0BA;
+  --c-control: #7F857F;
+
+  /* Text. `text-on-fill` is the foreground for filled controls and differs per theme. */
+  --c-primary: #14201C;
+  --c-secondary: #46554F;
+  --c-tertiary: #5E6C66;
+  --c-disabled: #8A958F;
+  --c-on-fill: #FFFFFF;
+
+  /* Brand teal. As a fill it carries `text-on-fill`; as text use `brand-ink`. */
+  --c-brand: #0B6B5D;
+  --c-brand-hover: #095A4E;
+  --c-brand-active: #074C42;
+  --c-brand-subtle: #E3F1EE;
+  --c-brand-ink: #0B6B5D;
+
+  /* Status. Always paired with an icon or label — never colour alone. */
+  --c-status-critical: #B42318;
+  --c-status-critical-bg: #FDECEA;
+  --c-status-warning: #B54708;
+  --c-status-warning-bg: #FEF0C7;
+  --c-status-success: #067647;
+  --c-status-success-bg: #E4F5EC;
+  --c-status-info: #175CD3;
+  --c-status-info-bg: #E8F0FE;
+
+  /* Staff nav rail. Dark in both themes. */
+  --c-rail: #0F2420;
+  --c-rail-on: #E6ECE9;
+  --c-rail-on-muted: #9FB0A9;
+
+  /* Focus. Ring colour is asserted at 3:1 against every adjacent surface. */
+  --c-focus-ring: #0B6B5D;
+  --c-focus-ring-offset: #FFFFFF;
+
+  /* Patient-facing public layer (brief 2.6). */
+  --c-public-canvas: #FBFAF7;
+
+  color-scheme: light;
+}
+
+
+
+[data-theme="dark"] {
+  /* Surfaces. Elevation is expressed by surface value and a 1px rule, never by shadow. */
+  --c-canvas: #0E1513;
+  --c-surface: #141D1A;
+  --c-surface-sunken: #0B110F;
+  --c-surface-raised: #1B2622;
+  --c-surface-hover: #1A2421;
+  --c-surface-selected: #12302B;
+
+  /* Borders. `border`/`border-strong` are rules only; `border-control` identifies interactive controls at 3:1. */
+  --c-border: #26332F;
+  --c-strong: #3A4A45;
+  --c-control: #6B7D77;
+
+  /* Text. `text-on-fill` is the foreground for filled controls and differs per theme. */
+  --c-primary: #E6ECE9;
+  --c-secondary: #A9B7B1;
+  --c-tertiary: #8B9B94;
+  --c-disabled: #5F6C67;
+  --c-on-fill: #04140F;
+
+  /* Brand teal. As a fill it carries `text-on-fill`; as text use `brand-ink`. */
+  --c-brand: #35B39E;
+  --c-brand-hover: #4CC4AE;
+  --c-brand-active: #5FD3BD;
+  --c-brand-subtle: #12302B;
+  --c-brand-ink: #35B39E;
+
+  /* Status. Always paired with an icon or label — never colour alone. */
+  --c-status-critical: #F97066;
+  --c-status-critical-bg: #3A1512;
+  --c-status-warning: #FDB022;
+  --c-status-warning-bg: #3A2A0A;
+  --c-status-success: #47CD89;
+  --c-status-success-bg: #0F2A1D;
+  --c-status-info: #84ADFF;
+  --c-status-info-bg: #12203D;
+
+  /* Staff nav rail. Dark in both themes. */
+  --c-rail: #0A1211;
+  --c-rail-on: #E6ECE9;
+  --c-rail-on-muted: #93A49D;
+
+  /* Focus. Ring colour is asserted at 3:1 against every adjacent surface. */
+  --c-focus-ring: #35B39E;
+  --c-focus-ring-offset: #0E1513;
+
+  /* Patient-facing public layer (brief 2.6). */
+  --c-public-canvas: #0E1513;
+
+  color-scheme: dark;
+}
+
+/* Tailwind v4 @theme mapping.
+ * `inline` keeps each utility pointing at the custom property instead of
+ * baking in a value, so a [data-theme] swap re-themes every utility at once
+ * with no duplicated class names.
+ */
+@theme inline {
+  /* surface */
+  /* border */
+  /* text */
+  /* brand */
+  /* status */
+  /* rail */
+  /* focus */
+  /* public */
+  --color-canvas: var(--c-canvas);
+  --color-surface: var(--c-surface);
+  --color-surface-sunken: var(--c-surface-sunken);
+  --color-surface-raised: var(--c-surface-raised);
+  --color-surface-hover: var(--c-surface-hover);
+  --color-surface-selected: var(--c-surface-selected);
+  --color-border: var(--c-border);
+  --color-strong: var(--c-strong);
+  --color-control: var(--c-control);
+  --color-primary: var(--c-primary);
+  --color-secondary: var(--c-secondary);
+  --color-tertiary: var(--c-tertiary);
+  --color-disabled: var(--c-disabled);
+  --color-on-fill: var(--c-on-fill);
+  --color-brand: var(--c-brand);
+  --color-brand-hover: var(--c-brand-hover);
+  --color-brand-active: var(--c-brand-active);
+  --color-brand-subtle: var(--c-brand-subtle);
+  --color-brand-ink: var(--c-brand-ink);
+  --color-status-critical: var(--c-status-critical);
+  --color-status-critical-bg: var(--c-status-critical-bg);
+  --color-status-warning: var(--c-status-warning);
+  --color-status-warning-bg: var(--c-status-warning-bg);
+  --color-status-success: var(--c-status-success);
+  --color-status-success-bg: var(--c-status-success-bg);
+  --color-status-info: var(--c-status-info);
+  --color-status-info-bg: var(--c-status-info-bg);
+  --color-rail: var(--c-rail);
+  --color-rail-on: var(--c-rail-on);
+  --color-rail-on-muted: var(--c-rail-on-muted);
+  --color-focus-ring: var(--c-focus-ring);
+  --color-focus-ring-offset: var(--c-focus-ring-offset);
+  --color-public-canvas: var(--c-public-canvas);
+}
