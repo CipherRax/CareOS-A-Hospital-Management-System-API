@@ -28,6 +28,11 @@ const ROUTES = [
   { path: '/design-system', name: 'careOS design system' },
   { path: '/', name: 'Overview' },
   { path: '/triage', name: 'Triage queue' },
+  // Named by their real h1, not by what the route is called. On a patient record
+  // the heading is the patient — that is the design decision under review — and
+  // on the board it is whatever the clinic called itself.
+  { path: '/triage/EX-0001', name: 'EXAMPLE Achieng Otieno' },
+  { path: '/display', name: 'Outpatient clinics' },
 ] as const;
 
 /**

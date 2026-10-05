@@ -73,6 +73,28 @@ sensitive is reachable — but it must be gated before a real record is rendered
 and the header's identity area is empty until `/auth/me` returns something. The
 seam is the staff layout. See GAP-010.
 
+### The display board is in the wrong place, on purpose
+
+`/display` currently sits inside the `(staff)` route group, so the waiting-room
+board renders with the nav rail and behind a staff session. That is the opposite of
+where it belongs: a board exists for people who are not signed in, and behind the
+session it would show nothing to the people it is for.
+
+It was left there rather than quietly built as an unauthenticated public route
+because doing so means deciding the deployment story — resolution, authentication
+for a display surface, and whether the board appears on a shared ward screen at all.
+That is a decision to make, not one to sneak in while fitting a component. It is
+also why the route is not linked from the rail: nothing should ship a link to a page
+that will be moved.
+
+### The patient record route will 404 for every real patient
+
+`/triage/EX-0001` renders fixtures and `notFound()`s anything else, deliberately. A
+page that showed EXAMPLE Achieng's record under any reference would be actively
+dangerous the moment real data arrived. Until the record endpoint exists (GAP-011),
+the queue's row links point at a 404 — which is why the axe sweep exercises the
+fixture route directly rather than by clicking through.
+
 ### The triage queue is fitted, not wired
 
 `/triage` renders `EXAMPLE` fixtures, because the queue endpoint does not exist
@@ -110,11 +132,18 @@ named but says nothing about their behaviour. `Badge` carries the never-colour-a
 rule and has no test of its own; `StatusPill` does, and the rule is duplicated
 across the two components rather than shared.
 
-### Signature components are a third done
+### Signature components are under half done
 
-`StatusPill`, `NavRail` and `DataTable` exist. The rest of the brief's list —
-`Timeline`, `PatientHeader`, `TriageQueue`, `DisplayBoard`, `EmergencyForm` and the
-others — have not been started, and `TriageQueue` is blocked on GAP-009.
+Present and tested: `StatusPill`, `NavRail`, `DataTable`, `PatientHeader`,
+`Timeline`, `DisplayBoard`. Not started: `EmergencyForm` and the public intake
+components, all of which are blocked on the contract gaps they would need to
+invent. `TriageQueue` is a screen rather than a component and remains on fixtures
+(GAP-009).
+
+`Timeline` has no timezone handling beyond rendering the ISO value it is given. It
+formats in the server's locale and offset, and nothing tells a clinician which
+offset they are looking at. A clinical timeline where two events appear an hour
+apart without saying why is a defect waiting for a DST boundary to expose it.
 
 ### /design-system is reachable in production
 

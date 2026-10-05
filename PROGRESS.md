@@ -143,6 +143,29 @@ monitor must not show data from an hour ago).
 with deliberately awkward text lengths, because long values are what actually break
 a dense table.
 
+**Patient record** (`/triage/[reference]`) — `PatientHeader` plus `Timeline`.
+
+- `PatientHeader`: the patient name is the page's only `h1`, and the reference is
+  never truncated. Two patients can share a name; the reference is what
+  disambiguates them, so ellipsising it defeats the purpose of showing it. Allergy
+  and risk notices come first in document order, so a screen reader meets the
+  allergy before the demographics rather than scrolling to find it.
+- `Timeline`: an ordered list, because sequence _is_ the meaning — a handover note
+  arriving before the triage decision reads as a different history. Sorts by
+  timestamp rather than trusting input order, and that ordering is asserted with a
+  deliberately reversed fixture. Absolute time is always visible with the ISO value
+  retained in a `<time datetime>`: "2h ago" becomes ambiguous across a long shift
+  and cannot be quoted in a handover. Every entry names its author, so a gap in the
+  record is visible rather than implied.
+- `notFound()` for any reference but the fixture. Rendering the same record under
+  every reference would be dangerous the moment real data arrived.
+
+**Display board** (`/display`) — `DisplayBoard`, the only component here aimed at
+distance. Larger public type scale, one moving element (the current call), status as
+a word and a shape because a tint is invisible at that size, and call numbers only —
+a public board showing names is a privacy incident waiting to happen. Deliberately
+placed in the wrong route group for now; see `docs/limitations.md`.
+
 ### What this phase refused to do
 
 The contract has no triage queue, no queue counts, and no staff session. Rather
@@ -169,6 +192,18 @@ Logged as GAP-009, GAP-010 and GAP-011.
 axe now sweeps every reachable route in all four variants, not just the design
 system, because a status colour or focus ring that fails in dark mode only fails in
 dark mode.
+
+Two corrections worth recording, because both produced a false green:
+
+- Adding the two new routes appeared to leave the suite at "16 passed". It had not.
+  Eight were failing and a grep on the reporter's output missed them; the run was
+  not actually clean. The test asserted a heading matching its own route label,
+  while the real headings are the patient's name and the board's clinic name. Fixed
+  by naming routes after their real `h1`. The count is now cross-checked against
+  `playwright test --list` rather than read off the summary line.
+- `pkill -f 'standalone/server.js'` matches the shell running it, so the cleanup
+  step killed the gate it was meant to precede. Teardown now kills by listening
+  port.
 
 ### Not verified
 

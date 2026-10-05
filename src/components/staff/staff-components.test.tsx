@@ -2,8 +2,11 @@ import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DataTable, type DataTableColumn } from '@/components/staff/data-table';
+import { DisplayBoard } from '@/components/staff/display-board';
+import { PatientHeader } from '@/components/staff/patient-header';
 import { NavRail, type NavSection } from '@/components/staff/nav-rail';
 import { StatusPill, STATUS_TONE } from '@/components/staff/status-pill';
+import { Timeline } from '@/components/staff/timeline';
 
 /**
  * Behaviour tests for the first signature components.
@@ -193,5 +196,168 @@ describe('DataTable', () => {
       expect(row).toHaveAttribute('aria-hidden', 'true');
     }
     expect(screen.getByRole('status')).toHaveTextContent(/loading triage queue/i);
+  });
+});
+
+describe('PatientHeader', () => {
+  const patient = {
+    reference: 'EX-0001',
+    displayName: 'EXAMPLE Achieng Otieno',
+    dateOfBirth: '1984-03-11',
+    sex: 'Female',
+    allergies: ['Penicillin'],
+    flags: ['Falls risk'],
+    statusLabel: 'In ward',
+    statusTone: 'info' as const,
+  };
+
+  it('makes the patient name the page heading', () => {
+    render(<PatientHeader patient={patient} />);
+    expect(
+      screen.getByRole('heading', { name: 'EXAMPLE Achieng Otieno', level: 1 }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the reference in full, never truncated', () => {
+    // Two patients can share a name. The reference is what disambiguates them, so
+    // ellipsising it defeats the purpose of showing it at all.
+    const { container } = render(<PatientHeader patient={patient} />);
+    const reference = container.querySelector('.font-mono');
+    expect(reference).not.toHaveClass('truncate');
+    expect(reference).toHaveTextContent('EX-0001');
+  });
+
+  it('puts allergies before the demographics so they are met first', () => {
+    // A screen reader reaches these before the name, which is the point: the
+    // safety information must not be something you scroll to find.
+    render(<PatientHeader patient={patient} />);
+    const allergy = screen.getByText(/Allergy: Penicillin/);
+    const name = screen.getByRole('heading', { name: /Achieng/ });
+    expect(allergy.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('states an allergy in words rather than marking it with colour', () => {
+    render(<PatientHeader patient={patient} />);
+    expect(screen.getByText(/Allergy: Penicillin/)).toBeInTheDocument();
+  });
+
+  it('omits the notice row entirely when there is nothing to warn about', () => {
+    const { container } = render(
+      <PatientHeader patient={{ ...patient, allergies: [], flags: [] }} />,
+    );
+    expect(container.querySelectorAll('.rounded-full')).toHaveLength(1); // status only
+  });
+
+  it('is a labelled region so it can be navigated to directly', () => {
+    render(<PatientHeader patient={patient} />);
+    expect(screen.getByRole('region', { name: 'EXAMPLE Achieng Otieno' })).toBeInTheDocument();
+  });
+});
+
+describe('Timeline', () => {
+  const events = [
+    {
+      id: 'b',
+      timestamp: '2026-10-05T09:12:00Z',
+      author: 'EXAMPLE Dr Wanjiru',
+      eventType: 'observation' as const,
+      summary: 'Escalated to consultant review',
+    },
+    {
+      id: 'a',
+      timestamp: '2026-10-05T07:05:00Z',
+      author: 'EXAMPLE B. Otieno',
+      eventType: 'triage' as const,
+      summary: 'Triaged as urgent',
+    },
+  ];
+
+  it('is an ordered list, because sequence is the meaning', () => {
+    render(<Timeline events={events} />);
+    // A stack of divs would throw away the ordering a screen reader relies on.
+    expect(screen.getByRole('list')).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('shows newest first by default, since that is what the reader opens it for', () => {
+    render(<Timeline events={events} />);
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('Escalated to consultant review');
+    expect(items[1]).toHaveTextContent('Triaged as urgent');
+  });
+
+  it('reverses cleanly when asked for chronological order', () => {
+    render(<Timeline events={events} newestFirst={false} />);
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('Triaged as urgent');
+  });
+
+  it('sorts by timestamp rather than trusting the input order', () => {
+    // Reversed on purpose. If this passed only because the input happened to be
+    // sorted, the sort would not be under test at all.
+    render(<Timeline events={[...events].reverse()} />);
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('Escalated');
+  });
+
+  it('keeps a machine-readable timestamp alongside the rendered one', () => {
+    // A relative "2h ago" becomes ambiguous during a long shift; the absolute
+    // value must survive localisation and extraction.
+    render(<Timeline events={events} />);
+    const time = screen.getAllByRole('time')[0] ?? document.querySelector('time');
+    expect(time).toHaveAttribute('datetime', '2026-10-05T09:12:00Z');
+  });
+
+  it('attributes every entry, so a gap in the record is visible', () => {
+    render(<Timeline events={events} />);
+    expect(screen.getByText(/Recorded by EXAMPLE Dr Wanjiru/)).toBeInTheDocument();
+  });
+
+  it('says so when there is no history, rather than rendering an empty rail', () => {
+    render(<Timeline events={[]} />);
+    expect(screen.queryByRole('list')).not.toBeInTheDocument();
+    expect(screen.getByText('No recorded events.')).toBeInTheDocument();
+  });
+});
+
+describe('DisplayBoard', () => {
+  const entries = [
+    { callNumber: 'A-014', desk: 'Clinic 2', state: 'now' as const },
+    { callNumber: 'A-015', desk: 'Clinic 2', state: 'next' as const },
+    { callNumber: 'A-017', desk: 'Clinic 1', state: 'waiting' as const },
+  ];
+
+  it('shows the current call most prominently', () => {
+    render(<DisplayBoard entries={entries} title="Outpatient clinics" />);
+    expect(
+      screen.getByRole('heading', { name: 'Outpatient clinics', level: 1 }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Now serving')).toBeInTheDocument();
+    expect(screen.getByText('A-014')).toBeInTheDocument();
+  });
+
+  it('groups the rest under explicit headings', () => {
+    render(<DisplayBoard entries={entries} title="Outpatient clinics" />);
+    expect(screen.getByRole('heading', { name: 'Up next' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Waiting' })).toBeInTheDocument();
+  });
+
+  it('carries no patient identifier, only a call number', () => {
+    // A public board showing names is a privacy incident waiting to happen.
+    render(<DisplayBoard entries={entries} title="Outpatient clinics" />);
+    for (const entry of entries) {
+      expect(screen.getByText(entry.callNumber)).toBeInTheDocument();
+    }
+    expect(screen.queryByText(/Achieng|Penicillin|EX-/)).not.toBeInTheDocument();
+  });
+
+  it('omits sections with nothing in them', () => {
+    render(
+      <DisplayBoard
+        entries={entries.filter((e) => e.state === 'now')}
+        title="Outpatient clinics"
+      />,
+    );
+    expect(screen.queryByRole('heading', { name: 'Up next' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Waiting' })).not.toBeInTheDocument();
   });
 });
