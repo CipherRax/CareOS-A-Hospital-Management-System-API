@@ -227,6 +227,24 @@ first screen built against a fully documented endpoint. `POST
 - 12 unit tests and 3 end-to-end tests, including that the API's diagnostic
   `message` never reaches the page.
 
+**Dialog focus verified, and it found three real defects.** Focus trapping had been
+recorded as unverified, which is the weakest kind of claim in a clinical UI — a modal
+that lets focus wander behind it lets a keyboard user edit a record they believe they
+dismissed. Driving it with the keyboard found:
+
+- `aria-modal` was never set. Radix hides the background with `aria-hidden` but never
+  sets the attribute, so the modal was announced as an ordinary dialog.
+- The demo dialog's Cancel was a plain `Button` and closed nothing — a control that
+  rendered as working and was not.
+- `ConfirmDialog` rendered its consequence as an unassociated paragraph, so the
+  accessible description was empty and "this cannot be undone" reached nobody who
+  was not looking at the screen. It also had no way to confirm at all, so it now
+  requires `onConfirm` rather than existing as a dialog that cannot be confirmed.
+- Also: the accessibility run now builds inside the Playwright web server rather than
+  relying on a `pretest` hook. Twice a run passed against the previous build — a
+  route with no `main` landmark, and these very dialog assertions against already
+  fixed primitives. Costs one redundant build in the gate; worth it.
+
 ### What this phase refused to do
 
 The contract has no triage queue, no queue counts, and no staff session. Rather

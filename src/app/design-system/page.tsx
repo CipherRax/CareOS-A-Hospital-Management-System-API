@@ -14,6 +14,7 @@ import {
   DialogContent,
   DialogFooter,
   DialogHeader,
+  DialogClose,
   DialogTrigger,
   Field,
   Label,
@@ -438,7 +439,11 @@ export default function DesignSystemPage() {
                     </p>
                   </DialogBody>
                   <DialogFooter>
-                    <Button variant="secondary">Cancel</Button>
+                    {/* Wrapped in DialogClose: a plain button here rendered as a
+                        working control and did nothing at all. */}
+                    <DialogClose asChild>
+                      <Button variant="secondary">Cancel</Button>
+                    </DialogClose>
                     <Button variant="primary">Continue</Button>
                   </DialogFooter>
                 </DialogContent>
@@ -450,6 +455,7 @@ export default function DesignSystemPage() {
             <ConfirmDialog
               open={confirmOpen}
               onOpenChange={setConfirmOpen}
+              onConfirm={() => setConfirmOpen(false)}
               title="Discard this draft?"
               description="The draft is not saved anywhere else. This cannot be undone."
               confirmLabel="Discard draft"

@@ -94,6 +94,20 @@ For the same reason, when the facility list cannot be loaded the page renders a
 plain "temporarily unavailable" notice with no list of phone numbers. Those numbers
 would have to be invented, and a wrong number in an emergency is worse than none.
 
+### Focus trapping is now verified, but only in Chromium
+
+Dialog focus was previously listed as unverified. It is now driven the way a
+keyboard user would — focus moves in on open, Tab and Shift+Tab stay inside, Escape
+and Cancel close, and focus returns to the trigger — which found three real defects:
+`aria-modal` was never set (Radix hides the background with `aria-hidden` but does
+not set the attribute), the demo dialog's Cancel button closed nothing, and
+`ConfirmDialog` rendered its consequence as an unassociated paragraph, so "this cannot
+be undone" reached nobody not looking at the screen. `ConfirmDialog` also had no way
+to confirm at all, so it required an `onConfirm` before it could be used.
+
+That is Chromium only. Focus behaviour differs enough between engines that "verified"
+here should not be read as "verified" anywhere else.
+
 ### The intake form is verified against a stub, not a real API
 
 The end-to-end tests run against `e2e/stub-api.mjs`, which answers the documented

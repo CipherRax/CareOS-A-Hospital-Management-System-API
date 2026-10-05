@@ -31,6 +31,11 @@ export function DialogContent({
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-[rgb(0_0_0/0.45)]" />
       <DialogPrimitive.Content
+        // Radix hides the rest of the document with `aria-hidden`, but never sets
+        // `aria-modal` itself. That attribute is the standard signal that tells
+        // assistive technology the content behind is inert, and without it a modal
+        // is announced as an ordinary dialog. Set explicitly.
+        aria-modal="true"
         className={cn(
           'fixed left-1/2 top-1/2 z-50 w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2',
           'rounded-lg border border-border bg-surface-raised shadow-overlay',
@@ -103,6 +108,7 @@ export function DialogFooter({ children, className }: { children: ReactNode; cla
 export function ConfirmDialog({
   open,
   onOpenChange,
+  onConfirm,
   title,
   description,
   confirmLabel,
@@ -112,6 +118,12 @@ export function ConfirmDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Required. A confirmation dialog that cannot be confirmed is a dead end, and one
+   * that exists only to look right in a design system will be copied into a
+   * destructive path with nothing wired to it.
+   */
+  onConfirm: () => void;
   title: string;
   description: ReactNode;
   confirmLabel: string;
@@ -122,17 +134,25 @@ export function ConfirmDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogHeader title={title} />
-        <DialogBody>
-          <p className="text-body text-secondary">{description}</p>
-        </DialogBody>
+        {/* The description goes through the header so Radix wires it as
+            `aria-describedby`. Rendered as a plain paragraph in the body it looked
+            correct and was announced as an empty dialog — so "this cannot be undone"
+            reached nobody who was not looking at the screen. */}
+        <DialogHeader title={title} description={description} />
         <DialogFooter>
           <DialogClose className={buttonVariants({ variant: 'secondary' })}>
             {cancelLabel}
           </DialogClose>
-          <button type="button" disabled={pending} className={buttonVariants({ variant: tone })}>
-            {pending ? 'Working' : confirmLabel}
-          </button>
+          <DialogClose asChild>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={onConfirm}
+              className={buttonVariants({ variant: tone })}
+            >
+              {pending ? 'Working' : confirmLabel}
+            </button>
+          </DialogClose>
         </DialogFooter>
       </DialogContent>
     </Dialog>

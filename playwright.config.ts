@@ -38,9 +38,17 @@ export default defineConfig({
       env: { STUB_API_PORT: '3199' },
     },
     {
-      // `output: standalone` means `next start` is not the right entry point — the
-      // build emits a self-contained server instead.
-      command: 'node .next/standalone/server.js',
+      // Built here rather than relying on the caller to have run `npm run build`.
+      //
+      // Twice now an accessibility run passed against the *previous* build: a
+      // `/display` route with no `main` landmark, and a set of dialog assertions
+      // against primitives that had already been fixed. Both looked green. A
+      // `pretest` hook covers one script; putting the build where the server starts
+      // covers every invocation, including a bare `npx playwright test`.
+      //
+      // Costs one extra build inside `npm run gate`, which already builds. That is
+      // the trade: a redundant build, or tests that quietly validate stale output.
+      command: 'npm run build && node .next/standalone/server.js',
       url: 'http://127.0.0.1:3100',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
