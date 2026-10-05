@@ -37,6 +37,15 @@ export interface TimelineProps {
   events: readonly TimelineEvent[];
   /** Newest first. Set false for a chronological handover note. */
   newestFirst?: boolean;
+  /**
+   * IANA zone the timestamps are recorded in, e.g. `Africa/Nairobi`.
+   *
+   * Without this a clinician reads times in whatever offset the server happens to
+   * be in, and two events that are genuinely hours apart can look minutes apart —
+   * or the reverse. Passing the facility's zone is what makes the gap between two
+   * entries explainable.
+   */
+  timeZone?: string;
   className?: string;
 }
 
@@ -68,7 +77,28 @@ const dateFormat = new Intl.DateTimeFormat('en-GB', {
   year: 'numeric',
 });
 
-export function Timeline({ events, newestFirst = true, className }: TimelineProps) {
+/**
+ * The UTC offset in force at a given instant.
+ *
+ * Resolved per event rather than once, because the offset moves across a DST
+ * boundary and a clock time that shifted under a fixed offset is exactly the bug
+ * this exists to prevent. Returns null for an absent or unrecognised zone rather
+ * than throwing mid-render.
+ */
+function offsetAt(date: Date, timeZone: string | undefined): string | null {
+  if (!timeZone) return null;
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      timeZoneName: 'shortOffset',
+    }).formatToParts(date);
+    return parts.find((part) => part.type === 'timeZoneName')?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function Timeline({ events, newestFirst = true, timeZone, className }: TimelineProps) {
   const ordered = [...events].sort((a, b) =>
     newestFirst
       ? Date.parse(b.timestamp) - Date.parse(a.timestamp)
@@ -88,45 +118,62 @@ export function Timeline({ events, newestFirst = true, className }: TimelineProp
     );
   }
 
+  // Named once, not per row: the zone is a property of the record, and repeating
+  // it on every entry would bury the timestamps it exists to explain.
+  const [newest] = ordered;
+  const zoneLabel =
+    timeZone && newest ? (offsetAt(new Date(newest.timestamp), timeZone) ?? timeZone) : null;
+
   return (
-    <ol className={cn('relative flex flex-col', className)}>
-      {ordered.map((event, index) => {
-        const date = new Date(event.timestamp);
+    <div className={className}>
+      {zoneLabel ? (
+        <p className="mb-3 text-caption text-tertiary">All times shown in {zoneLabel}.</p>
+      ) : null}
+      <ol className="relative flex flex-col">
+        {ordered.map((event, index) => {
+          const date = new Date(event.timestamp);
+          const offset = offsetAt(date, timeZone);
 
-        return (
-          <li key={event.id} className="relative flex gap-4 pb-5 last:pb-0">
-            {/* Rail. The connecting line stops at the last marker so there is no
+          return (
+            <li key={event.id} className="relative flex gap-4 pb-5 last:pb-0">
+              {/* Rail. The connecting line stops at the last marker so there is no
                 dangling stroke implying an event that has not happened. */}
-            <div aria-hidden="true" className="flex w-4 shrink-0 flex-col items-center">
-              <span className="mt-1.5 size-2.5 shrink-0 rounded-full border-2 border-brand bg-surface" />
-              {index < ordered.length - 1 ? <span className="mt-1 w-px flex-1 bg-border" /> : null}
-            </div>
-
-            <div className="min-w-0 flex-1 border-b border-border pb-5 last:border-b-0 last:pb-0">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                {/* `time` with `dateTime` so the machine-readable value survives
-                    localisation and any downstream extraction. */}
-                <time
-                  dateTime={event.timestamp}
-                  className="font-mono text-meta tabular-nums text-secondary"
-                >
-                  {dateFormat.format(date)} {timeFormat.format(date)}
-                </time>
-                <span className="text-caption text-tertiary">{EVENT_LABEL[event.eventType]}</span>
-                {event.tone ? (
-                  <StatusPill tone={event.tone} label={event.tag ?? event.eventType} size="sm" />
+              <div aria-hidden="true" className="flex w-4 shrink-0 flex-col items-center">
+                <span className="mt-1.5 size-2.5 shrink-0 rounded-full border-2 border-brand bg-surface" />
+                {index < ordered.length - 1 ? (
+                  <span className="mt-1 w-px flex-1 bg-border" />
                 ) : null}
               </div>
 
-              <p className="mt-1 text-body text-primary">{event.summary}</p>
-              {event.detail ? (
-                <p className="mt-1 text-meta text-secondary">{event.detail}</p>
-              ) : null}
-              <p className="mt-1 text-caption text-tertiary">Recorded by {event.author}</p>
-            </div>
-          </li>
-        );
-      })}
-    </ol>
+              <div className="min-w-0 flex-1 border-b border-border pb-5 last:border-b-0 last:pb-0">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {/* `time` with `dateTime` so the machine-readable value survives
+                    localisation and any downstream extraction. */}
+                  <time
+                    dateTime={event.timestamp}
+                    className="font-mono text-meta tabular-nums text-secondary"
+                  >
+                    {dateFormat.format(date)} {timeFormat.format(date)}
+                    {/* The offset is part of the time, not decoration: without it
+                      the gap to the next entry cannot be reasoned about. */}
+                    {offset ? <span className="text-tertiary"> {offset}</span> : null}
+                  </time>
+                  <span className="text-caption text-tertiary">{EVENT_LABEL[event.eventType]}</span>
+                  {event.tone ? (
+                    <StatusPill tone={event.tone} label={event.tag ?? event.eventType} size="sm" />
+                  ) : null}
+                </div>
+
+                <p className="mt-1 text-body text-primary">{event.summary}</p>
+                {event.detail ? (
+                  <p className="mt-1 text-meta text-secondary">{event.detail}</p>
+                ) : null}
+                <p className="mt-1 text-caption text-tertiary">Recorded by {event.author}</p>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }

@@ -11,7 +11,7 @@ export default [
   {
     // Node-side tooling: token codegen, the contrast verifier, config files.
     // These are build scripts, never bundled into the browser.
-    files: ['scripts/**/*.mjs', '*.config.mjs', '*.config.ts'],
+    files: ['scripts/**/*.mjs', 'e2e/**/*.mjs', '*.config.mjs', '*.config.ts'],
     languageOptions: {
       globals: {
         process: 'readonly',

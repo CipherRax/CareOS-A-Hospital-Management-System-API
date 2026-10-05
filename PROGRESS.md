@@ -166,6 +166,43 @@ a word and a shape because a tint is invisible at that size, and call numbers on
 a public board showing names is a privacy incident waiting to happen. Deliberately
 placed in the wrong route group for now; see `docs/limitations.md`.
 
+**Staff session gate** (`StaffGate`) — the largest change in this phase, and the
+one that makes the rest of it safe to build on.
+
+- Fails closed. Staff content renders only after `/auth/me` confirms a session, and
+  an unreachable API is treated as signed out rather than as a pass. A clinician
+  locked out by a network blip is an inconvenience; a clinician looking at another
+  clinician's session is an incident.
+- The signed-out page picks its message by error code, so an expired session and a
+  service outage read differently. Telling someone to sign in when the API is down
+  wastes a support call and teaches people to ignore the message.
+- It does not depend on the guessed `/auth/me` shape being correct — it needs only a
+  2xx to mean "signed in" — so it stays correct once the real shape lands.
+- Six unit tests drive the three states directly. A network abort in the browser was
+  tried first and proved unreliable to apply, and a test that intermittently does not
+  intercept proves nothing.
+
+**Display board moved to its own unauthenticated route group** — a board for people
+who are not signed in should not be behind the staff session. This broke its `main`
+landmark in all four variants the moment it left the shell, which is the argument for
+sweeping every route rather than a sample.
+
+**A real defect in the data layer** — `unwrap` read the error code one level too
+shallow. The body is `{ error: { code } }` and openapi-fetch returns a non-2xx body
+as `error`, putting the code at `error.error.code`. Every nested error was silently
+becoming `INTERNAL_ERROR`, telling clinicians "something went wrong" for problems
+that had a specific, correct message waiting in the catalogue. Found because a new
+test expected a specific message and got a generic one; fixed by recursing, and
+pinned with eight tests.
+
+**Two test-infrastructure fixes**
+
+- `test:a11y` never built. Running it standalone validated the previous build, which
+  is how a stale `/display` passed with no `main`. `pretest:a11y` now builds first,
+  so the accessibility run cannot validate stale output.
+- The suite count is cross-checked against `playwright test --list` on every run,
+  not read off the summary line.
+
 ### What this phase refused to do
 
 The contract has no triage queue, no queue counts, and no staff session. Rather
@@ -205,8 +242,9 @@ Two corrections worth recording, because both produced a false green:
   step killed the gate it was meant to precede. Teardown now kills by listening
   port.
 
-### Not verified
+### Release blocker
 
-The shell renders for unauthenticated visitors. It shows only fixture data, so
-nothing sensitive is reachable, but the session gate must exist before a real record
-is. Row links 404. See `docs/limitations.md`.
+No session can be started or ended: no `/auth/login`, no `/auth/logout` (GAP-010).
+The gate fails closed and the shell is safe, but a shared workstation with a session
+that cannot be terminated is not deployable, and no frontend work fixes that. Row
+links still 404. See `docs/limitations.md`.

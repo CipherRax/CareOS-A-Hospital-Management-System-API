@@ -27,21 +27,33 @@ export default defineConfig({
 
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 
-  webServer: {
-    // `output: standalone` means `next start` is not the right entry point — the
-    // build emits a self-contained server instead.
-    command: 'node .next/standalone/server.js',
-    url: 'http://127.0.0.1:3100',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-    env: {
-      PORT: '3100',
-      HOSTNAME: '127.0.0.1',
-      NODE_ENV: 'production',
-      // A production build must never serve mocks, and the env guard in
-      // src/lib/env.ts enforces it. Asserted here so the a11y run cannot
-      // accidentally validate mocked markup.
-      NEXT_PUBLIC_ENABLE_MOCKS: 'false',
+  webServer: [
+    {
+      // The API the proxy forwards to. Real HTTP, one endpoint, so the proxy and
+      // the staff session gate are exercised rather than bypassed.
+      command: 'node e2e/stub-api.mjs',
+      url: 'http://127.0.0.1:3199/health',
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+      env: { STUB_API_PORT: '3199' },
     },
-  },
+    {
+      // `output: standalone` means `next start` is not the right entry point — the
+      // build emits a self-contained server instead.
+      command: 'node .next/standalone/server.js',
+      url: 'http://127.0.0.1:3100',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+      env: {
+        PORT: '3100',
+        HOSTNAME: '127.0.0.1',
+        NODE_ENV: 'production',
+        // A production build must never serve mocks, and the env guard in
+        // src/lib/env.ts enforces it. Asserted here so the a11y run cannot
+        // accidentally validate mocked markup.
+        NEXT_PUBLIC_ENABLE_MOCKS: 'false',
+        API_INTERNAL_URL: 'http://127.0.0.1:3199',
+      },
+    },
+  ],
 });

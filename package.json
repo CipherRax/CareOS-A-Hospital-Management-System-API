@@ -19,6 +19,7 @@
     "api:types": "openapi-typescript openapi/careos.partial.json -o src/api/schema.d.ts",
     "api:check": "npm run api:types && git diff --exit-code -- src/api/schema.d.ts || (echo 'src/api/schema.d.ts is stale. Run npm run api:types and commit.' && exit 1)",
     "test:a11y": "playwright test",
+    "pretest:a11y": "npm run build",
     "postbuild": "node scripts/copy-standalone-assets.mjs"
   },
   "dependencies": {

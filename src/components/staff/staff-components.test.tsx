@@ -312,6 +312,26 @@ describe('Timeline', () => {
     expect(screen.getByText(/Recorded by EXAMPLE Dr Wanjiru/)).toBeInTheDocument();
   });
 
+  it('states the offset, so the gap between two entries can be reasoned about', () => {
+    // Without the offset, two events hours apart can read as minutes apart, or the
+    // reverse, and nobody can tell which is wrong.
+    render(<Timeline events={events} timeZone="Africa/Nairobi" />);
+    expect(screen.getByText('All times shown in GMT+3.')).toBeInTheDocument();
+    expect(screen.getAllByText('GMT+3').length).toBeGreaterThan(1);
+  });
+
+  it('omits the offset when no zone is supplied, rather than inventing one', () => {
+    render(<Timeline events={events} />);
+    expect(screen.queryByText(/All times shown in/)).not.toBeInTheDocument();
+  });
+
+  it('survives an unrecognised zone instead of throwing mid-render', () => {
+    // A bad zone in a facility record must degrade to plain times, not take the
+    // page down with it.
+    render(<Timeline events={events} timeZone="Not/AZone" />);
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  });
+
   it('says so when there is no history, rather than rendering an empty rail', () => {
     render(<Timeline events={[]} />);
     expect(screen.queryByRole('list')).not.toBeInTheDocument();

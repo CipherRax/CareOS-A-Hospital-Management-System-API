@@ -32,7 +32,9 @@ export default async function PatientRecordPage({
       <div className="flex flex-col gap-4 px-6 py-6">
         <div className="max-w-2xl">
           <h2 className="mb-3 text-heading-xs font-semibold text-primary">Clinical timeline</h2>
-          <Timeline events={PATIENT.events} />
+          {/* The facility's zone, so a reader can tell why two entries are the
+              distance apart they appear to be. */}
+          <Timeline events={PATIENT.events} timeZone="Africa/Nairobi" />
         </div>
       </div>
     </div>

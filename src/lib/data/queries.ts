@@ -32,6 +32,23 @@ interface Fetched<T> {
 }
 
 /**
+ * Pulls an error code out of a response body, whatever depth it sits at.
+ *
+ * The envelope nests the code, so the body is `{ error: { code } }`. openapi-fetch
+ * hands a non-2xx body back as `error` rather than `data`, which puts the code at
+ * `error.error.code` — one level deeper than a flat read reaches. When that was
+ * missed, every nested error silently degraded to `INTERNAL_ERROR` and told a
+ * clinician "something went wrong" for problems that had a specific, correct
+ * message in the catalogue. Recursing costs nothing and cannot pick the wrong one.
+ */
+function codeFrom(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const record = body as { code?: unknown; error?: unknown };
+  if (typeof record.code === 'string') return record.code;
+  return codeFrom(record.error);
+}
+
+/**
  * Unwraps the API's success envelope.
  *
  * A 2xx with `success: false` is treated as an error, not as data. Trusting the
@@ -44,16 +61,20 @@ async function unwrap<T>(call: PromiseLike<ApiCallResult> | ApiCallResult): Prom
   const status = result.response.status;
 
   if (!result.response.ok || (result.data as { success?: boolean } | undefined)?.success !== true) {
-    const code =
-      (result.error as { code?: string } | undefined)?.code ??
-      (result.data as { error?: { code?: string } } | undefined)?.error?.code ??
-      'INTERNAL_ERROR';
+    const code = codeFrom(result.error) ?? codeFrom(result.data) ?? 'INTERNAL_ERROR';
     throw { code, status, resolved: resolveApiError(code) } satisfies QueryError;
   }
 
   const envelope = result.data as { data: T };
   return { data: envelope.data, response: result.response } satisfies Fetched<T>;
 }
+
+/**
+ * Exposed for tests only. The unwrapping rules are the contract every screen
+ * depends on, and they were wrong once; they are pinned by direct test rather than
+ * only through a screen that happens to exercise them.
+ */
+export const unwrapForTest = unwrap;
 
 /** Current user. Provisional: `/auth/me` is the one staff endpoint in the partial spec. */
 export function useSession() {

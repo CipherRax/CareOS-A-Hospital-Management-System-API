@@ -162,13 +162,20 @@ its data access is not.
 
 ## GAP-010 — No staff authentication contract
 
-`/auth/me` in the partial spec is a hand-authored guess at shape (see GAP-003). The
-staff shell renders for any visitor, including an unauthenticated one, and no
-endpoint establishes or destroys a browser session.
+`/auth/me` in the partial spec is a hand-authored guess at shape (see GAP-003). No
+endpoint establishes a session and none destroys one: there is no `/auth/login` and
+no `/auth/logout`.
 
-**Impact:** the staff route group has no session gate. It currently exposes only
-fixture data, so nothing sensitive is reachable, but the gate must exist before any
-real record is rendered. The seam is `src/app/(staff)/layout.tsx`.
+**Half closed.** `StaffGate` now sits in the staff route group and fails closed —
+staff content renders only once `/auth/me` has confirmed a session, and an
+unreachable API is treated as signed out rather than as a pass. It does not depend
+on the guessed shape being correct, since it needs only a 2xx to mean "signed in".
+
+**Still open, and a release blocker:** with no sign-out endpoint, a session on a
+shared workstation cannot be ended. No sign-out control is rendered at all, because
+a link to a 404 teaches staff that the control works when it does not — which is
+worse than a visibly missing one. The signed-out page likewise offers no sign-in
+link, for the same reason. Neither may ship to a ward until both routes exist.
 
 ---
 

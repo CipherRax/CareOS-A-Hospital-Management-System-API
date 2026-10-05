@@ -65,13 +65,29 @@ result is usable.
 
 ## Incomplete
 
-### The staff shell has no session gate
+### A session cannot be started or ended
 
-`src/app/(staff)/layout.tsx` renders the nav rail and header for any visitor,
-including an unauthenticated one. It exposes only fixture data today, so nothing
-sensitive is reachable — but it must be gated before a real record is rendered,
-and the header's identity area is empty until `/auth/me` returns something. The
-seam is the staff layout. See GAP-010.
+The staff gate fails closed: content renders only after `/auth/me` confirms a
+session, and an unreachable API counts as signed out. What it cannot do is let
+anyone _in_ or _out_ — no `/auth/login` and no `/auth/logout` exist (GAP-010), so
+neither the signed-out page nor the header offers a control. Both would be links to
+404s, and a link that looks like it works teaches staff it works.
+
+This is the one item here that blocks a real deployment rather than merely being
+unfinished. A shared clinical workstation with a session that cannot be ended is not
+acceptable, and it is not fixable from the frontend.
+
+### The display board is now unauthenticated, and that is the point
+
+`/display` moved out of the `(staff)` group into its own `(display)` group with no
+session check, because a waiting-room board exists for people who are not signed in
+and behind the staff shell it showed nothing to the people it is for. It is
+deliberately unlinked from the nav rail: a clinician has no use for it, and a link
+is an invitation to wire in data the screen must never receive.
+
+Moving it immediately broke the page's `main` landmark in all four theme/density
+combinations, because the landmark had been inherited from the shell it left. That
+is the argument for sweeping every route rather than a representative sample.
 
 ### The display board is in the wrong place, on purpose
 

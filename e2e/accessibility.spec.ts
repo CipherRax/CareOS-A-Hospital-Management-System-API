@@ -24,6 +24,11 @@ const VARIANTS = [
  * checking, because a status colour or a focus ring that fails in dark mode only
  * fails in dark mode.
  */
+/**
+ * Staff routes require a confirmed session (see StaffGate), so a visitor with no
+ * session sees the signed-out page rather than the shell. The stub upstream hands
+ * one out, which is what keeps the shell itself under test.
+ */
 const ROUTES = [
   { path: '/design-system', name: 'careOS design system' },
   { path: '/', name: 'Overview' },
@@ -168,4 +173,47 @@ test('every control is reachable and labelled by keyboard alone', async ({ page 
   });
 
   expect(unnamed, `controls with no accessible name:\n${unnamed.join('\n')}`).toEqual([]);
+});
+
+test.describe('staff session gate', () => {
+  test('shows staff content once a session is confirmed', async ({ page }) => {
+    await page.goto('/triage');
+    // The rail only exists inside the gate, so its presence is proof the content
+    // behind it rendered.
+    await expect(page.getByRole('navigation', { name: 'Clinical' })).toBeVisible();
+    await expect(page.getByText('EXAMPLE Dr N. Wanjiru')).toBeVisible();
+  });
+
+  test('withholds staff content when there is no session', async ({ page }) => {
+    await page
+      .context()
+      .addCookies([{ name: 'careos-e2e', value: 'signed-out', url: 'http://127.0.0.1:3100' }]);
+    await page.goto('/triage');
+
+    await expect(page.getByRole('heading', { name: 'Please sign in again' })).toBeVisible();
+
+    // The actual assertion: the thing behind the gate must not be in the document
+    // at all. Visible-but-covered would still leak it to a screen reader.
+    await expect(page.getByRole('navigation', { name: 'Clinical' })).toHaveCount(0);
+    await expect(page.getByText('EXAMPLE Achieng Otieno')).toHaveCount(0);
+  });
+
+  test('treats a failing API as signed out, and says so differently', async ({ page }) => {
+    // Fails closed: if the session cannot be confirmed, staff content must not
+    // render. And the message must not tell a clinician to sign in when the real
+    // problem is that the service is down.
+    await page
+      .context()
+      .addCookies([{ name: 'careos-e2e', value: 'unavailable', url: 'http://127.0.0.1:3100' }]);
+    await page.goto('/triage');
+
+    await expect(page.getByRole('navigation', { name: 'Clinical' })).toHaveCount(0);
+    // A 503 is retryable, so the query backs off before it settles. That is correct
+    // behaviour for the app; the assertion just has to wait for it rather than
+    // racing it.
+    await expect(
+      page.getByRole('heading', { name: 'Service temporarily unavailable' }),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Please sign in again' })).toHaveCount(0);
+  });
 });
