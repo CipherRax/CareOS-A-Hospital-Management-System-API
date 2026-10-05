@@ -65,12 +65,26 @@ result is usable.
 
 ## Incomplete
 
-### The API proxy route does not exist
+### The staff shell has no session gate
 
-ADR-004 describes same-origin access through a Next proxy. `src/api/client.ts`
-points at the `/api/v1` path prefix, but no route handler forwards it to
-`API_INTERNAL_URL` yet. Any real API call will 404 until the first feature that
-needs it lands the proxy.
+`src/app/(staff)/layout.tsx` renders the nav rail and header for any visitor,
+including an unauthenticated one. It exposes only fixture data today, so nothing
+sensitive is reachable — but it must be gated before a real record is rendered,
+and the header's identity area is empty until `/auth/me` returns something. The
+seam is the staff layout. See GAP-010.
+
+### The triage queue is fitted, not wired
+
+`/triage` renders `EXAMPLE` fixtures, because the queue endpoint does not exist
+(GAP-009). Column order, density, status treatment and long-text behaviour are all
+reviewable; the data access is not. Row links point at `/triage/{reference}`, which
+is also undefined (GAP-011) and will 404.
+
+### The nav rail shows no counts
+
+`NavItem.count` is implemented and tested, but nothing supplies a count. The
+endpoint that would feed it is not in the contract, and a fabricated number in a
+navigation bar is worse than none.
 
 ### The OpenAPI contract is hand-authored and partial
 
@@ -88,12 +102,19 @@ run and the real document replaces the partial one, treat every schema in
 
 ### No component tests for most primitives
 
-`Button`, `Field` and `CheckboxField` have behavioural tests. `Badge`, `Dialog`,
-`ConfirmDialog`, `Select`, `Tooltip`, `Skeleton` and `Toaster` are unrendered by
-any unit test — they are exercised only by the axe run against the design-system
-page, which proves they are reachable and named but says nothing about their
-behaviour. `Badge` carries the never-colour-alone rule, and that rule is enforced
-by convention rather than by a test.
+`Button`, `Field`, `CheckboxField`, `StatusPill`, `NavRail` and `DataTable` have
+behavioural tests. `Badge`, `Dialog`, `ConfirmDialog`, `Select`, `Tooltip`,
+`Skeleton` and `Toaster` are unrendered by any unit test — they are exercised only
+by the axe run against the design-system page, which proves they are reachable and
+named but says nothing about their behaviour. `Badge` carries the never-colour-alone
+rule and has no test of its own; `StatusPill` does, and the rule is duplicated
+across the two components rather than shared.
+
+### Signature components are a third done
+
+`StatusPill`, `NavRail` and `DataTable` exist. The rest of the brief's list —
+`Timeline`, `PatientHeader`, `TriageQueue`, `DisplayBoard`, `EmergencyForm` and the
+others — have not been started, and `TriageQueue` is blocked on GAP-009.
 
 ### /design-system is reachable in production
 

@@ -141,3 +141,40 @@ notice feed, on-call rotas, SLA alerts, and the entire staff surface.
 
 **Impact:** expected. F0 is foundations only. Each is logged here as it is needed
 rather than speculatively specified — a speculative schema is a wrong schema.
+
+---
+
+## GAP-009 — No triage queue endpoint
+
+`GET /triage/counts` and `GET /triage/queue` are both undefined. The nav rail
+supports a per-destination count, and `/triage` needs a queue, but neither exists
+in the contract.
+
+**Not assumed.** The rail renders no count rather than a fabricated one, and the
+queue screen is fitted against `EXAMPLE` fixtures. A hard-coded number in a
+navigation bar looks live and is not; a fabricated queue looks like data and is
+not. Both would be worse than an honest gap.
+
+**Impact:** the queue's column order, density and status treatment are reviewable;
+its data access is not.
+
+---
+
+## GAP-010 — No staff authentication contract
+
+`/auth/me` in the partial spec is a hand-authored guess at shape (see GAP-003). The
+staff shell renders for any visitor, including an unauthenticated one, and no
+endpoint establishes or destroys a browser session.
+
+**Impact:** the staff route group has no session gate. It currently exposes only
+fixture data, so nothing sensitive is reachable, but the gate must exist before any
+real record is rendered. The seam is `src/app/(staff)/layout.tsx`.
+
+---
+
+## GAP-011 — No record detail endpoint
+
+`/triage/{reference}` is linked from every queue row but undefined.
+
+**Impact:** the link target does not exist and will 404 through the proxy. Not
+followed by any test, so the gap cannot regress unnoticed.

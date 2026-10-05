@@ -20,6 +20,17 @@ const VARIANTS = [
 ] as const;
 
 /**
+ * Every route a user can reach. Swept in all four variants rather than spot
+ * checking, because a status colour or a focus ring that fails in dark mode only
+ * fails in dark mode.
+ */
+const ROUTES = [
+  { path: '/design-system', name: 'careOS design system' },
+  { path: '/', name: 'Overview' },
+  { path: '/triage', name: 'Triage queue' },
+] as const;
+
+/**
  * Forces a theme and density via cookie, then reloads.
  *
  * Cookies rather than clicking the toggles, because this runs against a production
@@ -54,14 +65,16 @@ function describe(violations: Awaited<ReturnType<typeof analyse>>['violations'])
 
 for (const variant of VARIANTS) {
   test.describe(`${variant.theme} theme, ${variant.density} density`, () => {
-    test('design system has no axe violations', async ({ page }) => {
-      await applyVariant(page, variant.theme, variant.density);
-      await page.goto('/design-system');
-      await expect(page.getByRole('heading', { name: 'careOS design system' })).toBeVisible();
+    for (const route of ROUTES) {
+      test(`${route.path} has no axe violations`, async ({ page }) => {
+        await applyVariant(page, variant.theme, variant.density);
+        await page.goto(route.path);
+        await expect(page.getByRole('heading', { name: route.name, exact: true })).toBeVisible();
 
-      const results = await analyse(page);
-      expect(results.violations, describe(results.violations)).toEqual([]);
-    });
+        const results = await analyse(page);
+        expect(results.violations, describe(results.violations)).toEqual([]);
+      });
+    }
   });
 }
 

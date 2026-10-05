@@ -106,8 +106,72 @@ Fixed in API commit `2b00fc0`.
 
 ## F1 — Signature components and staff shell
 
-**Status:** not started. Blocked on design review.
+**Status:** started. Shell, navigation and the first screen delivered; the rest
+blocked on review and on the contract.
 
-Will add the ~15 signature components — StatusPill, DataTable, Timeline,
-PatientHeader, TriageQueue, DisplayBoard, EmergencyForm and the rest — plus the
-staff shell with the nav rail, once the token and type direction is signed off.
+### Delivered
+
+**Same-origin API proxy** (`src/app/api/v1/[...path]/route.ts`) — clears the last
+F0 debt. Forwards method, path, query, cookies and body; returns the upstream
+status unchanged; 15s timeout; typed error envelope on failure so the client has one
+error path; `no-store` on every response so a shared cache cannot serve one
+clinician's response to another. Rebinds upstream `Set-Cookie` to our origin, since
+a cookie scoped to the API host is silently dropped by the browser. Eight tests
+against a real HTTP server rather than a mocked `fetch`, because a stub would let a
+dropped cookie or a body that never arrives pass as correct.
+
+**Query defaults** (`src/lib/data/query-provider.tsx`) — no retry on any 4xx (a 401
+is a decision, not a blip), no retry on writes at all (a retried clinical submission
+can duplicate a record), `refetchOnWindowFocus` on (a queue left open on a second
+monitor must not show data from an hour ago).
+
+**Signature components**
+
+- `StatusPill` — status is a mandatory word in the type signature, so colour-only
+  status cannot be written. Each tone has a distinct silhouette, so meaning survives
+  greyscale. Tested.
+- `NavRail` — text-first, no resting icons, four simultaneous active-state signals,
+  `aria-current` as the authoritative one. Counts announce as "3 awaiting review",
+  not a bare numeral. Tested.
+- `DataTable` — a real `<table>` with a `<caption>`, not a `role="grid"`
+  reconstruction. Row navigation is a stretched link rather than an `onClick` on
+  `<tr>`, which is unreachable by keyboard. Tabular figures, no zebra striping.
+  Tested.
+- Staff shell and `(staff)` route group — nav landmark, `banner`, `main`.
+
+**Triage queue** (`/triage`) — the first screen. Fitted against `EXAMPLE` fixtures
+with deliberately awkward text lengths, because long values are what actually break
+a dense table.
+
+### What this phase refused to do
+
+The contract has no triage queue, no queue counts, and no staff session. Rather
+than invent them:
+
+- `GET /triage/counts` was written, rejected by the type checker, and deleted. The
+  rail renders no count. A hard-coded number in a nav bar looks live and is not.
+- The queue reads fixtures, labelled `EXAMPLE`, not a plausible-looking stub fetch.
+- The staff layout has no session gate yet, and that is recorded as GAP-010 rather
+  than hidden behind a redirect to nowhere.
+
+Logged as GAP-009, GAP-010 and GAP-011.
+
+### Verification
+
+| Check               | Result                                                   |
+| ------------------- | -------------------------------------------------------- |
+| `npm run lint`      | pass                                                     |
+| `npm run typecheck` | pass                                                     |
+| `npm test`          | 62 tests across 7 files, pass                            |
+| `npm run build`     | pass, 5 routes                                           |
+| `npm run test:a11y` | 16 tests, pass — 3 routes × 4 theme/density combinations |
+
+axe now sweeps every reachable route in all four variants, not just the design
+system, because a status colour or focus ring that fails in dark mode only fails in
+dark mode.
+
+### Not verified
+
+The shell renders for unauthenticated visitors. It shows only fixture data, so
+nothing sensitive is reachable, but the session gate must exist before a real record
+is. Row links 404. See `docs/limitations.md`.

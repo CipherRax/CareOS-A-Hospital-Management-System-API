@@ -10,6 +10,7 @@ import '@fontsource-variable/source-serif-4';
 import { Toaster, TooltipProvider } from '@/components/ui';
 import { MockProvider } from '@/mocks/mock-provider';
 import { ThemeProvider } from '@/design/theme/provider';
+import { QueryProvider } from '@/lib/data/query-provider';
 import { THEME_BOOTSTRAP_SCRIPT } from '@/design/theme/preferences';
 import { getThemePreference } from '@/design/theme/server';
 import { publicEnv } from '@/lib/env';
@@ -71,11 +72,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body>
         <ThemeProvider initialPreference={theme} initialDensity={density}>
           <NextIntlClientProvider messages={messages}>
-            <TooltipProvider>
-              {/* Build-time constant: never mounted, and never bundled, in production. */}
-              {publicEnv.enableMocks ? <MockProvider>{children}</MockProvider> : children}
-              <Toaster />
-            </TooltipProvider>
+            {/* Inside the locale and theme providers so a data-driven screen has
+                the same context a static one does. */}
+            <QueryProvider>
+              <TooltipProvider>
+                {/* Build-time constant: never mounted, and never bundled, in production. */}
+                {publicEnv.enableMocks ? <MockProvider>{children}</MockProvider> : children}
+                <Toaster />
+              </TooltipProvider>
+            </QueryProvider>
           </NextIntlClientProvider>
         </ThemeProvider>
       </body>
