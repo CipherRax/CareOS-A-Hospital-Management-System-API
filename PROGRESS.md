@@ -203,6 +203,30 @@ pinned with eight tests.
 - The suite count is cross-checked against `playwright test --list` on every run,
   not read off the summary line.
 
+**Public emergency intake** (`/request`) — the patient-facing entry point, and the
+first screen built against a fully documented endpoint. `POST
+/public/emergency-requests` is specified, so there was nothing to invent.
+
+- Server-fetched facility list. The facility is a required field, so a client fetch
+  means a member of the public staring at an empty form on a bad connection — which
+  is exactly when someone reaches for this page.
+- **Nothing implies triage**, which the contract forbids in as many words. No
+  self-assessment question, no queue position, no wait estimate, no "a clinician
+  will review this". A public that believes it has been assessed is worse off than
+  one that knows it has not. Asserted by testing the _absence_ of that language.
+- **Consent blocks the send.** The schema demands `consentToContact: true` literally,
+  so the body always carries `true` — consent is only real if an unticked box
+  prevents submission. That check was missing, and the form was recording consent
+  nobody gave. Caught by a test asserting the send is refused; both the unticked
+  default and the refusal are now pinned.
+- Phone validated as a phone number and nothing else; a strict format gate rejects
+  numbers that work.
+- Details cleared from the screen after a successful send, and kept after a failed
+  one. Losing a description someone spent two minutes writing because the service
+  blipped is how people give up.
+- 12 unit tests and 3 end-to-end tests, including that the API's diagnostic
+  `message` never reaches the page.
+
 ### What this phase refused to do
 
 The contract has no triage queue, no queue counts, and no staff session. Rather
@@ -242,7 +266,10 @@ Two corrections worth recording, because both produced a false green:
   step killed the gate it was meant to precede. Teardown now kills by listening
   port.
 
-### Release blocker
+### Release blockers
+
+1. No session can be started or ended (GAP-010).
+2. The intake receipt issues a reference with no tracking page (GAP-008).
 
 No session can be started or ended: no `/auth/login`, no `/auth/logout` (GAP-010).
 The gate fails closed and the shell is safe, but a shared workstation with a session

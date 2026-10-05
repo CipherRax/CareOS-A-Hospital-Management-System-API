@@ -10,9 +10,10 @@
  * It is a real HTTP server, not a `fetch` stub, so the proxy, cookie handling and
  * error envelope are all genuinely exercised.
  *
- * It answers exactly one endpoint. Every other path 404s, so a test that
- * accidentally starts depending on more of the API fails loudly rather than
- * quietly passing against invented data.
+ * It answers only endpoints that are actually documented in
+ * `openapi/careos.partial.json`. Every other path 404s, so a test that accidentally
+ * starts depending on more of the API fails loudly rather than quietly passing
+ * against invented data.
  */
 import { createServer } from 'node:http';
 
@@ -41,6 +42,69 @@ const server = createServer((request, response) => {
 
   if (url.pathname === '/health') {
     send(response, 200, { status: 'ok' });
+    return;
+  }
+
+  // Published facilities, per the documented response shape. Fabricated.
+  if (url.pathname === '/public/facilities' && request.method === 'GET') {
+    send(response, 200, {
+      success: true,
+      data: [
+        { id: 'fac-example-1', name: 'EXAMPLE General Hospital', type: 'GENERAL' },
+        { id: 'fac-example-2', name: 'EXAMPLE Referral Centre', type: 'REFERRAL' },
+        { id: 'fac-example-3', name: 'EXAMPLE Community Clinic', type: 'CLINIC' },
+      ],
+    });
+    return;
+  }
+
+  if (url.pathname === '/public/emergency-requests' && request.method === 'POST') {
+    const cookies = request.headers.cookie ?? '';
+
+    // Rate limited, for the error-path test.
+    if (cookies.includes('careos-e2e=rate-limited')) {
+      send(response, 429, { success: false, error: { code: 'RATE_LIMITED', message: 'stub' } });
+      return;
+    }
+
+    // Deliberately validates: the form's own client validation is not the only
+    // line of defence, and a stub that accepted anything would hide a form that
+    // posts an invalid body.
+    let body = '';
+    request.on('data', (chunk) => (body += chunk));
+    request.on('end', () => {
+      let parsed = {};
+      try {
+        parsed = JSON.parse(body || '{}');
+      } catch {
+        send(response, 400, {
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'bad json' },
+        });
+        return;
+      }
+
+      const missing = ['facilityId', 'patientName', 'phone', 'description'].filter(
+        (key) => typeof parsed[key] !== 'string' || parsed[key].length === 0,
+      );
+      if (missing.length > 0 || parsed.consentToContact !== true) {
+        send(response, 400, {
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'invalid', details: missing },
+        });
+        return;
+      }
+
+      send(response, 201, {
+        success: true,
+        data: {
+          id: 'er-example-1',
+          reference: 'EX-EM-00001',
+          status: 'RECEIVED',
+          createdAt: '2026-10-05T08:00:00Z',
+        },
+      });
+    });
     return;
   }
 

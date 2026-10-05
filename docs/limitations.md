@@ -77,6 +77,38 @@ This is the one item here that blocks a real deployment rather than merely being
 unfinished. A shared clinical workstation with a session that cannot be ended is not
 acceptable, and it is not fixable from the frontend.
 
+### The intake form hands out a reference nobody can use
+
+`/request` is built against `POST /public/emergency-requests`, the one fully
+specified endpoint in the contract, so it is real work rather than a mock. But
+`/public/emergency-requests/{reference}/track` does not exist (GAP-008), so the
+reference it returns has no tracking page. The receipt tells a member of the public
+to keep a number that currently does nothing.
+
+The form deliberately offers no invented next steps and no "what happens next" list,
+because a fabricated step in an emergency is the most damaging thing this screen
+could say. That choice makes the missing endpoint more visible rather than less, which
+is the correct direction.
+
+For the same reason, when the facility list cannot be loaded the page renders a
+plain "temporarily unavailable" notice with no list of phone numbers. Those numbers
+would have to be invented, and a wrong number in an emergency is worse than none.
+
+### The intake form is verified against a stub, not a real API
+
+The end-to-end tests run against `e2e/stub-api.mjs`, which answers the documented
+facilities and intake paths and 404s everything else. That is real HTTP through the
+real proxy and a real form submission, but it is not the careOS API: no rate limiter,
+no validation rules, no real reference format. Docker being unavailable is why the
+exported contract and a live API are both out of reach.
+
+The consent rules deserve a specific note. The schema requires
+`consentToContact: true` literally, so the body always carries `true` — which means
+consent is only real if the form _blocks the send_ when the box is unticked. That
+check was initially missing, and the field was therefore recording consent nobody
+gave. A test asserting the checkbox starts unticked and the send is refused caught it.
+Any future edit to that path needs the same test.
+
 ### The display board is now unauthenticated, and that is the point
 
 `/display` moved out of the `(staff)` group into its own `(display)` group with no

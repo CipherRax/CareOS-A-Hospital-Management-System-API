@@ -38,6 +38,7 @@ const ROUTES = [
   // on the board it is whatever the clinic called itself.
   { path: '/triage/EX-0001', name: 'EXAMPLE Achieng Otieno' },
   { path: '/display', name: 'Outpatient clinics' },
+  { path: '/request', name: 'Emergency care' },
 ] as const;
 
 /**
@@ -173,6 +174,52 @@ test('every control is reachable and labelled by keyboard alone', async ({ page 
   });
 
   expect(unnamed, `controls with no accessible name:\n${unnamed.join('\n')}`).toEqual([]);
+});
+
+test.describe('public emergency intake', () => {
+  test('never presents a submission as an assessment', async ({ page }) => {
+    await page.goto('/request');
+    await expect(page.getByText(/has not been assessed/i)).toHaveCount(0);
+
+    await page.getByLabel(/facility/i).selectOption('fac-example-1');
+    await page.getByLabel(/patient name/i).fill('EXAMPLE Test Person');
+    await page.getByLabel(/phone number/i).fill('+254700000000');
+    await page.getByLabel(/what has happened/i).fill('EXAMPLE symptom description for a test.');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /send request/i }).click();
+
+    // The contract is explicit that the receipt must not imply triage. Assert the
+    // absence of the language that would imply it, which is the whole point.
+    const receipt = page.getByText('EX-EM-00001');
+    await expect(receipt).toBeVisible();
+    await expect(page.getByText(/has not been assessed/i)).toBeVisible();
+    await expect(page.getByText(/queue position|estimated wait|you will be seen/i)).toHaveCount(0);
+  });
+
+  test('does not pre-tick consent', async ({ page }) => {
+    // Pre-ticked consent is not consent.
+    await page.goto('/request');
+    await expect(page.getByRole('checkbox')).not.toBeChecked();
+  });
+
+  test('explains a rate limit without mentioning the diagnostic message', async ({ page }) => {
+    await page
+      .context()
+      .addCookies([{ name: 'careos-e2e', value: 'rate-limited', url: 'http://127.0.0.1:3100' }]);
+    await page.goto('/request');
+    await page.getByLabel(/facility/i).selectOption('fac-example-1');
+    await page.getByLabel(/patient name/i).fill('EXAMPLE Test Person');
+    await page.getByLabel(/phone number/i).fill('+254700000000');
+    await page.getByLabel(/what has happened/i).fill('EXAMPLE symptom description for a test.');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /send request/i }).click();
+
+    // Next injects its own role="alert" route announcer, so the assertion is scoped
+    // by text rather than taking the first alert on the page.
+    await expect(page.getByRole('alert').filter({ hasText: /too many requests/i })).toBeVisible();
+    // The API's diagnostic `message` is not written for display and must not render.
+    await expect(page.getByText('stub')).toHaveCount(0);
+  });
 });
 
 test.describe('staff session gate', () => {

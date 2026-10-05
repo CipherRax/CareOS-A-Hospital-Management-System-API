@@ -64,5 +64,58 @@
       "title": "Ombi limechukua muda mrefu",
       "body": "Seva haijajibu kwa wakati. Huenda ombi umepokelewa — angalia kabla ya kuwasilisha tena."
     }
+  },
+  "intake": {
+    "title": "Omba ombali ya dharura",
+    "intro": "Tueleze kilichotokea na tutakampa timu ya kliniki. Fomu hii haitathmini jinsi hali yako ilivyo hatari.",
+    "facility": {
+      "label": "Kituo gani?",
+      "hint": "Chagua kilicho karibu ikiwa huna uhakika.",
+      "placeholder": "Chagua kituo"
+    },
+    "name": {
+      "label": "Jina la mgonjwa"
+    },
+    "phone": {
+      "label": "Namba ya simu",
+      "hint": "Ili timu ya kliniki ipate kukushikilia. Tutaitumia tu kuhusu ombi hili."
+    },
+    "description": {
+      "label": "Kilichotokea?",
+      "hint": "Kwa maneno yako mwenyewe. Eleza ilipoanza na kile kilichobadilika."
+    },
+    "consent": {
+      "label": "Nakubali kupigwa simu kuhusu ombi hili",
+      "description": "Inahitajika. Timu ya kliniki itatumia namba hii kukushikilia kuhusu ombi uliloweka.",
+      "required": "Tafadhali thibitisha unakubali kupigwa simu kabla ya kutuma."
+    },
+    "submit": "Tuma ombi",
+    "submitting": "Inatuma…",
+    "urgentNotice": "Huduma hii haifaa hali za hatari za papo hapo. Mtu mmoja akiwa hatarini sasa, piga namba ya dharura ya eneo lako mara moja.",
+    "receipt": {
+      "title": "Ombi limepokelewa",
+      "body": "Weka namba hii ya kumbukumbu. Utahahitaji kama utakapowasiliana na kituo kuhusu ombi hili.",
+      "referenceLabel": "Namba yako",
+      "noAssessment": "Ombi limepitwa kwao. Bado halijathminiwa, na bado hakuna mtu aliyewagwa.",
+      "another": "Tuma ombi lingine"
+    },
+    "errors": {
+      "facility": "Chagua kituo.",
+      "name": "Weka jina la mgonjwa.",
+      "phone": "Weka namba ya simu.",
+      "phoneFormat": "Weka namba ya simu yenye msimbo wa eneo.",
+      "description": "Tueleze kilichotokea.",
+      "descriptionShort": "Tafadhali ongeza maelezo kidogo zaidi.",
+      "rateLimited": "Ombi nyingi sana zimetumwa kutoka kwa kifaa hiki. Subiri dakika chache kisha jaribu tena.",
+      "unavailable": "Huduma haipatikani kwa sasa. Ombi lako halijatumwa. Subiri kidogo kisha jaribu tena.",
+      "serverValidation": "Baadhi ya maelezo hayakuwakiliwa. Kagua fomu kisha jaribu tena.",
+      "generic": "Ombi lako halijatumwa. Jaribu tena baadaye kidogo."
+    },
+    "pageTitle": "Huduma ya dharura",
+    "pageIntro": "Mtu anahitaji msaada wa dharura, tuma ombi na timu ya kliniki itakiona. Utapata namba ya kumbukumbu.",
+    "facilitiesUnavailable": {
+      "title": "Huduma hii haipatikani kwa sasa",
+      "body": "Hatuawezi kufikia orodha ya vituo kwa sasa, kwa hivyo hatuwezi kupokea ombi kupitia fomu hii. Ikiwa ni dharura, wasiliana na kituo chako kilicho karibu."
+    }
   }
 }

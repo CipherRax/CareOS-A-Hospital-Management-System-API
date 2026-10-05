@@ -64,5 +64,58 @@
       "title": "The request timed out",
       "body": "The server took too long to respond. The request may still have been processed — check before resubmitting."
     }
+  },
+  "intake": {
+    "title": "Request an emergency visit",
+    "intro": "Tell us what has happened and we will pass it to the clinical team. This form does not assess how serious your condition is.",
+    "facility": {
+      "label": "Which facility?",
+      "hint": "Choose the nearest one if you are not sure.",
+      "placeholder": "Select a facility"
+    },
+    "name": {
+      "label": "Patient name"
+    },
+    "phone": {
+      "label": "Phone number",
+      "hint": "So the clinical team can reach you. We will only use it about this request."
+    },
+    "description": {
+      "label": "What has happened?",
+      "hint": "In your own words. Include when it started and anything that has changed since."
+    },
+    "consent": {
+      "label": "I agree to be contacted about this request",
+      "description": "Required. The clinical team will use this number to reach you about the request you have just made.",
+      "required": "Please confirm you agree to be contacted before sending."
+    },
+    "submit": "Send request",
+    "submitting": "Sending…",
+    "urgentNotice": "This service is not for life-threatening emergencies. If someone is in immediate danger, call your local emergency number now.",
+    "receipt": {
+      "title": "Request received",
+      "body": "Keep this reference. You will need it if you contact the facility about this request.",
+      "referenceLabel": "Your reference",
+      "noAssessment": "Your request has been passed on. It has not been assessed, and no one has been assigned to you yet.",
+      "another": "Send another request"
+    },
+    "errors": {
+      "facility": "Choose a facility.",
+      "name": "Enter the patient's name.",
+      "phone": "Enter a phone number.",
+      "phoneFormat": "Enter a phone number, including the area code.",
+      "description": "Tell us what has happened.",
+      "descriptionShort": "Please add a little more detail.",
+      "rateLimited": "Too many requests have been sent from this device. Wait a few minutes and try again.",
+      "unavailable": "The service is temporarily unavailable. Your request was not sent. Wait a moment and try again.",
+      "serverValidation": "Some details were not accepted. Check the form and try again.",
+      "generic": "Your request was not sent. Try again in a moment."
+    },
+    "pageTitle": "Emergency care",
+    "pageIntro": "If someone needs urgent medical help, send a request and the clinical team will see it. You will get a reference to keep.",
+    "facilitiesUnavailable": {
+      "title": "This service is temporarily unavailable",
+      "body": "We cannot reach the list of facilities right now, so we cannot accept a request through this form. If this is an emergency, contact your nearest facility directly."
+    }
   }
 }
