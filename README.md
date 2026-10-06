@@ -1,5 +1,24 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Where this code lives
+
+The frontend and the API share **one** GitHub repository,
+[`CipherRax/CareOS-A-Hospital-Management-System-API`](https://github.com/CipherRax/CareOS-A-Hospital-Management-System-API),
+on **two branches with no shared history**:
+
+| Branch | Holds                | Working copy                                     |
+| ------ | -------------------- | ------------------------------------------------ |
+| `main` | API only (NestJS)    | `../CareOS-A-Hospital-Management-System-API`     |
+| `web`  | Frontend only (this) | `../CareOS-Web`                                   |
+
+**Work on `web`. Never push frontend code to `main`.** In this clone `main` is
+deleted locally, so `git push origin main` fails rather than overwriting the API.
+`main` is also branch-protected on GitHub against force pushes and deletion.
+
+Because the histories are unrelated, a normal checkout of `main` in this clone will
+not contain the frontend, and a checkout of `main` in the API clone will not either.
+Each directory stays checked out on its own branch.
+
 ## Getting Started
 
 First, run the development server:
