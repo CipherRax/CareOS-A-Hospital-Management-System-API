@@ -31,13 +31,21 @@ import {
   TooltipTrigger,
 } from '@/components/ui';
 import {
+  AmendmentDialog,
   AuditNote,
+  BreakGlassBanner,
+  BreakGlassDialog,
   Can,
+  ConflictDialog,
   EmptyState,
   EstimateBadge,
   FormSection,
   KeyValueGrid,
   MoneyText,
+  NowServing,
+  PatientBanner,
+  type PatientBannerProps,
+  QueueTicket,
 } from '@/components/clinical';
 import { DENSITIES, type Density, type ThemePreference } from '@/design/theme/preferences';
 import { useTheme } from '@/design/theme/provider';
@@ -105,6 +113,57 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
  * check in F1. Until then it is `noindex` and unenumerable by search. See
  * docs/limitations.md.
  */
+/**
+ * Demo patient rows for the PatientBanner examples.
+ *
+ * Three rows rather than one, because the difference between "checked and found
+ * none" and "never checked" exists only when the two are shown next to each other.
+ * A component library documenting only the recorded case teaches the reader that
+ * the other two are the same case.
+ */
+const BANNER_DEMO: Record<
+  'recorded' | 'noneRecorded' | 'notRecorded',
+  PatientBannerProps['patient']
+> = {
+  recorded: {
+    reference: 'EX-0001',
+    displayName: 'EXAMPLE Achieng Otieno',
+    dateOfBirth: '1984-03-11',
+    age: 42,
+    sex: 'Female',
+    allergies: { status: 'recorded', allergies: ['Penicillin', 'Latex'] },
+    flags: ['Falls risk'],
+    location: 'In ward, bed 4',
+    insurance: { providerName: 'SHA', scheme: 'Inpatient', memberNumber: 'SHA-4471' },
+    statusLabel: 'In ward',
+    statusTone: 'info',
+  },
+  noneRecorded: {
+    reference: 'EX-0002',
+    displayName: 'EXAMPLE Brian Otieno',
+    dateOfBirth: '1996-11-02',
+    age: 29,
+    sex: 'Male',
+    allergies: { status: 'none-recorded' },
+    location: 'Waiting room',
+    statusLabel: 'Waiting',
+    statusTone: 'neutral',
+  },
+  notRecorded: {
+    reference: 'EX-0003',
+    displayName: 'EXAMPLE Chweya Wafula',
+    dateOfBirth: '1971-01-25',
+    age: 55,
+    sex: 'Male',
+    allergies: { status: 'not-recorded' },
+    possibleDuplicate: true,
+    legalHold: true,
+    location: 'Seen and discharged',
+    statusLabel: 'Discharged',
+    statusTone: 'success',
+  },
+};
+
 export default function DesignSystemPage() {
   const { preference, resolved, density, setPreference, setDensity } = useTheme();
   const [previewTheme, setPreviewTheme] = useState<'light' | 'dark'>('light');
@@ -113,6 +172,9 @@ export default function DesignSystemPage() {
   // Follow the real preference until the reviewer overrides the preview.
   const [overridden, setOverridden] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [breakGlassOpen, setBreakGlassOpen] = useState(false);
+  const [amendOpen, setAmendOpen] = useState(false);
+  const [conflictOpen, setConflictOpen] = useState(false);
   useEffect(() => {
     if (overridden) return;
     setPreviewTheme(resolved);
@@ -567,6 +629,114 @@ export default function DesignSystemPage() {
             >
               <Button variant="danger">Release result</Button>
             </Can>
+          </div>
+
+          <h3 className="mt-8 mb-2 text-body font-semibold text-primary">NowServing</h3>
+          <div className="mb-6 flex flex-wrap items-end gap-8">
+            <NowServing ticket="A024" desk="Triage" />
+            <NowServing ticket="A025" desk="Bay 3" size="display" />
+            <NowServing ticket="A026" label="Next at phlebotomy" desk="Room 4" size="sm" />
+          </div>
+
+          <h3 className="mb-2 text-body font-semibold text-primary">QueueTicket</h3>
+          <div className="mb-6 flex flex-wrap items-end gap-8">
+            <QueueTicket ticket="A025" label="Your queue number" size="sm" />
+            <QueueTicket ticket="A025" label="Your queue number" />
+            <QueueTicket ticket="A025" label="Your queue number" size="lg" />
+            <QueueTicket ticket="A025" label="Your queue number" size="display" />
+          </div>
+
+          <h3 className="mt-8 mb-2 text-body font-semibold text-primary">PatientBanner</h3>
+          <p className="mb-3 max-w-prose text-meta text-secondary">
+            The three allergy states are shown in sequence, because an unrecorded allergy list must
+            never look like an empty one.
+          </p>
+          <div className="mb-6 border border-border">
+            <PatientBanner patient={BANNER_DEMO.recorded} headingLevel={4} />
+            <PatientBanner
+              patient={BANNER_DEMO.noneRecorded}
+              headingLevel={4}
+              className="border-t border-border"
+            />
+            <PatientBanner
+              patient={BANNER_DEMO.notRecorded}
+              headingLevel={4}
+              className="border-t border-border"
+            />
+          </div>
+
+          <h3 className="mt-8 mb-2 text-body font-semibold text-primary">BreakGlassBanner</h3>
+          <div className="mb-6 max-w-xl">
+            <BreakGlassBanner minutesRemaining={18} onEnd={() => {}} />
+          </div>
+
+          <h3 className="mt-8 mb-2 text-body font-semibold text-primary">
+            Safety-critical dialogs
+          </h3>
+          <p className="mb-3 max-w-prose text-meta text-secondary">
+            None of these can be confirmed with a default. Each requires a typed reason before the
+            action can proceed, and each names the action rather than saying “OK”.
+          </p>
+          <div className="mb-6 flex flex-wrap gap-3">
+            <Button variant="danger" onClick={() => setBreakGlassOpen(true)}>
+              Open BreakGlassDialog
+            </Button>
+            <Button variant="secondary" onClick={() => setAmendOpen(true)}>
+              Open AmendmentDialog
+            </Button>
+            <Button variant="secondary" onClick={() => setConflictOpen(true)}>
+              Open ConflictDialog
+            </Button>
+
+            <BreakGlassDialog
+              open={breakGlassOpen}
+              onOpenChange={setBreakGlassOpen}
+              resourceLabel="the patient record for EXAMPLE Achieng Otieno (EX-0001)"
+              onRequest={() => setBreakGlassOpen(false)}
+            />
+            <AmendmentDialog
+              open={amendOpen}
+              onOpenChange={setAmendOpen}
+              resourceLabel="the consultation note from 5 October"
+              changes={[
+                {
+                  field: 'Assessment',
+                  before: 'Community-acquired pneumonia, likely',
+                  after: 'Community-acquired pneumonia. Chest x-ray reviewed; no consolidation.',
+                },
+                {
+                  field: 'Dose',
+                  before: 'Amoxicillin 500 mg TDS for 5 days',
+                  after: 'Amoxicillin 500 mg TDS for 7 days',
+                },
+              ]}
+              onAmend={() => setAmendOpen(false)}
+            />
+            <ConflictDialog
+              open={conflictOpen}
+              onOpenChange={setConflictOpen}
+              resourceLabel="Vitals for EX-0001"
+              serverVersion={8}
+              yourVersion={7}
+              fields={[
+                {
+                  field: 'Blood pressure',
+                  server: '128/82 mmHg',
+                  mine: '132/84 mmHg',
+                },
+                {
+                  field: 'Pulse',
+                  server: '76 bpm',
+                  mine: '76 bpm',
+                },
+                {
+                  field: 'Temperature',
+                  server: '37.1 °C',
+                  mine: '38.4 °C',
+                },
+              ]}
+              onResolve={() => setConflictOpen(false)}
+            />
           </div>
         </section>
       </div>

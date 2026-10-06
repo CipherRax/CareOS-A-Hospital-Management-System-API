@@ -1,5 +1,6 @@
 'use client';
 
+import { NowServing, QueueTicket } from '@/components/clinical/queue-ticket';
 import { cn } from '@/lib/cn';
 
 /**
@@ -66,12 +67,14 @@ export function DisplayBoard({ entries, title, className }: DisplayBoardProps) {
 
       {now ? (
         // The single moving part of a board.
+        //
+        // Built from `NowServing` rather than from its own markup. The brief asks for
+        // one ticket component across the staff board, the portal and this screen,
+        // and a component that exists three times in three slightly different forms
+        // is how a patient ends up standing in the wrong queue certain they are in
+        // the right one.
         <div className="rounded-lg border-2 border-brand bg-surface-selected px-6 py-8">
-          <p className="text-public-small uppercase tracking-wide text-tertiary">Now serving</p>
-          <p className="mt-2 font-mono text-public-display font-semibold tabular-nums text-primary">
-            {now.callNumber}
-          </p>
-          <p className="mt-2 text-public-body text-secondary">{now.desk}</p>
+          <NowServing ticket={now.callNumber} desk={now.desk} size="display" />
         </div>
       ) : null}
 
@@ -110,7 +113,7 @@ function DisplayRow({ entry }: { entry: DisplayBoardEntry }) {
       )}
     >
       {/* The state is in the text, so the board is legible with all colour removed. */}
-      <span className="font-mono text-public-body tabular-nums">{entry.callNumber}</span>
+      <QueueTicket ticket={entry.callNumber} size="md" />
       <span className="flex items-center gap-3">
         <span className="text-public-small">{entry.desk}</span>
         <span className="sr-only">{style.label}</span>

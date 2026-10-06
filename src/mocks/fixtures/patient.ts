@@ -1,3 +1,4 @@
+import type { AllergyState } from '@/components/clinical/patient-banner';
 import type { StatusTone } from '@/components/clinical/status-pill';
 import type { TimelineEvent } from '@/components/clinical/timeline';
 import type { DisplayBoardEntry } from '@/components/staff/display-board';
@@ -17,7 +18,9 @@ export interface PatientFixture {
   readonly displayName: string;
   readonly dateOfBirth: string;
   readonly sex: string;
-  readonly allergies?: readonly string[];
+  /** Not an optional array. See `AllergyState`: absence of a record must never
+   *  read as absence of allergies, and a missing field cannot say which it is. */
+  readonly allergies: AllergyState;
   readonly flags?: readonly string[];
   readonly statusLabel: string;
   readonly statusTone: StatusTone;
@@ -29,7 +32,7 @@ export const PATIENT: PatientFixture = {
   displayName: 'EXAMPLE Achieng Otieno',
   dateOfBirth: '1984-03-11',
   sex: 'Female',
-  allergies: ['Penicillin', 'Latex'],
+  allergies: { status: 'recorded', allergies: ['Penicillin', 'Latex'] },
   flags: ['Falls risk'],
   statusLabel: 'In ward',
   statusTone: 'info',

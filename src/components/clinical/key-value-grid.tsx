@@ -16,7 +16,7 @@ import { cn } from '@/lib/cn';
  *
  * An empty value renders as an em dash rather than as nothing. A blank cell in a
  * clinical record is ambiguous between "not recorded" and "not applicable", and an
- * em dash at least marks the spot as deliberately empty — see `PatientHeader` for
+ * em dash at least marks the spot as deliberately empty — see `PatientBanner` for
  * the allergy case, where the brief is blunter: absence of a record must never read
  * as absence of the thing.
  */

@@ -206,6 +206,14 @@ That is a decision to make, not one to sneak in while fitting a component. It is
 also why the route is not linked from the rail: nothing should ship a link to a page
 that will be moved.
 
+### The queue live-region uses a plain `div`, not `display: contents`
+
+The waiting-room call in `NowServing` announces through `aria-live`/`aria-atomic`
+on an ordinary element. `display: contents` was rejected for its classic pitfall —
+removing the element's own box — and engines have historically dropped the
+`display: contents` element's accessibility subtree. A public board is a poor place
+to discover a screen-reader regression, so the wrapper stays.
+
 ### The patient record route will 404 for every real patient
 
 `/triage/EX-0001` renders fixtures and `notFound()`s anything else, deliberately. A
@@ -251,13 +259,29 @@ named but says nothing about their behaviour. `Badge` carries the never-colour-a
 rule and has no test of its own; `StatusPill` does, and the rule is duplicated
 across the two components rather than shared.
 
-### Signature components are under half done
+### Signature components: 16 of 20, none exercised against a real record
 
-Present and tested: `StatusPill`, `NavRail`, `DataTable`, `PatientHeader`,
-`Timeline`, `DisplayBoard`. Not started: `EmergencyForm` and the public intake
-components, all of which are blocked on the contract gaps they would need to
-invent. `TriageQueue` is a screen rather than a component and remains on fixtures
-(GAP-009).
+The brief's §2.4 list is 16 of 20 delivered: `StatusPill`, `DataTable`, `Timeline`,
+`QueueTicket`, `NowServing`, `PatientBanner`, `EstimateBadge`, `MoneyText`,
+`AuditNote`, `BreakGlassDialog`, `AmendmentDialog`, `ConflictDialog`, `Can`,
+`EmptyState`, `FormSection`, `KeyValueGrid`. Missing: `BedTile`, `WardBoard`,
+`BatchRow`, `CommandPalette`.
+
+Every delivered component is verified against synthetic data only. None has met a
+real record, a real conflict, or a real queue, because the contracts those would
+come from do not exist (GAP-008/009/011). `PatientBanner`'s `not-recorded` allergy
+state, the three state-selecting dialogs, and the queue components are the least
+exercised of the batch.
+
+The reason gating is client-side. It prevents a reflex click within this app, but
+the API remains the authority and must enforce the same requirement on every
+endpoint these dialogs compose — otherwise the UI is polite and the data path is
+not.
+
+`BreakGlassBanner` accepts `minutesRemaining` as an optional prop and renders no
+countdown when it is absent. Nothing in the contract supplies it yet (GAP-008 has
+no track endpoint), so a banner with no timer is the honest state, not a gap in
+this component.
 
 `Timeline` has no timezone handling beyond rendering the ISO value it is given. It
 formats in the server's locale and offset, and nothing tells a clinician which

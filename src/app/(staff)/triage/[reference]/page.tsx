@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 
-import { PatientHeader } from '@/components/clinical/patient-header';
+import { PatientBanner } from '@/components/clinical/patient-banner';
 import { Timeline } from '@/components/clinical/timeline';
 import { PATIENT } from '@/mocks/fixtures/patient';
 
@@ -28,7 +28,7 @@ export default async function PatientRecordPage({
 
   return (
     <div className="flex flex-col">
-      <PatientHeader patient={PATIENT} />
+      <PatientBanner patient={PATIENT} />
       <div className="flex flex-col gap-4 px-6 py-6">
         <div className="max-w-2xl">
           <h2 className="mb-3 text-heading-xs font-semibold text-primary">Clinical timeline</h2>

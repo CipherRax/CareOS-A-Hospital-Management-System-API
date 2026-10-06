@@ -27,11 +27,15 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F11B Public website            | partial — emergency request done       | facility search, intake tracking (GAP-008)                |
 | F12 Hardening & release        | not started                            | everything above                                          |
 
-**Signature components (brief §2.4): 4 of 20.**
+**Signature components (brief §2.4): 16 of 20.**
 
-| Delivered                                                                        | Missing                                                                                                                                                                                                                                 |
-| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `StatusPill`, `DataTable`, `Timeline`, `PatientHeader` (partial `PatientBanner`) | `QueueTicket`/`NowServing`, `EstimateBadge`, `MoneyText`, `AuditNote`, `BreakGlassDialog`, `AmendmentDialog`, `ConflictDialog`, `BedTile`/`WardBoard`, `BatchRow`, `Can`, `EmptyState`, `FormSection`, `KeyValueGrid`, `CommandPalette` |
+| Delivered                                                                                                                                                                                                                                   | Missing                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `StatusPill`, `DataTable`, `Timeline`, `QueueTicket`, `NowServing`, `PatientBanner`, `EstimateBadge`, `MoneyText`, `AuditNote`, `BreakGlassDialog`, `AmendmentDialog`, `ConflictDialog`, `Can`, `EmptyState`, `FormSection`, `KeyValueGrid` | `BedTile`, `WardBoard`, `BatchRow`, `CommandPalette` |
+
+The four delivered this session (QueueTicket/NowServing, the three reason-gated
+dialogs, PatientBanner) are un-reviewed and unexercised against a real record; the
+tally counts existence, not verification.
 
 Every workspace in F2–F9 is assembled from these, so they are the current work: it is
 the only phase work that does not wait on the API.
@@ -42,7 +46,8 @@ the only phase work that does not wait on the API.
    (GAP-010). F1 cannot complete and no staff screen is reachable by a real user.
 2. **No triage, queue or patient-record contracts.** `/triage` is fixture-fitted,
    which caps F2 and F3.
-3. **`PatientBanner` is partial** and fourteen signature components do not exist.
+3. **Four signature components do not exist**: `BedTile`, `WardBoard`, `BatchRow`,
+   `CommandPalette`. `CommandPalette` needs a `cmdk` dependency decision.
 
 Nothing frontend-side closes (1) or (2). Both need API work.
 
@@ -193,13 +198,14 @@ monitor must not show data from an hour ago).
 with deliberately awkward text lengths, because long values are what actually break
 a dense table.
 
-**Patient record** (`/triage/[reference]`) — `PatientHeader` plus `Timeline`.
+**Patient record** (`/triage/[reference]`) — `PatientBanner` plus `Timeline`.
 
-- `PatientHeader`: the patient name is the page's only `h1`, and the reference is
-  never truncated. Two patients can share a name; the reference is what
-  disambiguates them, so ellipsising it defeats the purpose of showing it. Allergy
-  and risk notices come first in document order, so a screen reader meets the
-  allergy before the demographics rather than scrolling to find it.
+- `PatientBanner`: the patient name is the page's default `h1` (level is a prop; the
+  design-system page renders several under an `h2`), and the reference is never
+  truncated. Two patients can share a name; the reference is what disambiguates them,
+  so ellipsising it defeats the purpose of showing it. Allergy and risk notices come
+  first in document order, so a screen reader meets the allergy before the
+  demographics rather than scrolling to find it.
 - `Timeline`: an ordered list, because sequence _is_ the meaning — a handover note
   arriving before the triage decision reads as a different history. Sorts by
   timestamp rather than trusting input order, and that ordering is asserted with a
@@ -209,6 +215,27 @@ a dense table.
   record is visible rather than implied.
 - `notFound()` for any reference but the fixture. Rendering the same record under
   every reference would be dangerous the moment real data arrived.
+
+**Safety-critical composition** — the five reason-gated dialogs and queue display.
+The common thread is that none of them can be confirmed with a default and none of
+them performs an action against the API before that action exists on the server.
+
+- `QueueTicket`/`NowServing` — the wait-room call, `aria-atomic` on a plain `div`
+  (see `docs/limitations.md`); a live region with `display: contents` does not
+  reliably announce).
+- `ReasonField` + the three dialogs (`BreakGlassDialog`, `AmendmentDialog`,
+  `ConflictDialog`) — every confirm path requires a typed reason of at least
+  `REASON_MIN_LENGTH` characters, so "Amend record" cannot be clicked as a reflex.
+  Closing a dialog for any reason clears the partial reason, so a justification
+  entered for one patient can never sit pre-filled for the next.
+- `PatientBanner` — `AllergyState` is a discriminated union (`recorded`,
+  `none-recorded`, `not-recorded`) rather than an optional array, so an unrecorded
+  allergy list cannot be passed as an empty one and the type system will not let a
+  caller ship the "no allergies" reading by forgetting to set a state. The three
+  states are shown on the design-system page in sequence for exactly that reason.
+  Legal hold and possible duplicate are separate props from clinical risk flags.
+- `BreakGlassBanner` — minutes remaining is a prop the API supplies; the banner will
+  not conjure a timer from nothing (GAP-008 has no track/cancel contract yet).
 
 **Display board** (`/display`) — `DisplayBoard`, the only component here aimed at
 distance. Larger public type scale, one moving element (the current call), status as

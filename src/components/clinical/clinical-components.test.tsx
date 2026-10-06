@@ -1,10 +1,11 @@
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DataTable, type DataTableColumn } from '@/components/clinical/data-table';
 import { DisplayBoard } from '@/components/staff/display-board';
-import { PatientHeader } from '@/components/clinical/patient-header';
 import { NavRail, type NavSection } from '@/components/staff/nav-rail';
+import { PatientBanner, type PatientBannerProps } from '@/components/clinical/patient-banner';
 import { StatusPill, STATUS_TONE } from '@/components/clinical/status-pill';
 import { Timeline } from '@/components/clinical/timeline';
 
@@ -199,20 +200,23 @@ describe('DataTable', () => {
   });
 });
 
-describe('PatientHeader', () => {
-  const patient = {
+describe('PatientBanner', () => {
+  // Annotated rather than left to inference: `status: 'recorded'` widens to
+  // `string` in an untyped literal, and the discriminated union would then reject
+  // the very fixture that is meant to exercise it.
+  const patient: PatientBannerProps['patient'] = {
     reference: 'EX-0001',
     displayName: 'EXAMPLE Achieng Otieno',
     dateOfBirth: '1984-03-11',
     sex: 'Female',
-    allergies: ['Penicillin'],
+    allergies: { status: 'recorded', allergies: ['Penicillin'] },
     flags: ['Falls risk'],
     statusLabel: 'In ward',
     statusTone: 'info' as const,
   };
 
   it('makes the patient name the page heading', () => {
-    render(<PatientHeader patient={patient} />);
+    render(<PatientBanner patient={patient} />);
     expect(
       screen.getByRole('heading', { name: 'EXAMPLE Achieng Otieno', level: 1 }),
     ).toBeInTheDocument();
@@ -221,7 +225,7 @@ describe('PatientHeader', () => {
   it('shows the reference in full, never truncated', () => {
     // Two patients can share a name. The reference is what disambiguates them, so
     // ellipsising it defeats the purpose of showing it at all.
-    const { container } = render(<PatientHeader patient={patient} />);
+    const { container } = render(<PatientBanner patient={patient} />);
     const reference = container.querySelector('.font-mono');
     expect(reference).not.toHaveClass('truncate');
     expect(reference).toHaveTextContent('EX-0001');
@@ -230,26 +234,66 @@ describe('PatientHeader', () => {
   it('puts allergies before the demographics so they are met first', () => {
     // A screen reader reaches these before the name, which is the point: the
     // safety information must not be something you scroll to find.
-    render(<PatientHeader patient={patient} />);
-    const allergy = screen.getByText(/Allergy: Penicillin/);
+    render(<PatientBanner patient={patient} />);
+    const allergy = screen.getByRole('button', { name: /Allergies: 1 recorded/ });
     const name = screen.getByRole('heading', { name: /Achieng/ });
     expect(allergy.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('states an allergy in words rather than marking it with colour', () => {
-    render(<PatientHeader patient={patient} />);
-    expect(screen.getByText(/Allergy: Penicillin/)).toBeInTheDocument();
+    render(<PatientBanner patient={patient} />);
+    // The count is text, and so is the allergen once expanded. Nothing here is
+    // conveyed by a coloured dot alone.
+    expect(screen.getByText(/Allergies: 1 recorded/)).toBeInTheDocument();
+    expect(screen.queryByText('Penicillin')).not.toBeInTheDocument(); // collapsed
   });
 
-  it('omits the notice row entirely when there is nothing to warn about', () => {
-    const { container } = render(
-      <PatientHeader patient={{ ...patient, allergies: [], flags: [] }} />,
+  it('renders an allergy notice for every allergy state, never nothing', () => {
+    // The regression this replaces: `allergies?.length` is falsy for an empty list
+    // AND for no record at all, so both cases rendered an empty row that reads as
+    // "nothing to worry about". For a patient whose allergies have simply never
+    // been recorded, that is the most dangerous outcome on the screen.
+    const { rerender } = render(
+      <PatientBanner patient={{ ...patient, allergies: { status: 'recorded', allergies: [] } }} />,
     );
-    expect(container.querySelectorAll('.rounded-full')).toHaveLength(1); // status only
+    expect(screen.getByText(/Allergies: 0 recorded/)).toBeInTheDocument();
+
+    rerender(<PatientBanner patient={{ ...patient, allergies: { status: 'none-recorded' } }} />);
+    expect(screen.getByText('No known allergies recorded')).toBeInTheDocument();
+
+    rerender(<PatientBanner patient={{ ...patient, allergies: { status: 'not-recorded' } }} />);
+    expect(screen.getByText('Allergies not yet recorded')).toBeInTheDocument();
+  });
+
+  it('distinguishes "checked as none" from "never recorded" in wording', () => {
+    // Both must be reachable, and neither may read like the other.
+    const { rerender } = render(
+      <PatientBanner patient={{ ...patient, allergies: { status: 'none-recorded' } }} />,
+    );
+    expect(screen.queryByText('Allergies not yet recorded')).not.toBeInTheDocument();
+
+    rerender(<PatientBanner patient={{ ...patient, allergies: { status: 'not-recorded' } }} />);
+    expect(screen.queryByText('No known allergies recorded')).not.toBeInTheDocument();
+  });
+
+  it('expands a recorded allergy list on demand', async () => {
+    const user = userEvent.setup();
+    render(<PatientBanner patient={patient} />);
+    expect(screen.queryByText('Penicillin')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Allergies: 1 recorded/ }));
+    expect(screen.getByText('Penicillin')).toBeInTheDocument();
+  });
+
+  it('keeps legal hold and possible duplicate distinct from clinical flags', () => {
+    render(<PatientBanner patient={{ ...patient, legalHold: true, possibleDuplicate: true }} />);
+    expect(screen.getByText('Legal hold')).toBeInTheDocument();
+    expect(screen.getByText('Possible duplicate')).toBeInTheDocument();
+    // A clinician's risk flag is not the same claim as a legal one.
+    expect(screen.getByText('Falls risk')).toBeInTheDocument();
   });
 
   it('is a labelled region so it can be navigated to directly', () => {
-    render(<PatientHeader patient={patient} />);
+    render(<PatientBanner patient={patient} />);
     expect(screen.getByRole('region', { name: 'EXAMPLE Achieng Otieno' })).toBeInTheDocument();
   });
 });
