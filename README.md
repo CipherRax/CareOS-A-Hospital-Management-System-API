@@ -6,10 +6,10 @@ The frontend and the API share **one** GitHub repository,
 [`CipherRax/CareOS-A-Hospital-Management-System-API`](https://github.com/CipherRax/CareOS-A-Hospital-Management-System-API),
 on **two branches with no shared history**:
 
-| Branch | Holds                | Working copy                                     |
-| ------ | -------------------- | ------------------------------------------------ |
-| `main` | API only (NestJS)    | `../CareOS-A-Hospital-Management-System-API`     |
-| `web`  | Frontend only (this) | `../CareOS-Web`                                   |
+| Branch | Holds                | Working copy                                 |
+| ------ | -------------------- | -------------------------------------------- |
+| `main` | API only (NestJS)    | `../CareOS-A-Hospital-Management-System-API` |
+| `web`  | Frontend only (this) | `../CareOS-Web`                              |
 
 **Work on `web`. Never push frontend code to `main`.** In this clone `main` is
 deleted locally, so `git push origin main` fails rather than overwriting the API.

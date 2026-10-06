@@ -5,6 +5,55 @@ documentation, and a commit.
 
 ---
 
+## Roadmap
+
+Status against the brief's phase table. "Blocked" means the API contract for the
+work does not exist, so the screen cannot be built without inventing an endpoint.
+
+| Phase                          | State                                  | Blocked on                                                |
+| ------------------------------ | -------------------------------------- | --------------------------------------------------------- |
+| F0 Design system & foundations | **complete**, awaiting design review   | —                                                         |
+| F1 Auth, session, shell        | partial — proxy, gate, shell, nav rail | `/auth/login`, `/auth/logout`, idle-lock config (GAP-010) |
+| F2 Patients & reception        | stub — banner + timeline only          | patient search, registration, master record               |
+| F3 Scheduling, queue, nursing  | not started                            | appointments, slots, waitlist, queue, vitals              |
+| F4 Doctor workspace            | not started                            | encounters, notes, orders, results                        |
+| F5 Laboratory & radiology      | not started                            | lab orders, samples, results                              |
+| F6 Pharmacy & inventory        | not started                            | dispensing, stock, batches, POs                           |
+| F7 Billing & insurance         | not started                            | invoices, payments, M-PESA, claims                        |
+| F8 Inpatient & emergency       | not started                            | wards, beds, admissions                                   |
+| F9 Administration & audit      | not started                            | org, users, permissions, audit log                        |
+| F10 Analytics & reports        | not started                            | analytics, forecasts, reports                             |
+| F11 Portal & queue display     | partial — display board done           | portal read models                                        |
+| F11B Public website            | partial — emergency request done       | facility search, intake tracking (GAP-008)                |
+| F12 Hardening & release        | not started                            | everything above                                          |
+
+**Signature components (brief §2.4): 4 of 20.**
+
+| Delivered                                                                        | Missing                                                                                                                                                                                                                                 |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `StatusPill`, `DataTable`, `Timeline`, `PatientHeader` (partial `PatientBanner`) | `QueueTicket`/`NowServing`, `EstimateBadge`, `MoneyText`, `AuditNote`, `BreakGlassDialog`, `AmendmentDialog`, `ConflictDialog`, `BedTile`/`WardBoard`, `BatchRow`, `Can`, `EmptyState`, `FormSection`, `KeyValueGrid`, `CommandPalette` |
+
+Every workspace in F2–F9 is assembled from these. Building them is the only phase
+work that does not wait on the API, so it is the current work.
+
+### Three blockers gate the rest
+
+1. **No session can be started or ended.** No `/auth/login` or `/auth/logout`
+   (GAP-010). F1 cannot complete and no staff screen is reachable by a real user.
+2. **No triage, queue or patient-record contracts.** `/triage` is fixture-fitted,
+   which caps F2 and F3.
+3. **`PatientBanner` is partial** and fourteen signature components do not exist.
+
+Nothing frontend-side closes (1) or (2). Both need API work.
+
+### Open decision
+
+The brief gates F1 on design review of `/design-system` and `DESIGN.md`. F0 is
+complete and five feature slices have since been built past that gate. Either review
+F0 now, or record explicitly that review is deferred to F12.
+
+---
+
 ## F0 — Design system and foundations
 
 **Status:** complete, **awaiting design review**. No feature workspace started.
