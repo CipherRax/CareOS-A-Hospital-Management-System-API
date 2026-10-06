@@ -63,6 +63,35 @@ measurement.
 proves the rendered colours meet theirs. Neither says anything about whether the
 result is usable.
 
+### The Swahili catalogue was unreachable until this slice
+
+Every user-visible string has resolved through `next-intl` since F0, and the Swahili
+catalogue was complete from day one. Nothing ever set `careos-locale`, so the public
+portal was reachable in one language only — on the surface people open in a hurry,
+in a country where that is not an acceptable default. The catalogue being present is
+not the same as the language being available, and no test would have said otherwise.
+
+The switch is public-only by decision, not oversight. Staff workstations are managed
+and the language follows the machine; an accidental switch mid-consultation is a cost
+with no upside. The waiting-room board has no switch for the same reason — it is read
+at distance by people who cannot be expected to find a language control.
+
+Three defects surfaced while building it, none of which curl or the unit tests could
+see:
+
+- `<html lang>` was hardcoded to `en`, so a Swahili page was announced with an English
+  screen-reader voice. A page's language is load-bearing for assistive technology, not
+  metadata.
+- `NextResponse.redirect` built an absolute `Location` from a `request.url` that Next
+  had normalised to `localhost`, so a reader on `127.0.0.1` was redirected to a
+  different host and the cookie never followed them. Now a relative `Location`.
+- `next/link` navigates client-side over RSC, which arrives as
+  `GET /locale?_rsc=…` with the query string dropped. The handler saw no locale and no
+  target, silently fell back to English and `/`, and set a cookie the whole time.
+  Setting a cookie is a state change and belongs in a full document navigation.
+
+Only the browser test caught the last one.
+
 ## Incomplete
 
 ### A session cannot be started or ended

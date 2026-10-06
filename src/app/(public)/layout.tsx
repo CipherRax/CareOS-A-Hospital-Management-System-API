@@ -1,3 +1,5 @@
+import { LocaleSwitcher } from '@/components/public/locale-switcher';
+
 /**
  * Public route group.
  *
@@ -14,8 +16,12 @@
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-dvh bg-canvas">
-      <header className="border-b border-border bg-surface px-6 py-4">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-6 py-4">
         <p className="text-public-heading font-semibold text-primary">careOS</p>
+        {/* Present only here. On the staff surface the language follows the managed
+            workstation, and an accidental switch mid-consultation costs more than it
+            gives. */}
+        <LocaleSwitcher />
       </header>
       {/* `main` declared here rather than inherited from a shell, for the same reason
           as the display group: a landmark inherited from an ancestor disappears the

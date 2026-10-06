@@ -36,6 +36,7 @@ Skeleton, Dialog, ConfirmDialog, Toaster.
 - Theme and density persisted in cookies, applied server-side, no flash on reload
 - Error catalogue mapping API codes to messages, with `retryable` driving UI affordance
 - i18n via `next-intl`, English and Swahili, unprefixed routes, no proxy
+- Public language switch: `/locale` sets the `careos-locale` cookie and redirects back
 - `/design-system` exercising every primitive, not just the token layer
 - MSW handlers generated against the same spec as the client types
 - Zod-validated environment, refusing mocks in production

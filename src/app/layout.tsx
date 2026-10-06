@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { NextIntlClientProvider } from 'next-intl';
-import { getMessages } from 'next-intl/server';
+import { getLocale, getMessages } from 'next-intl/server';
 
 import '@fontsource-variable/ibm-plex-sans';
 import '@fontsource/ibm-plex-mono/400.css';
@@ -49,10 +49,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const { theme, density } = await getThemePreference();
 
   const messages = await getMessages();
+  // Must match the resolved locale, not a constant. Screen readers pick a voice
+  // from `lang`, so a Swahili page announced with an English voice is not a cosmetic
+  // bug — it makes the whole page harder to follow for the people it exists for.
+  // This was hardcoded to "en" until the public locale switch made a second locale
+  // reachable.
+  const locale = await getLocale();
 
   return (
     <html
-      lang="en"
+      lang={locale}
       // `system` cannot be resolved on the server, so light is the deterministic
       // baseline and the inline script below corrects it before paint.
       data-theme={theme === 'system' ? 'light' : theme}
@@ -71,7 +77,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       </head>
       <body>
         <ThemeProvider initialPreference={theme} initialDensity={density}>
-          <NextIntlClientProvider messages={messages}>
+          {/* `locale` passed explicitly: without it the client hooks have no locale
+              to report and `useLocale()` falls back to the default, which would
+              disagree with the server-rendered markup. */}
+          <NextIntlClientProvider locale={locale} messages={messages}>
             {/* Inside the locale and theme providers so a data-driven screen has
                 the same context a static one does. */}
             <QueryProvider>

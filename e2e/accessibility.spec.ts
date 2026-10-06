@@ -176,6 +176,80 @@ test('every control is reachable and labelled by keyboard alone', async ({ page 
   expect(unnamed, `controls with no accessible name:\n${unnamed.join('\n')}`).toEqual([]);
 });
 
+test.describe('public language switch', () => {
+  test('switches the page to Kiswahili and marks the active language', async ({ page }) => {
+    await page.goto('/request');
+
+    const switcher = page.getByRole('navigation', { name: /language/i });
+    await expect(switcher).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+
+    await switcher.getByRole('link', { name: 'Kiswahili' }).click();
+    await page.waitForURL(/\/request$/);
+
+    // The catalogue actually changed, which is the only thing that counts.
+    await expect(page.getByRole('heading', { name: /omba ombali/i })).toBeVisible();
+
+    // `lang` is not cosmetic: a screen reader picks its voice from it, so a
+    // Kiswahili page announced in English is materially harder to follow.
+    await expect(page.locator('html')).toHaveAttribute('lang', 'sw');
+
+    // The active language is announced, so the two links are not indistinguishable
+    // to a screen reader user.
+    //
+    // Scoped to the page, not to `switcher`: that locator finds the nav by its
+    // English accessible name, and the whole point of this test is that the page is
+    // no longer English. Re-querying by link name keeps the assertion independent of
+    // the language it just switched away from.
+    await expect(page.getByRole('link', { name: 'Kiswahili' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    await expect(page.getByRole('link', { name: 'English' })).not.toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
+
+  test('returns the reader to the page they switched from, and keeps the language', async ({
+    page,
+  }) => {
+    await page.goto('/request');
+
+    const swahili = page
+      .getByRole('navigation', { name: /language/i })
+      .getByRole('link', { name: 'Kiswahili' });
+    await swahili.click();
+    await page.waitForURL(/\/request$/);
+
+    // Not dumped on a home page or a dead /locale endpoint: the switch has to put
+    // the reader back exactly where they were.
+    await expect(page).toHaveURL(/\/request$/);
+    await expect(page.getByRole('heading', { name: /huduma ya dharura/i })).toBeVisible();
+
+    // And it has to survive a reload. The locale lives in a cookie precisely
+    // because the URL does not carry it, so a refresh that drops the language
+    // would undo the switch on every back-navigation.
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('lang', 'sw');
+    await expect(page.getByRole('heading', { name: /huduma ya dharura/i })).toBeVisible();
+  });
+
+  test('never offers a language on the staff surface', async ({ page }) => {
+    // Staff workstations are managed; the language follows the machine, and an
+    // accidental switch mid-consultation costs more than it gives.
+    await page.goto('/triage');
+    await expect(page.getByRole('navigation', { name: /language/i })).toHaveCount(0);
+  });
+
+  test('never offers a language on the waiting room board', async ({ page }) => {
+    // The board is read at distance by people who cannot be expected to find a
+    // language control, and it has no chrome to hang one on.
+    await page.goto('/display');
+    await expect(page.getByRole('navigation', { name: /language/i })).toHaveCount(0);
+  });
+});
+
 test.describe('public emergency intake', () => {
   test('never presents a submission as an assessment', async ({ page }) => {
     await page.goto('/request');
