@@ -12,6 +12,7 @@ export {
   type AmendmentDialogProps,
 } from './amendment-dialog';
 export { AuditNote } from './audit-note';
+export { BatchRow, type BatchRowItem, type BatchRowProps, type BatchRowState } from './batch-row';
 export {
   BreakGlassBanner,
   BreakGlassDialog,
@@ -19,19 +20,11 @@ export {
   type BreakGlassDialogProps,
 } from './break-glass-dialog';
 export { Can, type CanProps } from './can';
-export { EmptyState, type EmptyStateProps } from './empty-state';
-export { EstimateBadge, type EstimateBadgeProps } from './estimate-badge';
-export { FormSection, type FormSectionProps } from './form-section';
-export { KeyValueGrid, type KeyValueGridProps, type KeyValueItem } from './key-value-grid';
-export { MoneyText, type MoneyTextProps } from './money-text';
-export { ReasonField, reasonError, REASON_MIN_LENGTH } from './reason-field';
 export {
-  NowServing,
-  QueueTicket,
-  type NowServingProps,
-  type QueueTicketSize,
-} from './queue-ticket';
-export { PatientBanner, type AllergyState, type PatientBannerProps } from './patient-banner';
+  CommandPalette,
+  type CommandPaletteOption,
+  type CommandPaletteProps,
+} from './command-palette';
 export {
   ConflictDialog,
   type ConflictDialogProps,
@@ -39,5 +32,26 @@ export {
   type ConflictResolution,
 } from './conflict-dialog';
 export { DataTable, type DataTableColumn } from './data-table';
+export { EmptyState, type EmptyStateProps } from './empty-state';
+export { EstimateBadge, type EstimateBadgeProps } from './estimate-badge';
+export { FormSection, type FormSectionProps } from './form-section';
+export { KeyValueGrid, type KeyValueGridProps, type KeyValueItem } from './key-value-grid';
+export { MoneyText, type MoneyTextProps } from './money-text';
+export {
+  NowServing,
+  QueueTicket,
+  type NowServingProps,
+  type QueueTicketSize,
+} from './queue-ticket';
+export { PatientBanner, type AllergyState, type PatientBannerProps } from './patient-banner';
+export { ReasonField, reasonError, REASON_MIN_LENGTH } from './reason-field';
 export { StatusPill, STATUS_TONE } from './status-pill';
 export { Timeline, type TimelineEvent, type TimelineProps } from './timeline';
+export {
+  BedTile,
+  WardBoard,
+  BED_STATE_LABEL,
+  type BedState,
+  type BedTileProps,
+  type WardBoardProps,
+} from './ward-board';

@@ -259,19 +259,20 @@ named but says nothing about their behaviour. `Badge` carries the never-colour-a
 rule and has no test of its own; `StatusPill` does, and the rule is duplicated
 across the two components rather than shared.
 
-### Signature components: 16 of 20, none exercised against a real record
+### Signature components: 20 of 20, none exercised against a real record
 
-The brief's §2.4 list is 16 of 20 delivered: `StatusPill`, `DataTable`, `Timeline`,
+The brief's §2.4 list is complete — `StatusPill`, `DataTable`, `Timeline`,
 `QueueTicket`, `NowServing`, `PatientBanner`, `EstimateBadge`, `MoneyText`,
-`AuditNote`, `BreakGlassDialog`, `AmendmentDialog`, `ConflictDialog`, `Can`,
-`EmptyState`, `FormSection`, `KeyValueGrid`. Missing: `BedTile`, `WardBoard`,
-`BatchRow`, `CommandPalette`.
+`AuditNote`, `BreakGlassDialog`, `AmendmentDialog`, `ConflictDialog`, `BedTile`,
+`WardBoard`, `BatchRow`, `CommandPalette`, `Can`, `EmptyState`, `FormSection`,
+`KeyValueGrid`.
 
 Every delivered component is verified against synthetic data only. None has met a
-real record, a real conflict, or a real queue, because the contracts those would
-come from do not exist (GAP-008/009/011). `PatientBanner`'s `not-recorded` allergy
-state, the three state-selecting dialogs, and the queue components are the least
-exercised of the batch.
+real record, a real conflict, a real bed, or a real queue, because the contracts
+those would come from do not exist (GAP-008/009/011). `CommandPalette` was built
+in-house on the existing Radix `Dialog` rather than `cmdk`, so the keyboard model
+is a conventional combobox/listbox with `aria-activedescendant` and there is no new
+dependency to audit.
 
 The reason gating is client-side. It prevents a reflex click within this app, but
 the API remains the authority and must enforce the same requirement on every

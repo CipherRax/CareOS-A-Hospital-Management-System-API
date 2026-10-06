@@ -27,15 +27,14 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F11B Public website            | partial — emergency request done       | facility search, intake tracking (GAP-008)                |
 | F12 Hardening & release        | not started                            | everything above                                          |
 
-**Signature components (brief §2.4): 16 of 20.**
+**Signature components (brief §2.4): 20 of 20.**
 
-| Delivered                                                                                                                                                                                                                                   | Missing                                              |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `StatusPill`, `DataTable`, `Timeline`, `QueueTicket`, `NowServing`, `PatientBanner`, `EstimateBadge`, `MoneyText`, `AuditNote`, `BreakGlassDialog`, `AmendmentDialog`, `ConflictDialog`, `Can`, `EmptyState`, `FormSection`, `KeyValueGrid` | `BedTile`, `WardBoard`, `BatchRow`, `CommandPalette` |
+| Delivered                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `StatusPill`, `DataTable`, `Timeline`, `QueueTicket`, `NowServing`, `PatientBanner`, `EstimateBadge`, `MoneyText`, `AuditNote`, `BreakGlassDialog`, `AmendmentDialog`, `ConflictDialog`, `BedTile`, `WardBoard`, `BatchRow`, `CommandPalette`, `Can`, `EmptyState`, `FormSection`, `KeyValueGrid` |
 
-The four delivered this session (QueueTicket/NowServing, the three reason-gated
-dialogs, PatientBanner) are un-reviewed and unexercised against a real record; the
-tally counts existence, not verification.
+Every one is un-reviewed and unexercised against a real record; the tally counts
+existence, not verification.
 
 Every workspace in F2–F9 is assembled from these, so they are the current work: it is
 the only phase work that does not wait on the API.
@@ -46,8 +45,9 @@ the only phase work that does not wait on the API.
    (GAP-010). F1 cannot complete and no staff screen is reachable by a real user.
 2. **No triage, queue or patient-record contracts.** `/triage` is fixture-fitted,
    which caps F2 and F3.
-3. **Four signature components do not exist**: `BedTile`, `WardBoard`, `BatchRow`,
-   `CommandPalette`. `CommandPalette` needs a `cmdk` dependency decision.
+3. **The signature set is complete but un-reviewed** (20 of 20). `CommandPalette`
+   was built in-house on the existing Radix `Dialog`, so the `cmdk` dependency
+   question is resolved as "no new dependency".
 
 Nothing frontend-side closes (1) or (2). Both need API work.
 

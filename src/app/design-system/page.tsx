@@ -33,9 +33,11 @@ import {
 import {
   AmendmentDialog,
   AuditNote,
+  BatchRow,
   BreakGlassBanner,
   BreakGlassDialog,
   Can,
+  CommandPalette,
   ConflictDialog,
   EmptyState,
   EstimateBadge,
@@ -46,6 +48,7 @@ import {
   PatientBanner,
   type PatientBannerProps,
   QueueTicket,
+  WardBoard,
 } from '@/components/clinical';
 import { DENSITIES, type Density, type ThemePreference } from '@/design/theme/preferences';
 import { useTheme } from '@/design/theme/provider';
@@ -175,6 +178,7 @@ export default function DesignSystemPage() {
   const [breakGlassOpen, setBreakGlassOpen] = useState(false);
   const [amendOpen, setAmendOpen] = useState(false);
   const [conflictOpen, setConflictOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     if (overridden) return;
     setPreviewTheme(resolved);
@@ -530,6 +534,67 @@ export default function DesignSystemPage() {
               title="Discard this draft?"
               description="The draft is not saved anywhere else. This cannot be undone."
               confirmLabel="Discard draft"
+            />
+          </div>
+
+          <h3 className="mt-8 mb-2 text-body font-semibold text-primary">WardBoard</h3>
+          <div className="mb-6">
+            <WardBoard
+              ward="Ward 4"
+              beds={[
+                { bed: '4A', state: 'occupied', patientName: 'EXAMPLE Akech' },
+                { bed: '4B', state: 'occupied' },
+                { bed: '4C', state: 'cleaning', flag: 'O2' },
+                { bed: '4D', state: 'vacant' },
+                { bed: '4E', state: 'reserved' },
+                { bed: '4F', state: 'out-of-service' },
+              ]}
+            />
+          </div>
+
+          <h3 className="mt-8 mb-2 text-body font-semibold text-primary">BatchRow</h3>
+          <p className="mb-3 max-w-prose text-meta text-secondary">
+            One row per operation: state lives on the row, undo is differential, and a failed row
+            reports its own error.
+          </p>
+          <ul className="mb-6 flex max-w-2xl flex-col">
+            <BatchRow rowId="1" label="Furosemide 40 mg IV once" detail="RX-2217" state="pending" />
+            <BatchRow
+              rowId="2"
+              label="Amoxicillin 500 mg TDS for 5 days"
+              detail="RX-2218"
+              state="succeeded"
+              onUndo={() => {}}
+            />
+            <BatchRow
+              rowId="3"
+              label="Metformin 500 mg BD"
+              detail="RX-2219"
+              state="failed"
+              error="Stock check refused the dose"
+            />
+            <BatchRow rowId="4" label="Omeprazole 20 mg OD" detail="RX-2220" state="reverted" />
+          </ul>
+
+          <h3 className="mt-8 mb-2 text-body font-semibold text-primary">CommandPalette</h3>
+          <div className="mb-6 flex items-center gap-3">
+            <Button variant="primary" onClick={() => setPaletteOpen(true)}>
+              Open CommandPalette
+            </Button>
+            <CommandPalette
+              open={paletteOpen}
+              onOpenChange={setPaletteOpen}
+              onSelect={() => setPaletteOpen(false)}
+              options={[
+                { id: 'intake', label: 'New er intake', hint: 'Register in the waiting room' },
+                {
+                  id: 'record',
+                  label: 'Open the current patient record',
+                  hint: 'EXAMPLE Achieng Otieno',
+                },
+                { id: 'release', label: 'Release results, Bay 3', hint: 'Verified, 2 rows' },
+                { id: 'lock', label: 'Lock the workstation', danger: true },
+              ]}
             />
           </div>
         </section>
