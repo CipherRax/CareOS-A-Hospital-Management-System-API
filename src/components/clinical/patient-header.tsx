@@ -1,6 +1,6 @@
 'use client';
 
-import { StatusPill, type StatusTone } from '@/components/staff/status-pill';
+import { StatusPill, type StatusTone } from '@/components/clinical/status-pill';
 import { cn } from '@/lib/cn';
 
 /**

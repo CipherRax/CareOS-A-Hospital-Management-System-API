@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/cn';
-import { StatusPill, type StatusTone } from '@/components/staff/status-pill';
+import { StatusPill, type StatusTone } from '@/components/clinical/status-pill';
 
 /**
  * Timeline.

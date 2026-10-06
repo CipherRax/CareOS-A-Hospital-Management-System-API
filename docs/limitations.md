@@ -92,6 +92,34 @@ see:
 
 Only the browser test caught the last one.
 
+### `MoneyText` is display-only, and that is a limitation
+
+The component formats a decimal string exactly and performs **no arithmetic**. A
+totals row, a balance calculation or a refund limit needs a decimal library
+(`decimal.js`), which is not installed. Writing one as `a - b` on strings in a
+billing screen would reintroduce the cent-level error this component exists to
+prevent, so it refuses the job instead.
+
+`Intl.NumberFormat.format` is typed to reject runtime strings, because the usual way
+to pass one is `Number(s)`, which routes the value through a binary float —
+`Number('12345678901234567890.99')` is `12345678901234567000`. The runtime is exact
+per ECMA-402, so the cast is sound; it is pinned by tests over values a float cannot
+represent, and would be unsound without the `DECIMAL_STRING` guard in front of it.
+
+### Permission gating is UX, and the principal is still a guess
+
+`Can` hides what a person cannot do. It is not a security control and the API remains
+the authority — every gated screen still has to handle 403. The permission strings
+themselves (`patients:read`, `lab:release`) are invented here because `/auth/me` is a
+guessed shape (GAP-003); the wildcard semantics are ours, not the API's.
+
+### Untranslated clinical strings
+
+Swahili strings in `src/i18n/messages/sw.json` were written without review by a
+native speaker, which brief §2.6 requires to be marked. `sw.json` now carries a
+`_review` block listing every draft namespace. Nothing in that catalogue should ship
+unreviewed.
+
 ## Incomplete
 
 ### A session cannot be started or ended

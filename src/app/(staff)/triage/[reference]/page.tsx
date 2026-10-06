@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 
-import { PatientHeader } from '@/components/staff/patient-header';
-import { Timeline } from '@/components/staff/timeline';
+import { PatientHeader } from '@/components/clinical/patient-header';
+import { Timeline } from '@/components/clinical/timeline';
 import { PATIENT } from '@/mocks/fixtures/patient';
 
 /**

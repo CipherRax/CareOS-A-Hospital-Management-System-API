@@ -33,8 +33,8 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `StatusPill`, `DataTable`, `Timeline`, `PatientHeader` (partial `PatientBanner`) | `QueueTicket`/`NowServing`, `EstimateBadge`, `MoneyText`, `AuditNote`, `BreakGlassDialog`, `AmendmentDialog`, `ConflictDialog`, `BedTile`/`WardBoard`, `BatchRow`, `Can`, `EmptyState`, `FormSection`, `KeyValueGrid`, `CommandPalette` |
 
-Every workspace in F2–F9 is assembled from these. Building them is the only phase
-work that does not wait on the API, so it is the current work.
+Every workspace in F2–F9 is assembled from these, so they are the current work: it is
+the only phase work that does not wait on the API.
 
 ### Three blockers gate the rest
 

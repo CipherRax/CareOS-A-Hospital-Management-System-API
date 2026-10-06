@@ -117,5 +117,12 @@
       "title": "This service is temporarily unavailable",
       "body": "We cannot reach the list of facilities right now, so we cannot accept a request through this form. If this is an emergency, contact your nearest facility directly."
     }
+  },
+  "estimate": {
+    "label": "Estimate",
+    "method": "How this was calculated",
+    "dataPeriod": "Data period",
+    "model": "Model",
+    "uncertainty": "Uncertainty"
   }
 }

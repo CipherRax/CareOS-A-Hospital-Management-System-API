@@ -30,6 +30,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui';
+import {
+  AuditNote,
+  Can,
+  EmptyState,
+  EstimateBadge,
+  FormSection,
+  KeyValueGrid,
+  MoneyText,
+} from '@/components/clinical';
 import { DENSITIES, type Density, type ThemePreference } from '@/design/theme/preferences';
 import { useTheme } from '@/design/theme/provider';
 import { PALETTE } from '@/design/tokens/palette.mts';
@@ -460,6 +469,104 @@ export default function DesignSystemPage() {
               description="The draft is not saved anywhere else. This cannot be undone."
               confirmLabel="Discard draft"
             />
+          </div>
+        </section>
+
+        {/* The brief requires every signature component to appear here in both
+            themes and both densities, so each one added in F1 gets a live example
+            rather than a description of one. */}
+        <section aria-labelledby="signature-heading" className="mt-10">
+          <h2 id="signature-heading" className="mb-2 text-heading-xs font-semibold text-primary">
+            Signature components
+          </h2>
+          <p className="mb-4 max-w-prose text-meta text-secondary">
+            The clinical building blocks each workspace is assembled from.
+          </p>
+
+          <h3 className="mb-2 text-body font-semibold text-primary">MoneyText</h3>
+          <div className="mb-6 flex flex-wrap items-baseline gap-6">
+            <MoneyText amount="1234.5" currency="KES" />
+            <MoneyText amount="12345678901234567890.99" currency="KES" />
+            <MoneyText amount="-500.00" currency="KES" accounting />
+            <MoneyText amount="0.00" currency="KES" />
+            <MoneyText amount="not-a-number" currency="KES" />
+          </div>
+
+          <h3 className="mb-2 text-body font-semibold text-primary">EstimateBadge</h3>
+          <div className="mb-6 flex flex-wrap items-center gap-4">
+            <span className="text-body text-primary">
+              Estimated wait 20–30 min{' '}
+              <EstimateBadge
+                method="Median of recorded waiting times"
+                dataPeriod="1–30 September 2026"
+              />
+            </span>
+            <span className="text-body text-primary">
+              Forecast beds 42{' '}
+              <EstimateBadge
+                method="Linear trend over daily admissions"
+                dataPeriod="Last 12 weeks"
+                model="bed-demand"
+                version="v3"
+                uncertainty="p50–p90: 38–49"
+              />
+            </span>
+          </div>
+
+          <h3 className="mb-2 text-body font-semibold text-primary">KeyValueGrid</h3>
+          <div className="mb-6">
+            <KeyValueGrid
+              label="Patient details"
+              items={[
+                { label: 'Patient number', value: 'PT-000123', mono: true },
+                { label: 'Date of birth', value: '1991-04-02' },
+                { label: 'Sex', value: 'Female' },
+                { label: 'Insurance', value: '' },
+              ]}
+            />
+          </div>
+
+          <h3 className="mb-2 text-body font-semibold text-primary">AuditNote</h3>
+          <div className="mb-6 max-w-xl">
+            <AuditNote>the patient access log</AuditNote>
+          </div>
+
+          <h3 className="mb-2 text-body font-semibold text-primary">EmptyState</h3>
+          <div className="mb-6 grid gap-4 lg:grid-cols-2">
+            <EmptyState
+              title="No results awaiting verification"
+              description="Verified results appear here before release."
+              action={<Button variant="secondary">Open worklist</Button>}
+            />
+            <EmptyState title="No encounters recorded today" />
+          </div>
+
+          <h3 className="mb-2 text-body font-semibold text-primary">FormSection</h3>
+          <div className="mb-6 max-w-xl">
+            <FormSection
+              title="Contact details"
+              description="Used only for follow-up about this visit."
+              required
+            >
+              <LabelledInput label="Phone number" inputMode="tel" placeholder="+254 7…" />
+              <LabelledInput label="Preferred time to call" placeholder="Morning" />
+            </FormSection>
+          </div>
+
+          <h3 className="mb-2 text-body font-semibold text-primary">Can</h3>
+          <div className="flex flex-wrap items-center gap-3">
+            <Can principal={{ permissions: ['results:release'] }} permission="results:release">
+              <Button variant="danger">Release result</Button>
+            </Can>
+            <Can principal={{ permissions: ['lab:verify'] }} permission="results:release">
+              <Button variant="danger">Release result</Button>
+            </Can>
+            <Can
+              principal={{ permissions: ['lab:verify'] }}
+              allOf={['lab:verify', 'results:release']}
+            >
+              <Button variant="danger">Release result</Button>
+            </Can>
           </div>
         </section>
       </div>

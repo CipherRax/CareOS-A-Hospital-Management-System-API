@@ -1,5 +1,5 @@
-import type { StatusTone } from '@/components/staff/status-pill';
-import type { TimelineEvent } from '@/components/staff/timeline';
+import type { StatusTone } from '@/components/clinical/status-pill';
+import type { TimelineEvent } from '@/components/clinical/timeline';
 import type { DisplayBoardEntry } from '@/components/staff/display-board';
 
 /**

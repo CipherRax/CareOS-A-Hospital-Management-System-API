@@ -1,12 +1,12 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { DataTable, type DataTableColumn } from '@/components/staff/data-table';
+import { DataTable, type DataTableColumn } from '@/components/clinical/data-table';
 import { DisplayBoard } from '@/components/staff/display-board';
-import { PatientHeader } from '@/components/staff/patient-header';
+import { PatientHeader } from '@/components/clinical/patient-header';
 import { NavRail, type NavSection } from '@/components/staff/nav-rail';
-import { StatusPill, STATUS_TONE } from '@/components/staff/status-pill';
-import { Timeline } from '@/components/staff/timeline';
+import { StatusPill, STATUS_TONE } from '@/components/clinical/status-pill';
+import { Timeline } from '@/components/clinical/timeline';
 
 /**
  * Behaviour tests for the first signature components.

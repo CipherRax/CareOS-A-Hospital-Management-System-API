@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from 'react';
 
-import { DataTable, type DataTableColumn } from '@/components/staff/data-table';
-import { StatusPill, type StatusTone } from '@/components/staff/status-pill';
+import { DataTable, type DataTableColumn } from '@/components/clinical/data-table';
+import { StatusPill, type StatusTone } from '@/components/clinical/status-pill';
 import { Badge } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/field';

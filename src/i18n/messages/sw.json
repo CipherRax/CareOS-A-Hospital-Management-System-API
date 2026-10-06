@@ -117,5 +117,17 @@
       "title": "Huduma hii haipatikani kwa sasa",
       "body": "Hatuawezi kufikia orodha ya vituo kwa sasa, kwa hivyo hatuwezi kupokea ombi kupitia fomu hii. Ikiwa ni dharura, wasiliana na kituo chako kilicho karibu."
     }
+  },
+  "estimate": {
+    "label": "Makadirio",
+    "method": "Jinsi ilivyokadiriwa",
+    "dataPeriod": "Kipindi cha data",
+    "model": "Mfuko",
+    "uncertainty": "Uhakika"
+  },
+  "_review": {
+    "reviewedByNativeSpeaker": false,
+    "note": "Strings in this catalogue were written without review by a native Swahili speaker. Treat as draft and have them reviewed before release.",
+    "draftNamespaces": ["common", "theme", "error", "intake", "estimate"]
   }
 }

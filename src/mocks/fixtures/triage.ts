@@ -1,4 +1,4 @@
-import type { StatusTone } from '@/components/staff/status-pill';
+import type { StatusTone } from '@/components/clinical/status-pill';
 
 /**
  * Triage queue fixtures.
