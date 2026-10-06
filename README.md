@@ -2,6 +2,27 @@
 
 **Auditable, multi-tenant healthcare operations API.**
 
+## Repository layout
+
+This repository holds **both** halves of careOS, on **two branches with no shared
+history**:
+
+| Branch | Holds             | Working copy                                 |
+| ------ | ----------------- | -------------------------------------------- |
+| `main` | API only (this)   | `../CareOS-A-Hospital-Management-System-API` |
+| `web`  | Frontend only     | `../CareOS-Web`                              |
+
+Rules that follow from that split, and why they matter here:
+
+- **Work on `main` from the API clone, `web` from the frontend clone.** Neither
+  branch contains the other's code, so a checkout of one will not show the other.
+- **Never force-push anything to `main`.** The histories are unrelated, so frontend
+  code cannot merge into it; a force push would *replace* the API rather than
+  conflict with it. `main` is branch-protected on GitHub against force pushes and
+  deletion for exactly this reason.
+- The frontend clone has no local `main` branch, and a `pre-push` hook refuses
+  pushes to `main`, so the mistake fails loudly instead of silently succeeding.
+
 careOS is a REST API for running a hospital: patients and records, scheduling
 and patient flow, clinical encounters, inventory and pharmacy, billing and
 insurance, laboratory and radiology, inpatient and emergency care,
