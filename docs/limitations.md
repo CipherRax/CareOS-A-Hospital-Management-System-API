@@ -303,13 +303,6 @@ Coverage is measured (`npm test -- --coverage`) but not enforced. Setting a
 threshold before there are meaningful tests would lock in a low number and create
 pressure to add tests that satisfy a metric rather than catch a defect.
 
-### Signature components not started
-
-F0 delivered tokens, foundations and the primitive layer. The ~15 signature
-components — StatusPill, DataTable, Timeline, PatientHeader, TriageQueue,
-DisplayBoard, EmergencyForm, and the rest — are F1 work, deliberately held until
-the design direction is reviewed.
-
 ---
 
 ## Security debt

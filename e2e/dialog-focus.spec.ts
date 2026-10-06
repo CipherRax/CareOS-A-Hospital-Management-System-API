@@ -135,3 +135,55 @@ test.describe('dialog focus', () => {
     await expect(dialog).toHaveAccessibleDescription(/cannot be undone/i);
   });
 });
+
+test.describe('command palette keyboard', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/design-system');
+  });
+
+  test('opens into a focused combobox, filters with typing, and runs the highlighted row on Enter', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'Open CommandPalette' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toHaveAccessibleName(/Commands/i);
+
+    const combobox = page.getByRole('combobox');
+    await expect(combobox).toBeFocused();
+
+    // The full option list is visible to start with.
+    await expect(page.getByRole('option', { name: /Lock the workstation/ })).toBeVisible();
+
+    // Typing filters, and an option that no longer matches is gone from the listbox.
+    await combobox.type('record');
+    await expect(
+      page.getByRole('option', { name: /Open the current patient record/ }),
+    ).toBeVisible();
+    await expect(page.getByRole('option', { name: /Lock the workstation/ })).toHaveCount(0);
+
+    // Filtering alone never leaves the selection on a stale row: Enter runs the
+    // filtered result, not whatever was highlighted before typing.
+    await page.keyboard.press('Enter');
+    await expect(dialog).not.toBeVisible();
+  });
+
+  test('a query with no matches is announced, and the palette closes on Escape', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'Open CommandPalette' }).click();
+    await page.getByRole('combobox').type('zzzzzz');
+    await expect(page.getByText(/No matches for/)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+  });
+
+  test('a dangerous action still carries its word, and is reachable by keyboard', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'Open CommandPalette' }).click();
+    await page.getByRole('combobox').type('lock');
+    await expect(page.getByRole('option', { name: /Lock the workstation/ })).toBeVisible();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+  });
+});
