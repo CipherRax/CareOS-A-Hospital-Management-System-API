@@ -39,6 +39,7 @@ const ROUTES = [
   { path: '/triage/EX-0001', name: 'EXAMPLE Achieng Otieno' },
   { path: '/display', name: 'Outpatient clinics' },
   { path: '/request', name: 'Emergency care' },
+  { path: '/facilities', name: 'Find a facility' },
 ] as const;
 
 /**
@@ -336,5 +337,60 @@ test.describe('staff session gate', () => {
       page.getByRole('heading', { name: 'Service temporarily unavailable' }),
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('heading', { name: 'Please sign in again' })).toHaveCount(0);
+  });
+});
+
+test.describe('facilities search', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/facilities');
+    // The directory loads on mount with an empty query; wait for a row before
+    // interacting, so assertions never race hydration.
+    await expect(page.getByRole('heading', { name: 'EXAMPLE General Hospital' })).toBeVisible();
+  });
+
+  test('narrows the directory as the query narrows', async ({ page }) => {
+    await page.getByRole('searchbox').fill('referral');
+
+    // A row that no longer matches must be gone from the document, not merely
+    // hidden behind a spinner.
+    await expect(page.getByRole('heading', { name: 'EXAMPLE General Hospital' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'EXAMPLE Referral Centre' })).toBeVisible();
+  });
+
+  test('filters by type of care', async ({ page }) => {
+    await page.getByRole('combobox').selectOption('CLINIC');
+
+    await expect(page.getByRole('heading', { name: 'EXAMPLE Community Clinic' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'EXAMPLE General Hospital' })).toHaveCount(0);
+  });
+
+  test('labels a closed facility with its word, not a colour', async ({ page }) => {
+    await page.getByRole('combobox').selectOption('CLINIC');
+    const clinic = page.getByRole('listitem').filter({ hasText: 'EXAMPLE Community Clinic' });
+    await expect(clinic.getByText('Closed')).toBeVisible();
+
+    // The active ones get the counterpart word, scoped to a row: with two active
+    // results on the board, an unscoped assertion matches twice.
+    await page.getByRole('combobox').selectOption('GENERAL');
+    const general = page.getByRole('listitem').filter({ hasText: 'EXAMPLE General Hospital' });
+    await expect(general.getByText('Operating')).toBeVisible();
+  });
+
+  test('renders only the phone numbers the API supplied, as tel links', async ({ page }) => {
+    // General Hospital: phone and emergency phone, both linkable.
+    const general = page.getByRole('listitem').filter({ hasText: 'EXAMPLE General Hospital' });
+    await expect(general.getByRole('link', { name: /Phone: \+254 700 000 111/ })).toBeVisible();
+    await expect(general.getByRole('link', { name: /Emergency: \+254 700 111 222/ })).toBeVisible();
+
+    // Community Clinic: no phone fields on this record, so no links may appear.
+    const clinic = page.getByRole('listitem').filter({ hasText: 'EXAMPLE Community Clinic' });
+    await expect(clinic.getByRole('link')).toHaveCount(0);
+  });
+
+  test('says No facility matches rather than going silent', async ({ page }) => {
+    await page.getByRole('searchbox').fill('zzzzzz no such place');
+
+    await expect(page.getByRole('heading', { name: 'No facility matches' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'EXAMPLE General Hospital' })).toHaveCount(0);
   });
 });

@@ -151,6 +151,19 @@ For the same reason, when the facility list cannot be loaded the page renders a
 plain "temporarily unavailable" notice with no list of phone numbers. Those numbers
 would have to be invented, and a wrong number in an emergency is worse than none.
 
+### Facility search is second-hand against a partial contract
+
+`/facilities` searches genuinely: it sends documented `q` and `type` parameters to
+`GET /public/facilities` through the real proxy and renders the contract's visited
+fields (phone and emergency phone as `tel:` links, the status word, no coordinates
+because none are in the schema). The endpoint itself is not live in this
+environment, so behaviour is exercised against a stub that mirrors the partial
+OpenAPI — including its envelope drift being corrected, because a search result
+list is only honest if the API body is read the way the contract describes. The
+envelope is treated as provisional anyway: a response that drifts again fails into
+"directory unavailable" rather than an empty directory. Swahili copy remains
+unreviewed and marked as a draft.
+
 ### Focus trapping is now verified, but only in Chromium
 
 Dialog focus was previously listed as unverified. It is now driven the way a

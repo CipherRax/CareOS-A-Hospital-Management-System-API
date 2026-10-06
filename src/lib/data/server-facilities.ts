@@ -34,7 +34,7 @@ export type FacilitiesResult =
 
 interface Envelope<T> {
   success?: boolean;
-  data?: T;
+  data?: { items: T };
 }
 
 export const getPublicFacilities = cache(async (): Promise<FacilitiesResult> => {
@@ -51,9 +51,9 @@ export const getPublicFacilities = cache(async (): Promise<FacilitiesResult> => 
     const body = (await response.json()) as Envelope<PublicFacility[]>;
     // `success: true` is checked rather than the status alone, matching
     // `unwrap` in queries.ts: a 2xx carrying an error body is an error.
-    if (body?.success !== true || !Array.isArray(body.data)) return { ok: false };
+    if (body?.success !== true || !Array.isArray(body.data?.items)) return { ok: false };
 
-    return { ok: true, facilities: body.data };
+    return { ok: true, facilities: body.data.items };
   } catch {
     // Swallowed deliberately. The caller renders a service-unavailable message;
     // logging the failure body here risks putting an identifier in a log line.

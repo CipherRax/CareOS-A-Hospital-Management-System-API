@@ -10,22 +10,22 @@ documentation, and a commit.
 Status against the brief's phase table. "Blocked" means the API contract for the
 work does not exist, so the screen cannot be built without inventing an endpoint.
 
-| Phase                          | State                                  | Blocked on                                                |
-| ------------------------------ | -------------------------------------- | --------------------------------------------------------- |
-| F0 Design system & foundations | **complete**, awaiting design review   | —                                                         |
-| F1 Auth, session, shell        | partial — proxy, gate, shell, nav rail | `/auth/login`, `/auth/logout`, idle-lock config (GAP-010) |
-| F2 Patients & reception        | stub — banner + timeline only          | patient search, registration, master record               |
-| F3 Scheduling, queue, nursing  | not started                            | appointments, slots, waitlist, queue, vitals              |
-| F4 Doctor workspace            | not started                            | encounters, notes, orders, results                        |
-| F5 Laboratory & radiology      | not started                            | lab orders, samples, results                              |
-| F6 Pharmacy & inventory        | not started                            | dispensing, stock, batches, POs                           |
-| F7 Billing & insurance         | not started                            | invoices, payments, M-PESA, claims                        |
-| F8 Inpatient & emergency       | not started                            | wards, beds, admissions                                   |
-| F9 Administration & audit      | not started                            | org, users, permissions, audit log                        |
-| F10 Analytics & reports        | not started                            | analytics, forecasts, reports                             |
-| F11 Portal & queue display     | partial — display board done           | portal read models                                        |
-| F11B Public website            | partial — emergency request done       | facility search, intake tracking (GAP-008)                |
-| F12 Hardening & release        | not started                            | everything above                                          |
+| Phase                          | State                                              | Blocked on                                                |
+| ------------------------------ | -------------------------------------------------- | --------------------------------------------------------- |
+| F0 Design system & foundations | **complete**, awaiting design review               | —                                                         |
+| F1 Auth, session, shell        | partial — proxy, gate, shell, nav rail             | `/auth/login`, `/auth/logout`, idle-lock config (GAP-010) |
+| F2 Patients & reception        | stub — banner + timeline only                      | patient search, registration, master record               |
+| F3 Scheduling, queue, nursing  | not started                                        | appointments, slots, waitlist, queue, vitals              |
+| F4 Doctor workspace            | not started                                        | encounters, notes, orders, results                        |
+| F5 Laboratory & radiology      | not started                                        | lab orders, samples, results                              |
+| F6 Pharmacy & inventory        | not started                                        | dispensing, stock, batches, POs                           |
+| F7 Billing & insurance         | not started                                        | invoices, payments, M-PESA, claims                        |
+| F8 Inpatient & emergency       | not started                                        | wards, beds, admissions                                   |
+| F9 Administration & audit      | not started                                        | org, users, permissions, audit log                        |
+| F10 Analytics & reports        | not started                                        | analytics, forecasts, reports                             |
+| F11 Portal & queue display     | partial — display board done                       | portal read models                                        |
+| F11B Public website            | partial — emergency request + facility search done | intake tracking (GAP-008)                                 |
+| F12 Hardening & release        | not started                                        | everything above                                          |
 
 **Signature components (brief §2.4): 20 of 20.**
 
@@ -370,3 +370,22 @@ No session can be started or ended: no `/auth/login`, no `/auth/logout` (GAP-010
 The gate fails closed and the shell is safe, but a shared workstation with a session
 that cannot be terminated is not deployable, and no frontend work fixes that. Row
 links still 404. See `docs/limitations.md`.
+
+## F11B — Public facility search
+
+**Status:** facility search done; intake tracking still blocked on GAP-008.
+
+`/facilities` is the FacilitySearch page — the first public screen beyond the
+emergency intake, and the second built against a documented endpoint
+(`GET /public/facilities` with `q` and `type`). It renders only the contract's
+published fields: no coordinates (not in the schema), no hours, no invented
+numbers. A facility that returns `INACTIVE` reads "Closed" in words. Every search
+state announces itself (searching / count / no matches / directory unavailable),
+and a stale response can never overwrite a newer search's result.
+
+Two drifts were corrected while building it, because the search is only honest if
+the envelope it reads is the documented one: the e2e stub returned a flat
+facilities array instead of `{ data: { items, total } }`, and
+`getPublicFacilities` read the same wrong shape. Both now match the partial
+contract, which the `extractItems` normaliser treats as provisional — a body that
+drifts again fails into "directory unavailable", never into an empty directory.

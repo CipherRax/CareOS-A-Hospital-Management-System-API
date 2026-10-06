@@ -124,5 +124,31 @@
     "dataPeriod": "Data period",
     "model": "Model",
     "uncertainty": "Uncertainty"
+  },
+  "facilities": {
+    "pageTitle": "Find a facility",
+    "pageIntro": "Search the published facility directory by name or by the type of care they provide. Results are public information only.",
+    "searchLabel": "Facility or location",
+    "searchPlaceholder": "e.g. Mombasa, or the name of a facility",
+    "typeLabel": "Type of care",
+    "typeAll": "All types",
+    "typeGENERAL": "General hospital",
+    "typeREFERRAL": "Referral hospital",
+    "typeSPECIALIST": "Specialist hospital",
+    "typeCLINIC": "Clinic",
+    "typePRIMARY_CARE": "Primary care clinic",
+    "statusACTIVE": "Operating",
+    "statusINACTIVE": "Closed",
+    "resultsCount": "{count, plural, =0 {No results} one {1 result} other {# results}}",
+    "searching": "Searching…",
+    "emptyTitle": "No facility matches",
+    "emptyBody": "Try a shorter name, or clear the type filter and search again.",
+    "unavailableTitle": "The directory is temporarily unavailable",
+    "unavailableBody": "The facility directory could not be loaded. Try again shortly.",
+    "phone": "Phone",
+    "emergencyPhone": "Emergency",
+    "address": "Address",
+    "facilityList": "Search results",
+    "retry": "Try again"
   }
 }

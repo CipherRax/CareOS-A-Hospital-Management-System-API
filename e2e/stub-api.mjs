@@ -45,16 +45,49 @@ const server = createServer((request, response) => {
     return;
   }
 
-  // Published facilities, per the documented response shape. Fabricated.
+  // Published facilities, per the documented response shape and its envelope
+  // ({ data: { items, total } }). Fabricated. Honors the documented `q` (free
+  // text over name and address) and `type` parameters so search behaviour is real
+  // HTTP through the real proxy, and INACTIVE stays present so the Closed word is
+  // exercised rather than assumed.
+  const FACILITIES = [
+    {
+      id: 'fac-example-1',
+      name: 'EXAMPLE General Hospital',
+      shortName: 'EXAMPLE General',
+      type: 'GENERAL',
+      status: 'ACTIVE',
+      phone: '+254 700 000 111',
+      emergencyPhone: '+254 700 111 222',
+      address: '1 Independence Avenue, Mombasa',
+    },
+    {
+      id: 'fac-example-2',
+      name: 'EXAMPLE Referral Centre',
+      type: 'REFERRAL',
+      status: 'ACTIVE',
+      phone: '+254 700 000 222',
+      address: '22 Hospital Road, Nairobi',
+    },
+    {
+      id: 'fac-example-3',
+      name: 'EXAMPLE Community Clinic',
+      type: 'CLINIC',
+      status: 'INACTIVE',
+      address: '3 Market Street, Kisumu',
+    },
+  ];
   if (url.pathname === '/public/facilities' && request.method === 'GET') {
-    send(response, 200, {
-      success: true,
-      data: [
-        { id: 'fac-example-1', name: 'EXAMPLE General Hospital', type: 'GENERAL' },
-        { id: 'fac-example-2', name: 'EXAMPLE Referral Centre', type: 'REFERRAL' },
-        { id: 'fac-example-3', name: 'EXAMPLE Community Clinic', type: 'CLINIC' },
-      ],
-    });
+    const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
+    const type = url.searchParams.get('type');
+    let items = FACILITIES;
+    if (q) {
+      items = items.filter((facility) =>
+        `${facility.name} ${facility.address ?? ''}`.toLowerCase().includes(q),
+      );
+    }
+    if (type) items = items.filter((facility) => facility.type === type);
+    send(response, 200, { success: true, data: { items, total: items.length } });
     return;
   }
 

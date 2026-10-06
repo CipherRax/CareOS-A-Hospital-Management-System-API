@@ -125,9 +125,35 @@
     "model": "Mfuko",
     "uncertainty": "Uhakika"
   },
+  "facilities": {
+    "pageTitle": "Tafuta kituo cha afya",
+    "pageIntro": "Tafuta orodha iliyochapishwa ya vituo vya afya kwa jina au kwa aina ya huduma wanayotoa.",
+    "searchLabel": "Kituo au eneo",
+    "searchPlaceholder": "mf. Mombasa, au jina la kituo",
+    "typeLabel": "Aina ya huduma",
+    "typeAll": "Aina zote",
+    "typeGENERAL": "Hospitali kuu",
+    "typeREFERRAL": "Hospitali ya rufaa",
+    "typeSPECIALIST": "Hospitali ya mtaalamu",
+    "typeCLINIC": "Kliniki",
+    "typePRIMARY_CARE": "Kliniki ya huduma ya msingi",
+    "statusACTIVE": "Inafanya kazi",
+    "statusINACTIVE": "Imefungwa",
+    "resultsCount": "{count, plural, =0 {Hakuna matokeo} one {Tokeo 1} other {Matokeo #}}",
+    "searching": "Inatafuta…",
+    "emptyTitle": "Hakuna kituo kinacholingana",
+    "emptyBody": "Jaribu jina fupi, au ondoa kichujio cha aina na utafute tena.",
+    "unavailableTitle": "Orodha ya vituo haipatikani kwa sasa",
+    "unavailableBody": "Orodha ya vituo vya afya haikuweza kupakiwa. Jaribu tena baada ya muda mfupi.",
+    "phone": "Simu",
+    "emergencyPhone": "Dharura",
+    "address": "Anwani",
+    "facilityList": "Matokeo ya utafutaji",
+    "retry": "Jaribu tena"
+  },
   "_review": {
     "reviewedByNativeSpeaker": false,
     "note": "Strings in this catalogue were written without review by a native Swahili speaker. Treat as draft and have them reviewed before release.",
-    "draftNamespaces": ["common", "theme", "error", "intake", "estimate"]
+    "draftNamespaces": ["common", "error", "estimate", "facilities", "intake", "theme"]
   }
 }
