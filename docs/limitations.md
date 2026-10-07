@@ -110,8 +110,10 @@ represent, and would be unsound without the `DECIMAL_STRING` guard in front of i
 
 `Can` hides what a person cannot do. It is not a security control and the API remains
 the authority — every gated screen still has to handle 403. The permission strings
-themselves (`patients:read`, `lab:release`) are invented here because `/auth/me` is a
-guessed shape (GAP-003); the wildcard semantics are ours, not the API's.
+themselves (`patients:read`, `lab:release`) are invented here because the real
+`/auth/me` exists but its success body is **untyped** in the exported document and
+no live session has been captured to inspect it (the seeded login is blocked — see
+above); the wildcard semantics are ours, not the API's.
 
 ### Untranslated clinical strings
 
@@ -122,47 +124,59 @@ unreviewed.
 
 ## Incomplete
 
-### A session cannot be started or ended
+### No session can be started or ended yet
 
 The staff gate fails closed: content renders only after `/auth/me` confirms a
-session, and an unreachable API counts as signed out. What it cannot do is let
-anyone _in_ or _out_ — no `/auth/login` and no `/auth/logout` exist (GAP-010), so
-neither the signed-out page nor the header offers a control. Both would be links to
-404s, and a link that looks like it works teaches staff it works.
+session, and an unreachable API counts as signed out. The auth **endpoints now
+exist** upstream (`/auth/login`, `/auth/logout`, `/auth/refresh`, `/auth/me`,
+MFA, password), so a session _can_ be started and ended in principle — but no
+login or logout UI is built, so nobody can get in or out through this app. Neither
+the signed-out page nor the header offers a control; both would be links to a
+screen that does not exist.
 
-This is the one item here that blocks a real deployment rather than merely being
-unfinished. A shared clinical workstation with a session that cannot be ended is not
-acceptable, and it is not fixable from the frontend.
+This is still the one item that blocks a real deployment rather than merely being
+unfinished. A shared clinical workstation with a session that cannot be ended is
+not acceptable. It is now a frontend build item (proposed, not yet started).
 
-### The intake form hands out a reference nobody can use
+**Upstream blocker discovered while verifying:** `POST /auth/login` requires
+`organizationId` in uuid format, but the seed data assigns string ids
+(`demo-org-nairobi`). No seeded account can complete a login through the API —
+the login that would exercise `/auth/me`'s success body cannot be performed.
+Raised for the API side to decide; the frontend should not paper over it.
 
-`/request` is built against `POST /public/emergency-requests`, the one fully
-specified endpoint in the contract, so it is real work rather than a mock. But
-`/public/emergency-requests/{reference}/track` does not exist (GAP-008), so the
-reference it returns has no tracking page. The receipt tells a member of the public
-to keep a number that currently does nothing.
+### The intake form hands out a reference with no tracking page
+
+`/request` is built against the live `POST /public/emergency-requests` contract
+(body `SubmitEmergencyRequestDto`, slug-keyed; the receipt shows the real
+`referenceNumber` and `trackingToken`). The tracking endpoints (`track`, `cancel`,
+`update`) exist upstream and are keyed by `token`, but **no tracking UI is built
+yet** — the receipt tells a member of the public to keep a number that currently
+does nothing on this site.
 
 The form deliberately offers no invented next steps and no "what happens next" list,
 because a fabricated step in an emergency is the most damaging thing this screen
-could say. That choice makes the missing endpoint more visible rather than less, which
-is the correct direction.
+could say. That choice makes the missing tracking page more visible rather than less,
+which is the correct direction.
 
 For the same reason, when the facility list cannot be loaded the page renders a
 plain "temporarily unavailable" notice with no list of phone numbers. Those numbers
 would have to be invented, and a wrong number in an emergency is worse than none.
 
-### Facility search is second-hand against a partial contract
+### Facility search is verified against the live endpoint, minus its data
 
-`/facilities` searches genuinely: it sends documented `q` and `type` parameters to
-`GET /public/facilities` through the real proxy and renders the contract's visited
-fields (phone and emergency phone as `tel:` links, the status word, no coordinates
-because none are in the schema). The endpoint itself is not live in this
-environment, so behaviour is exercised against a stub that mirrors the partial
-OpenAPI — including its envelope drift being corrected, because a search result
-list is only honest if the API body is read the way the contract describes. The
-envelope is treated as provisional anyway: a response that drifts again fails into
-"directory unavailable" rather than an empty directory. Swahili copy remains
-unreviewed and marked as a draft.
+`/facilities` now searches `GET /public/facilities/search` with a real `q` filter
+through the real proxy, verified against a booted careOS API: `q` is a genuine
+case-insensitive server-side text search (the old invented `type` filter and
+`GET /public/facilities` path are both ghosts — the latter 404s). Facets are
+applied client-side from the API's own booleans (`open24h`,
+`emergency24h`, `ambulanceAvailable`). The exported document types the search
+200 body as `unknown` and omits `q`, so the screen validates the body structurally
+and the search fetches with a raw `fetch`; a result body that drifts again fails
+into "directory unavailable" rather than an empty directory.
+
+The directory has one published facility in the seeded database, so the app's
+multi-result behaviour is exercised against `EXAMPLE` fixtures rather than real
+data.
 
 ### Focus trapping is now verified, but only in Chromium
 
@@ -178,20 +192,21 @@ to confirm at all, so it required an `onConfirm` before it could be used.
 That is Chromium only. Focus behaviour differs enough between engines that "verified"
 here should not be read as "verified" anywhere else.
 
-### The intake form is verified against a stub, not a real API
+### The intake form is verified against a stub, not the live API
 
-The end-to-end tests run against `e2e/stub-api.mjs`, which answers the documented
-facilities and intake paths and 404s everything else. That is real HTTP through the
-real proxy and a real form submission, but it is not the careOS API: no rate limiter,
-no validation rules, no real reference format. Docker being unavailable is why the
-exported contract and a live API are both out of reach.
+The end-to-end tests run against `e2e/stub-api.mjs`, which now answers the
+**real** facilities and intake paths (`/public/facilities/search` with `q`, the
+slug-keyed intake POST, the new 201 receipt, `UNAUTHORIZED` on `/auth/me`) and
+404s everything else with `RESOURCE_NOT_FOUND`. That is real HTTP through the
+real proxy and a real form submission, but it is not the careOS API: the stub has
+no rate limiter and no validation beyond slug presence.
 
-The consent rules deserve a specific note. The schema requires
-`consentToContact: true` literally, so the body always carries `true` — which means
-consent is only real if the form _blocks the send_ when the box is unticked. That
-check was initially missing, and the field was therefore recording consent nobody
-gave. A test asserting the checkbox starts unticked and the send is refused caught it.
-Any future edit to that path needs the same test.
+Consent works differently from the old draft contract, and the form reflects it:
+the live body carries `consentVersion` (recorded server-side), and there is no
+`consentToContact` checkbox to tick. The retired checkbox was a consent record
+nobody could verify; a test now asserts no such box exists on the public form, so
+re-shipping it as decoration is caught rather than silent. The rate-limit path is
+still exercised against the stub's cookie.
 
 ### The display board is now unauthenticated, and that is the point
 
@@ -248,19 +263,18 @@ is also undefined (GAP-011) and will 404.
 endpoint that would feed it is not in the contract, and a fabricated number in a
 navigation bar is worse than none.
 
-### The OpenAPI contract is hand-authored and partial
+### The contract is real and regenerated from a live API
 
-The careOS API generates its document at runtime and checks none in, so
-`openapi/careos.partial.json` was written by hand from the brief and from the
-backend's known contract. It covers the envelope, the error shape, `/public/config`,
-`/public/facilities`, `/public/emergency-requests` and `/auth/me` — and nothing
-else.
+The careOS API generates its OpenAPI document at runtime; the frontend now checks in
+a copy of the real export as `openapi/careos.openapi.json`, produced by the API's
+`npm run openapi:export` against a locally booted PostgreSQL, Redis and API process
+(this environment turned out to have them — no container runtime was needed after
+all). `src/api/schema.d.ts` is regenerated from it on `npm run api:types`.
 
-An export script now exists on the API side (`npm run openapi:export`), which
-closes the gap properly, but it could not be run here: it needs a live PostgreSQL
-and Redis, and no container runtime is available in this environment. Until it is
-run and the real document replaces the partial one, treat every schema in
-`src/api/schema.d.ts` as provisional. See `docs/api-contract-gaps.md`.
+Two export quirks flow into the build: the facility-search 200 and emergency 201
+bodies are typed `unknown`, and the `q` parameter is absent from the document (so
+the search sends it via a raw `fetch`). Both are handled — see
+`docs/api-contract-gaps.md`. Swahili copy remains unreviewed and marked as a draft.
 
 ### No component tests for most primitives
 
@@ -293,9 +307,9 @@ endpoint these dialogs compose — otherwise the UI is polite and the data path 
 not.
 
 `BreakGlassBanner` accepts `minutesRemaining` as an optional prop and renders no
-countdown when it is absent. Nothing in the contract supplies it yet (GAP-008 has
-no track endpoint), so a banner with no timer is the honest state, not a gap in
-this component.
+countdown when it is absent. Nothing in the frontend supplies it yet — the staff
+triage surface is not built against the API — so a banner with no timer is the
+honest state, not a gap in this component.
 
 `Timeline` has no timezone handling beyond rendering the ISO value it is given. It
 formats in the server's locale and offset, and nothing tells a clinician which
@@ -355,11 +369,17 @@ not optional and must not be deferred past F2.
 
 ## Environment
 
-### No container runtime
+### No container runtime, but a live API was reachable anyway
 
-Docker is unavailable in this environment, so the API cannot be booted, its
-migrations cannot be applied, and the real OpenAPI document cannot be exported.
-The API's own end-to-end suite cannot run either.
+Docker is unavailable in this environment, so the API cannot be booted in a
+container and its own end-to-end suite cannot run. In this slice the API was
+instead booted directly: a locally built PostgreSQL 16.6 (`~/.local/pg/bin`),
+Redis 7.2.5, and the NestJS/Fastify prod build at `http://localhost:3000`, with
+all 26 migrations applied (one PG16 enum bug worked around) and the seed loaded.
+That yielded the real OpenAPI at `docs/openapi.json` and live verification of the
+facility search, intake 201, `/auth/me` 401, and the seed/login org-id mismatch.
+The boot recipe is not yet codified in a script; reproducing it needs the same
+manual steps.
 
 ### Node 26 and npm 11
 

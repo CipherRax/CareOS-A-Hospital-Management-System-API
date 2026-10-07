@@ -256,25 +256,29 @@ test.describe('public emergency intake', () => {
     await page.goto('/request');
     await expect(page.getByText(/has not been assessed/i)).toHaveCount(0);
 
-    await page.getByLabel(/facility/i).selectOption('fac-example-1');
-    await page.getByLabel(/patient name/i).fill('EXAMPLE Test Person');
-    await page.getByLabel(/phone number/i).fill('+254700000000');
-    await page.getByLabel(/what has happened/i).fill('EXAMPLE symptom description for a test.');
-    await page.getByRole('checkbox').check();
+    await fillIntakeRequest(page);
     await page.getByRole('button', { name: /send request/i }).click();
 
     // The contract is explicit that the receipt must not imply triage. Assert the
     // absence of the language that would imply it, which is the whole point.
     const receipt = page.getByText('EX-EM-00001');
     await expect(receipt).toBeVisible();
+    // The tracking token is the secret that proves the request is the caller's.
+    await expect(page.getByText('ex-tok-00001')).toBeVisible();
     await expect(page.getByText(/has not been assessed/i)).toBeVisible();
     await expect(page.getByText(/queue position|estimated wait|you will be seen/i)).toHaveCount(0);
   });
 
-  test('does not pre-tick consent', async ({ page }) => {
-    // Pre-ticked consent is not consent.
+  test('collects no consent checkbox — consent is the API act', async ({ page }) => {
+    // The live body carries `consentVersion`, recorded server-side; the retired
+    // `consentToContact:true` checkbox does not exist upstream. Guarding against
+    // someone re-shipping a consent box that records nothing.
     await page.goto('/request');
-    await expect(page.getByRole('checkbox')).not.toBeChecked();
+    await expect(page.getByRole('checkbox')).toHaveCount(0);
+    // And the category disclaimer is visible where the reader will see it.
+    await expect(
+      page.getByText(/it does not assess how serious the situation is/i),
+    ).toBeVisible();
   });
 
   test('explains a rate limit without mentioning the diagnostic message', async ({ page }) => {
@@ -282,11 +286,7 @@ test.describe('public emergency intake', () => {
       .context()
       .addCookies([{ name: 'careos-e2e', value: 'rate-limited', url: 'http://127.0.0.1:3100' }]);
     await page.goto('/request');
-    await page.getByLabel(/facility/i).selectOption('fac-example-1');
-    await page.getByLabel(/patient name/i).fill('EXAMPLE Test Person');
-    await page.getByLabel(/phone number/i).fill('+254700000000');
-    await page.getByLabel(/what has happened/i).fill('EXAMPLE symptom description for a test.');
-    await page.getByRole('checkbox').check();
+    await fillIntakeRequest(page);
     await page.getByRole('button', { name: /send request/i }).click();
 
     // Next injects its own role="alert" route announcer, so the assertion is scoped
@@ -296,6 +296,21 @@ test.describe('public emergency intake', () => {
     await expect(page.getByText('stub')).toHaveCount(0);
   });
 });
+
+/** Fills every field of the live-contract intake form. */
+async function fillIntakeRequest(page: Page) {
+  await page.getByLabel(/facility/i).selectOption('example-general-hospital');
+  await page.getByLabel(/your name/i).fill('EXAMPLE Test Person');
+  await page.getByLabel(/phone number/i).fill('+254700000000');
+  await page.getByLabel(/what best describes/i).selectOption('SEVERE_INJURY');
+  await page.getByLabel(/for yourself/i).selectOption('true');
+  await page
+    .getByLabel(/how should we contact you/i)
+    .selectOption('PHONE');
+  await page
+    .getByLabel(/what has happened/i)
+    .fill('EXAMPLE symptom description for a test.');
+}
 
 test.describe('staff session gate', () => {
   test('shows staff content once a session is confirmed', async ({ page }) => {
@@ -357,32 +372,33 @@ test.describe('facilities search', () => {
     await expect(page.getByRole('heading', { name: 'EXAMPLE Referral Centre' })).toBeVisible();
   });
 
-  test('filters by type of care', async ({ page }) => {
-    await page.getByRole('combobox').selectOption('CLINIC');
+  test('filters by what a facility offers, using the API own fields', async ({ page }) => {
+    // The live directory has no `type` enum; facets are the API's booleans.
+    await page.getByRole('checkbox', { name: 'have an ambulance' }).check();
 
-    await expect(page.getByRole('heading', { name: 'EXAMPLE Community Clinic' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'EXAMPLE General Hospital' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'EXAMPLE General Hospital' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'EXAMPLE Referral Centre' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'EXAMPLE Community Clinic' })).toHaveCount(0);
   });
 
-  test('labels a closed facility with its word, not a colour', async ({ page }) => {
-    await page.getByRole('combobox').selectOption('CLINIC');
-    const clinic = page.getByRole('listitem').filter({ hasText: 'EXAMPLE Community Clinic' });
-    await expect(clinic.getByText('Closed')).toBeVisible();
-
-    // The active ones get the counterpart word, scoped to a row: with two active
-    // results on the board, an unscoped assertion matches twice.
-    await page.getByRole('combobox').selectOption('GENERAL');
+  test('labels capabilities in words, scoped to a row', async ({ page }) => {
+    // A word, not a colour: the values are the API's own booleans rendered as
+    // text, and strictly within the row that owns them.
     const general = page.getByRole('listitem').filter({ hasText: 'EXAMPLE General Hospital' });
-    await expect(general.getByText('Operating')).toBeVisible();
+    await expect(general.getByText('Open 24 hours')).toBeVisible();
+    await expect(general.getByText('Ambulance on site')).toBeVisible();
+
+    const clinic = page.getByRole('listitem').filter({ hasText: 'EXAMPLE Community Clinic' });
+    await expect(clinic.getByText('Open 24 hours')).toHaveCount(0);
+    await expect(clinic.getByText('Ambulance on site')).toHaveCount(0);
   });
 
   test('renders only the phone numbers the API supplied, as tel links', async ({ page }) => {
-    // General Hospital: phone and emergency phone, both linkable.
+    // General Hospital has a phone, so a single linkable number appears.
     const general = page.getByRole('listitem').filter({ hasText: 'EXAMPLE General Hospital' });
     await expect(general.getByRole('link', { name: /Phone: \+254 700 000 111/ })).toBeVisible();
-    await expect(general.getByRole('link', { name: /Emergency: \+254 700 111 222/ })).toBeVisible();
 
-    // Community Clinic: no phone fields on this record, so no links may appear.
+    // Community Clinic has no phone on its record, so no links may appear.
     const clinic = page.getByRole('listitem').filter({ hasText: 'EXAMPLE Community Clinic' });
     await expect(clinic.getByRole('link')).toHaveCount(0);
   });

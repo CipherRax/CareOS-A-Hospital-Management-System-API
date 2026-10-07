@@ -68,9 +68,9 @@ describe('StaffGate', () => {
     // who has not signed in.
     sessionState.isError = true;
     sessionState.error = {
-      code: 'UNAUTHENTICATED',
+      code: 'UNAUTHORIZED',
       status: 401,
-      resolved: resolveApiError('UNAUTHENTICATED'),
+      resolved: resolveApiError('UNAUTHORIZED'),
     };
     renderGate();
     expect(screen.queryByText('Staff content')).not.toBeInTheDocument();
@@ -100,7 +100,7 @@ describe('StaffGate', () => {
     // Telling a clinician to sign in when the service is down sends them to the
     // wrong place and teaches them to ignore the message.
     sessionState.isError = true;
-    sessionState.error = { code: 'UNAUTHENTICATED', resolved: resolveApiError('UNAUTHENTICATED') };
+    sessionState.error = { code: 'UNAUTHORIZED', resolved: resolveApiError('UNAUTHORIZED') };
     const { unmount } = renderGate();
     expect(screen.getByRole('heading', { name: 'Please sign in again' })).toBeInTheDocument();
     unmount();
@@ -119,7 +119,7 @@ describe('StaffGate', () => {
     // Both routes are undefined (GAP-010). A link to a 404 teaches staff that the
     // control works when it does not.
     sessionState.isError = true;
-    sessionState.error = { code: 'UNAUTHENTICATED', resolved: resolveApiError('UNAUTHENTICATED') };
+    sessionState.error = { code: 'UNAUTHORIZED', resolved: resolveApiError('UNAUTHORIZED') };
     renderGate();
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });

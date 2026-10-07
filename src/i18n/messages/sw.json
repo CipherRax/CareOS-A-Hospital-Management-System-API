@@ -74,20 +74,43 @@
       "placeholder": "Chagua kituo"
     },
     "name": {
-      "label": "Jina la mgonjwa"
+      "label": "Jina lako"
     },
     "phone": {
-      "label": "Namba ya simu",
+      "label": "Namba yako ya simu",
       "hint": "Ili timu ya kliniki ipate kukushikilia. Tutaitumia tu kuhusu ombi hili."
+    },
+    "category": {
+      "label": "Ni nini kinafafanua hali hii vizuri zaidi?",
+      "placeholder": "Chagua moja",
+      "NOT_SURE": "Sina uhakika",
+      "BREATHING_DIFFICULTY": "Shida ya kupumua",
+      "SEVERE_INJURY": "Jeraha kubwa",
+      "UNCONSCIOUS": "Amepoteza fahamu",
+      "CHEST_PAIN": "Maumivu ya kifua",
+      "HEAVY_BLEEDING": "Kutokwa na damu nyingi",
+      "OTHER": "Jambo lingine",
+      "notTriage": "Chagua linalokaribiana zaidi. Halithamini jinsi hali ilivyo hatari — linamwambia tu timu nini cha kutarajia."
+    },
+    "forSelf": {
+      "label": "Ombi hili ni lako mwenyewe?",
+      "placeholder": "Chagua moja",
+      "yes": "Ndiyo, ni langu",
+      "no": "Hapana, ni la mtu mwingine"
+    },
+    "peopleCount": {
+      "label": "Watu wangapi wanahitaji msaada?",
+      "hint": "Jumla ya watu ambao ombi hili linawahusu."
+    },
+    "preferredContact": {
+      "label": "Tukuwasiliane nami vipi?",
+      "placeholder": "Chagua moja",
+      "PHONE": "Simu",
+      "SMS": "Ujumbe mfupi (SMS)"
     },
     "description": {
       "label": "Kilichotokea?",
       "hint": "Kwa maneno yako mwenyewe. Eleza ilipoanza na kile kilichobadilika."
-    },
-    "consent": {
-      "label": "Nakubali kupigwa simu kuhusu ombi hili",
-      "description": "Inahitajika. Timu ya kliniki itatumia namba hii kukushikilia kuhusu ombi uliloweka.",
-      "required": "Tafadhali thibitisha unakubali kupigwa simu kabla ya kutuma."
     },
     "submit": "Tuma ombi",
     "submitting": "Inatuma…",
@@ -96,19 +119,26 @@
       "title": "Ombi limepokelewa",
       "body": "Weka namba hii ya kumbukumbu. Utahahitaji kama utakapowasiliana na kituo kuhusu ombi hili.",
       "referenceLabel": "Namba yako",
+      "trackingLabel": "Namba ya ufuatiliaji",
+      "trackingHint": "Weka namba hii salama na faragha. Ndiyo jinsi ombi hili linavyothibitishwa kuwa lako unapoangalia hali yake au kuaghairi.",
       "noAssessment": "Ombi limepitwa kwao. Bado halijathminiwa, na bado hakuna mtu aliyewagwa.",
       "another": "Tuma ombi lingine"
     },
     "errors": {
       "facility": "Chagua kituo.",
-      "name": "Weka jina la mgonjwa.",
+      "name": "Weka jina lako.",
       "phone": "Weka namba ya simu.",
       "phoneFormat": "Weka namba ya simu yenye msimbo wa eneo.",
+      "category": "Chagua jibu lililo karibu zaidi.",
+      "forSelf": "Tuambie kama ombi hili ni lako.",
+      "peopleCount": "Weka idadi ya watu wanaohitaji msaada — angalau 1.",
+      "preferredContact": "Chagua jinsi tunavyowasiliana nawe.",
       "description": "Tueleze kilichotokea.",
       "descriptionShort": "Tafadhali ongeza maelezo kidogo zaidi.",
       "rateLimited": "Ombi nyingi sana zimetumwa kutoka kwa kifaa hiki. Subiri dakika chache kisha jaribu tena.",
       "unavailable": "Huduma haipatikani kwa sasa. Ombi lako halijatumwa. Subiri kidogo kisha jaribu tena.",
       "serverValidation": "Baadhi ya maelezo hayakuwakiliwa. Kagua fomu kisha jaribu tena.",
+      "facilityNotAccepting": "Kituo hiki hakikubali ombi kwa sasa. Chagua kituo kingine au kuwasiliana nacho moja kwa moja.",
       "generic": "Ombi lako halijatumwa. Jaribu tena baadaye kidogo."
     },
     "pageTitle": "Huduma ya dharura",
@@ -127,22 +157,26 @@
   },
   "facilities": {
     "pageTitle": "Tafuta kituo cha afya",
-    "pageIntro": "Tafuta orodha iliyochapishwa ya vituo vya afya kwa jina au kwa aina ya huduma wanayotoa.",
+    "pageIntro": "Tafuta orodha iliyochapishwa ya vituo vya afya kwa jina au eneo, na upunguze kulingana na kile kituo kinachotoa.",
     "searchLabel": "Kituo au eneo",
     "searchPlaceholder": "mf. Mombasa, au jina la kituo",
-    "typeLabel": "Aina ya huduma",
-    "typeAll": "Aina zote",
-    "typeGENERAL": "Hospitali kuu",
-    "typeREFERRAL": "Hospitali ya rufaa",
-    "typeSPECIALIST": "Hospitali ya mtaalamu",
-    "typeCLINIC": "Kliniki",
-    "typePRIMARY_CARE": "Kliniki ya huduma ya msingi",
-    "statusACTIVE": "Inafanya kazi",
-    "statusINACTIVE": "Imefungwa",
+    "facetGroup": "Onyesha vituo vingine vinavyovyo:",
+    "facet": {
+      "open24h": "vipo wazi saa 24",
+      "open24hHint": "Mapokezi yanayofanya kazi usiku na mchana",
+      "emergency24h": "vinatoa huduma ya dharura ya saa 24",
+      "emergency24hHint": "Idara ya dharura iliyo na wafanyakazi siku nzima",
+      "ambulanceAvailable": "vina gari la wagonjwa",
+      "ambulanceAvailableHint": "Gari la wagonjwa lipo kituoni"
+    },
+    "open24h": "Wazi saa 24",
+    "emergency24h": "Huduma ya dharura ya saa 24",
+    "ambulanceAvailable": "Gari la wagonjwa kituoni",
+    "emergencyIntakeEnabled": "Linakubali ombi la dharura mtandaoni",
     "resultsCount": "{count, plural, =0 {Hakuna matokeo} one {Tokeo 1} other {Matokeo #}}",
     "searching": "Inatafuta…",
     "emptyTitle": "Hakuna kituo kinacholingana",
-    "emptyBody": "Jaribu jina fupi, au ondoa kichujio cha aina na utafute tena.",
+    "emptyBody": "Jaribu jina fupi, au ondoa vichujio na utafute tena.",
     "unavailableTitle": "Orodha ya vituo haipatikani kwa sasa",
     "unavailableBody": "Orodha ya vituo vya afya haikuweza kupakiwa. Jaribu tena baada ya muda mfupi.",
     "phone": "Simu",

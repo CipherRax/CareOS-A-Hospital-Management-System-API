@@ -74,20 +74,43 @@
       "placeholder": "Select a facility"
     },
     "name": {
-      "label": "Patient name"
+      "label": "Your name"
     },
     "phone": {
-      "label": "Phone number",
+      "label": "Your phone number",
       "hint": "So the clinical team can reach you. We will only use it about this request."
+    },
+    "category": {
+      "label": "What best describes the situation?",
+      "placeholder": "Choose one",
+      "NOT_SURE": "Not sure",
+      "BREATHING_DIFFICULTY": "Difficulty breathing",
+      "SEVERE_INJURY": "Serious injury",
+      "UNCONSCIOUS": "Unconscious",
+      "CHEST_PAIN": "Chest pain",
+      "HEAVY_BLEEDING": "Heavy bleeding",
+      "OTHER": "Something else",
+      "notTriage": "Pick the closest one. It does not assess how serious the situation is — it only tells the team what to expect."
+    },
+    "forSelf": {
+      "label": "Is this request for yourself?",
+      "placeholder": "Choose one",
+      "yes": "Yes, for me",
+      "no": "No, for someone else"
+    },
+    "peopleCount": {
+      "label": "How many people need help?",
+      "hint": "The total number of people this request covers."
+    },
+    "preferredContact": {
+      "label": "How should we contact you?",
+      "placeholder": "Choose one",
+      "PHONE": "Phone",
+      "SMS": "Text message (SMS)"
     },
     "description": {
       "label": "What has happened?",
       "hint": "In your own words. Include when it started and anything that has changed since."
-    },
-    "consent": {
-      "label": "I agree to be contacted about this request",
-      "description": "Required. The clinical team will use this number to reach you about the request you have just made.",
-      "required": "Please confirm you agree to be contacted before sending."
     },
     "submit": "Send request",
     "submitting": "Sending…",
@@ -96,19 +119,26 @@
       "title": "Request received",
       "body": "Keep this reference. You will need it if you contact the facility about this request.",
       "referenceLabel": "Your reference",
+      "trackingLabel": "Tracking token",
+      "trackingHint": "Keep this token safe and private. It is how this request is verified as yours when you check on it or cancel it.",
       "noAssessment": "Your request has been passed on. It has not been assessed, and no one has been assigned to you yet.",
       "another": "Send another request"
     },
     "errors": {
       "facility": "Choose a facility.",
-      "name": "Enter the patient's name.",
+      "name": "Enter your name.",
       "phone": "Enter a phone number.",
       "phoneFormat": "Enter a phone number, including the area code.",
+      "category": "Choose the closest match.",
+      "forSelf": "Tell us if this request is for you.",
+      "peopleCount": "Enter how many people need help — at least 1.",
+      "preferredContact": "Choose how we should contact you.",
       "description": "Tell us what has happened.",
       "descriptionShort": "Please add a little more detail.",
       "rateLimited": "Too many requests have been sent from this device. Wait a few minutes and try again.",
       "unavailable": "The service is temporarily unavailable. Your request was not sent. Wait a moment and try again.",
       "serverValidation": "Some details were not accepted. Check the form and try again.",
+      "facilityNotAccepting": "This facility is not accepting requests right now. Choose another facility or contact it directly.",
       "generic": "Your request was not sent. Try again in a moment."
     },
     "pageTitle": "Emergency care",
@@ -127,22 +157,26 @@
   },
   "facilities": {
     "pageTitle": "Find a facility",
-    "pageIntro": "Search the published facility directory by name or by the type of care they provide. Results are public information only.",
+    "pageIntro": "Search the published facility directory by name or location, and narrow it by what a facility offers. Results are public information only.",
     "searchLabel": "Facility or location",
     "searchPlaceholder": "e.g. Mombasa, or the name of a facility",
-    "typeLabel": "Type of care",
-    "typeAll": "All types",
-    "typeGENERAL": "General hospital",
-    "typeREFERRAL": "Referral hospital",
-    "typeSPECIALIST": "Specialist hospital",
-    "typeCLINIC": "Clinic",
-    "typePRIMARY_CARE": "Primary care clinic",
-    "statusACTIVE": "Operating",
-    "statusINACTIVE": "Closed",
+    "facetGroup": "Show only facilities that:",
+    "facet": {
+      "open24h": "are open 24 hours",
+      "open24hHint": "A round-the-clock reception",
+      "emergency24h": "offer 24-hour emergency care",
+      "emergency24hHint": "An emergency department staffed day and night",
+      "ambulanceAvailable": "have an ambulance",
+      "ambulanceAvailableHint": "An ambulance available on site"
+    },
+    "open24h": "Open 24 hours",
+    "emergency24h": "24-hour emergency care",
+    "ambulanceAvailable": "Ambulance on site",
+    "emergencyIntakeEnabled": "Accepts emergency requests online",
     "resultsCount": "{count, plural, =0 {No results} one {1 result} other {# results}}",
     "searching": "Searching…",
     "emptyTitle": "No facility matches",
-    "emptyBody": "Try a shorter name, or clear the type filter and search again.",
+    "emptyBody": "Try a shorter name, or clear the filters and search again.",
     "unavailableTitle": "The directory is temporarily unavailable",
     "unavailableBody": "The facility directory could not be loaded. Try again shortly.",
     "phone": "Phone",

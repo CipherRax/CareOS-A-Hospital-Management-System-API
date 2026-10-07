@@ -16,7 +16,7 @@
     "tokens:verify": "node scripts/verify-token-contrast.mjs",
     "prebuild": "npm run tokens:verify",
     "gate": "npm run lint && npm run typecheck && npm test && npm run build && npm run test:a11y",
-    "api:types": "openapi-typescript openapi/careos.partial.json -o src/api/schema.d.ts",
+    "api:types": "openapi-typescript openapi/careos.openapi.json -o src/api/schema.d.ts",
     "api:check": "npm run api:types && git diff --exit-code -- src/api/schema.d.ts || (echo 'src/api/schema.d.ts is stale. Run npm run api:types and commit.' && exit 1)",
     "test:a11y": "playwright test",
     "postbuild": "node scripts/copy-standalone-assets.mjs"

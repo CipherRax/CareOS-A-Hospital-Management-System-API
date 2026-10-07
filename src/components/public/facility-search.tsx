@@ -3,80 +3,57 @@
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 
-import { api } from '@/api/client';
-import type { components } from '@/api/schema';
+import { CheckboxField } from '@/components/ui/primitives';
 import { Button } from '@/components/ui/button';
-import { Field, Input, Select } from '@/components/ui/field';
+import { Field, Input } from '@/components/ui/field';
+import { publicEnv } from '@/lib/env';
+import {
+  FACILITY_FACETS,
+  extractListingItems,
+  filterByFacets,
+  type FacilityFacet,
+  type PublicFacilityListing,
+} from '@/lib/data/facilities';
 
 /**
  * Facility search.
  *
- * The public directory, searched against `GET /public/facilities`, which — unlike
- * almost everything else in the partial contract — genuinely supports `q` and
- * `type`. So this is real work against a documented endpoint, with one caveat kept
- * visible: `docs/limitations.md` records that every screen here is verified against
- * the stub, not the careOS API.
+ * Queries `GET /public/facilities/search`, re-aligned to the real careOS API
+ * contract. Two things about that contract are worth naming:
+ *
+ *  - **`type` is gone, and never existed.** The partial document described a
+ *    `FacilityType` enum (`GENERAL`, `REFERRAL`, …) that the live API does not
+ *    model; the real directory carries `open24h`, `emergency24h` and
+ *    `ambulanceAvailable` booleans instead. The screen filters on those live
+ *    fields.
+ *  - **The `q` parameter is real but undocumented.** The exported OpenAPI types
+ *    the search response as `unknown` and lists no query parameters, yet the
+ *    running API does free-text search on `q`. Because the client cannot express
+ *    an undocumented parameter through the generated types, this screen fetches
+ *    plainly and validates the envelope structurally instead. That fetch is the
+ *    only raw call in the app, and it is pinned by e2e tests and documented in
+ *    docs/limitations.md.
  *
  * Rules that shape the screen:
  *
- *  - **Nothing here is fabricated.** The phone numbers, addresses and names are the
- *    API's own published fields; the page adds contact details only where the API
- *    supplied them. No map links (coordinates do not exist in the contract), no
- *    invented hours.
- *  - **Status is a word.** A facility that returns `INACTIVE` is labelled "Closed"
- *    in text. A directory that filters out outages by colour would be read by the
- *    person who needs to turn up somewhere else.
+ *  - **Nothing here is fabricated.** Phone numbers, addresses and summaries are
+ *    the API's own published fields; the page adds contact details only where the
+ *    API supplied them. No map links (the `location` object is not rendered —
+ *    coordinates in a public directory are a routing decision), no invented
+ *    hours.
  *  - **Every search state is spoken.** Searching, results, zero results and a
  *    directory that failed to load each announce themselves rather than leaving a
- *    silent input. The zero-result case especially: silence reads as "in progress".
+ *    silent input.
  *  - **Stale responses cannot win.** The search debounces, and a response is only
- *    applied if it is the newest request issued. Without that, a slow answer to an
- *    older keystroke overwrites the result of the one the reader is looking at.
+ *    applied if it is the newest request issued.
  */
-export type Facility = components['schemas']['PublicFacility'];
-type FacilityType = components['schemas']['FacilityType'];
-
-export const FACILITY_TYPES: readonly FacilityType[] = [
-  'GENERAL',
-  'REFERRAL',
-  'SPECIALIST',
-  'CLINIC',
-  'PRIMARY_CARE',
-];
-
-/**
- * Extracts the items array from a facilities envelope.
- *
- * Returns `null` when the body is not a happy success envelope. Deliberately
- * defensive rather than trusting the generated type: the contract is provisional
- * (see docs/api-contract-gaps.md), and a drifted body that happened to typecheck
- * must fail into the "directory unavailable" state, never into an empty search.
- */
-export function extractItems(
-  body: unknown,
-): { ok: true; items: readonly Facility[] } | { ok: false } {
-  if (!body || typeof body !== 'object') return { ok: false };
-  const record = body as { success?: unknown; data?: { items?: unknown } };
-  if (record.success !== true) return { ok: false };
-  if (!Array.isArray(record.data?.items)) return { ok: false };
-
-  const items = record.data.items.filter((item): item is Facility => {
-    if (!item || typeof item !== 'object') return false;
-    const candidate = item as Partial<Facility>;
-    return typeof candidate.id === 'string' && typeof candidate.name === 'string';
-  });
-
-  // A valid envelope with no usable rows is a broken response, not a finding of
-  // nothing — an empty directory is not a state the API reports.
-  if (items.length !== record.data.items.length) return { ok: false };
-  return { ok: true, items };
-}
+export type Facility = PublicFacilityListing;
 
 export function FacilitySearch() {
   const t = useTranslations('facilities');
 
   const [query, setQuery] = useState('');
-  const [type, setType] = useState<FacilityType | ''>('');
+  const [facets, setFacets] = useState<readonly FacilityFacet[]>([]);
   const [refresh, setRefresh] = useState(0);
   const [phase, setPhase] = useState<'searching' | 'results' | 'unavailable'>('searching');
   const [items, setItems] = useState<readonly Facility[]>([]);
@@ -87,27 +64,26 @@ export function FacilitySearch() {
 
     async function search() {
       setPhase('searching');
-      const result = await api.GET('/public/facilities', {
-        params: {
-          query: {
-            q: query.trim() || undefined,
-            type: type || undefined,
-          },
-        },
-      });
+      const q = query.trim();
+      const url = `${publicEnv.apiBasePath}/public/facilities/search${
+        q ? `?q=${encodeURIComponent(q)}` : ''
+      }`;
+      const response = await fetch(url, { credentials: 'same-origin' });
       // A response may land after a newer search was issued; only the newest may
       // paint, or a slow answer to an old keystroke overwrites the fresh one.
       if (requestId !== requestIdRef.current) return;
-      if (!result.response.ok) {
+      if (!response.ok) {
         setPhase('unavailable');
         return;
       }
-      const deduced = extractItems(result.data);
+      const deduced = extractListingItems(await response.json());
       if (!deduced.ok) {
         setPhase('unavailable');
         return;
       }
-      setItems(deduced.items);
+      // Facets are client-side filters over the server's answer (see the module
+      // note in src/lib/data/facilities.ts).
+      setItems(filterByFacets(deduced.items, facets));
       setPhase('results');
     }
 
@@ -116,11 +92,15 @@ export function FacilitySearch() {
     const timer = setTimeout(search, 350);
     return () => {
       clearTimeout(timer);
-      // Invalidates the in-flight request as well as the timer.
+      // Invalidates the in-flight response guard as well as the timer.
       requestIdRef.current += 1;
     };
     // `refresh` exists only to re-run this effect on demand (Submit / Try again).
-  }, [query, type, refresh]);
+  }, [query, facets, refresh]);
+
+  function toggleFacet(facet: FacilityFacet, active: boolean) {
+    setFacets((current) => (active ? [...current, facet] : current.filter((f) => f !== facet)));
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -147,24 +127,18 @@ export function FacilitySearch() {
             )}
           </Field>
 
-          <Field id="facilities-type" label={t('typeLabel')}>
-            {({ controlId, describedBy, invalid }) => (
-              <Select
-                id={controlId}
-                aria-describedby={describedBy}
-                invalid={invalid}
-                value={type}
-                onChange={(event) => setType(event.target.value as FacilityType | '')}
-              >
-                <option value="">{t('typeAll')}</option>
-                {FACILITY_TYPES.map((value) => (
-                  <option key={value} value={value}>
-                    {t(`type${value}`)}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="text-caption font-medium text-secondary">{t('facetGroup')}</legend>
+            {FACILITY_FACETS.map((facet) => (
+              <CheckboxField
+                key={facet}
+                label={t(`facet.${facet}`)}
+                description={t(`facet.${facet}Hint`)}
+                checked={facets.includes(facet)}
+                onCheckedChange={(checked) => toggleFacet(facet, checked === true)}
+              />
+            ))}
+          </fieldset>
 
           <p className="sr-only" role="status" aria-live="polite">
             {phase === 'searching' ? t('searching') : t('resultsCount', { count: items.length })}
@@ -205,10 +179,7 @@ export function FacilitySearch() {
 
       {phase === 'results' && items.length > 0 ? (
         <section aria-labelledby="facilities-results">
-          <h2
-            id="facilities-results"
-            className="text-caption uppercase tracking-wide text-tertiary"
-          >
+          <h2 id="facilities-results" className="text-caption uppercase tracking-wide text-tertiary">
             {t('facilityList')}
           </h2>
           <p className="mt-1 sr-only" role="status">
@@ -219,34 +190,37 @@ export function FacilitySearch() {
               <li key={facility.id} className="flex flex-col gap-1 border-b border-border py-4">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <h3 className="text-body font-semibold text-primary">{facility.name}</h3>
-                  <p className="text-caption text-secondary">{t(`type${facility.type}`)}</p>
-                  {/* A word, because a red/green dot would vanish under tungsten
-                      light and deuteranopia alike. */}
-                  <p className="text-caption text-secondary">{t(`status${facility.status}`)}</p>
+                  {facility.town || facility.county ? (
+                    <p className="text-caption text-secondary">
+                      {[facility.town, facility.county].filter(Boolean).join(', ')}
+                    </p>
+                  ) : null}
                 </div>
+                {facility.summary ? (
+                  <p className="text-caption text-tertiary">{facility.summary}</p>
+                ) : null}
                 {facility.address ? (
                   <p className="text-caption text-tertiary">{facility.address}</p>
                 ) : null}
-                {facility.phone || facility.emergencyPhone ? (
-                  <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-caption">
-                    {facility.phone ? (
-                      <a
-                        href={`tel:${facility.phone}`}
-                        className="text-primary underline underline-offset-2"
-                      >
-                        {t('phone')}: {facility.phone}
-                      </a>
-                    ) : null}
-                    {facility.emergencyPhone ? (
-                      <a
-                        href={`tel:${facility.emergencyPhone}`}
-                        className="font-medium text-status-critical underline underline-offset-2"
-                      >
-                        {t('emergencyPhone')}: {facility.emergencyPhone}
-                      </a>
-                    ) : null}
-                  </p>
+                {/* A word, not a colour: a green dot would vanish under tungsten
+                    light and deuteranopia alike. These are the API's own booleans,
+                    rendered only when set. */}
+                {facility.phone ? (
+                  <a
+                    href={`tel:${facility.phone}`}
+                    className="mt-1 text-primary underline underline-offset-2"
+                  >
+                    {t('phone')}: {facility.phone}
+                  </a>
                 ) : null}
+                <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-caption">
+                  {facility.open24h ? <span>{t('open24h')}</span> : null}
+                  {facility.emergency24h ? <span>{t('emergency24h')}</span> : null}
+                  {facility.ambulanceAvailable ? <span>{t('ambulanceAvailable')}</span> : null}
+                  {facility.emergencyIntakeEnabled ? (
+                    <span>{t('emergencyIntakeEnabled')}</span>
+                  ) : null}
+                </p>
               </li>
             ))}
           </ul>

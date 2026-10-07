@@ -1,187 +1,162 @@
 # API contract gaps
 
-The careOS API generates its OpenAPI document at runtime and does not check one
-into the repository. `openapi/careos.partial.json` is therefore **hand-authored
-from the brief**, not exported from a running API. Everything below is what that
-costs.
+**Status as of this slice:** the real contract is now in the frontend. The
+hand-authored `openapi/careos.partial.json` has been deleted and replaced by
+`openapi/careos.openapi.json`, a copy of the document exported from a **live,
+booted** careOS API (`npm run openapi:export` in the API repository, against a
+locally running PostgreSQL and Redis). `src/api/schema.d.ts` is regenerated from
+it. This file is therefore a review of what the real document changed, not a
+catalogue of guesses — the numbers are kept stable so earlier references hold.
 
-The rule from the brief is that nothing here gets invented silently. Each gap is
-recorded, mocked behind MSW, and flagged.
+Everything below that is still open is a real gap. Items marked **closed** or
+**revised** are historical.
 
-An export path now exists on the API side — `npm run openapi:export` in the API
-repository writes `docs/openapi.json`. It could not be run in this environment: it
-requires a live PostgreSQL and Redis, and no container runtime is available. When
-it is run, the real document should replace `openapi/careos.partial.json`, and
-this file becomes a diff to review rather than a list of assumptions.
+Two properties of the exported document are worth knowing before anything else:
+
+- The facility search **200 body and the emergency intake 201 body are typed
+  `unknown`** in the export, and the `q` query parameter is not modelled at all
+  (`params.query` is `never`). Screens validate those `unknown` bodies in code
+  (`extractListingItems`, the receipt validator) and the search uses a raw
+  `fetch` with `q`.
+- The API's descriptive error vocabulary was confirmed live: `VALIDATION_ERROR`,
+  `UNAUTHORIZED`, `PERMISSION_DENIED`, `RESOURCE_NOT_FOUND`, `CONFLICT`,
+  `RATE_LIMITED`, plus domain codes such as `FACILITY_NOT_ACCEPTING_REQUESTS`,
+  `LOCATION_REQUIRED`, `EMERGENCY_CALL_NOW`, `PUBLIC_LISTING_NOT_PUBLISHED`.
 
 ---
 
 ## GAP-001 — No exported OpenAPI document
 
-**Status:** tooling available, unrun.
-
-The API serves Swagger UI at `/docs` from a document built at runtime. Nothing is
-checked in, so there is no stable artifact to generate types from.
-
-**Resolution:** `npm run openapi:export` in the API repository. Verified only as
-far as the point where it needs a database — dependency injection resolves, the
-Nest application builds, then Redis refuses the connection.
-
-**Impact:** every schema in `src/api/schema.d.ts` is provisional.
+**Status: closed.** The API's `npm run openapi:export` was run against a live
+backend and `docs/openapi.json` (339 paths) was copied into the frontend as
+`openapi/careos.openapi.json`. `package.json`'s `api:types`/`api:check` scripts
+and `src/api/schema.d.ts` now point at the real document.
 
 ---
 
 ## GAP-002 — Response envelope shape is assumed
 
-**Assumed:**
+**Status: revised.** The old assumption of `{ success, data, meta:{requestId} }`
+was wrong. Confirmed live:
 
-```json
-{ "success": true, "data": {}, "meta": { "requestId": "req_..." } }
-```
+- `GET /public/facilities/search` → `{ success: true, data: [ ... ] }` — a flat
+  array, no `items`/`total` wrapper, no `meta`.
+- `POST /public/emergency-requests` → 201
+  `{ success: true, data: { request: { id, referenceNumber, trackingToken }, contact, consentVersion } }`.
 
-**Impact:** if the real envelope differs, every response type is wrong. The
-`sensitive`, `unsubscribeToken` and `source` fields the brief mentions for the
-emergency intake response are **not** modelled at all, because their shapes are
-undefined.
-
-**Resolution:** confirm against the exported document.
+There is no `meta.requestId` envelope, and the brief's `sensitive`,
+`unsubscribeToken` and `source` fields do not exist on the emergency response
+(see GAP-005). The flat envelope is what the screens read now.
 
 ---
 
 ## GAP-003 — Error codes beyond the brief's nine are undefined
 
-The catalogue in `src/lib/errors/catalog.ts` covers the codes the brief lists. The
-API can return others; the catalogue has no message for them, so `resolveApiError`
-returns `null` and the UI must not invent one.
+**Status: revised.** The catalogue in `src/lib/errors/catalog.ts` now reflects
+the live vocabulary; the old `UNAUTHENTICATED`/`FORBIDDEN`/`NOT_FOUND` names are
+gone, replaced by `UNAUTHORIZED`, `PERMISSION_DENIED`, `RESOURCE_NOT_FOUND`. The
+remaining known-unmapped codes are listed in `UNMAPPED_ERROR_CODES`:
 
-These are known-unmapped and are listed explicitly in `UNMAPPED_ERROR_CODES`:
+| Code                         | Surface                |
+| ---------------------------- | ---------------------- |
+| `PUBLIC_LISTING_NOT_PUBLISHED` | Facility directory   |
+| `FACILITY_NOT_ACCEPTING_REQUESTS` | Emergency intake    |
+| `LOCATION_REQUIRED`          | Emergency intake       |
+| `EMERGENCY_CALL_NOW`         | Emergency intake       |
 
-| Code                          | Surface                   |
-| ----------------------------- | ------------------------- |
-| `EMERGENCY_REQUEST_NOT_FOUND` | Public emergency tracking |
-| `DISPLAY_PAIRING_INVALID`     | Display pairing           |
-| `DISPLAY_OFFLINE`             | Display health            |
-| `DIRECTORY_UNAVAILABLE`       | Public directory          |
-
-**Resolution:** author a message for each once the real codes are known. The list
-is a to-do list, not a graveyard.
+**Resolution:** author a message for each once the screens that surface them
+exist. The list is a to-do list, not a graveyard.
 
 ---
 
 ## GAP-004 — `/auth/me` returns the user twice
 
-The API returns a top-level identity _and_ a nested `user` object:
-
-```json
-{
-  "id": "...",
-  "email": "...",
-  "roles": ["ADMIN"],
-  "user": { "id": "...", "email": "...", "roles": [{ "role": "...", "facilityId": "..." }] },
-  "breakGlass": null,
-  "breakGlassGrants": []
-}
-```
-
-`roles` exists in two shapes: a legacy flat string array, and `user.roles` as
-grant objects. `breakGlass` is a legacy single object; `breakGlassGrants` is an
-array. Both were made additive on the backend in Phase 12 rather than changed,
-because changing them would break existing consumers.
-
-**Impact:** the frontend must read `user.roles` and `breakGlassGrants`. Reading
-the legacy fields will silently under-report access. Both shapes are modelled in
-the partial spec so the ambiguity is visible rather than hidden.
-
-**Resolution:** confirm the deprecation timeline for the legacy fields.
+**Status: superseded.** The "returns the user twice" shape was an artefact of the
+partial document. The exported document's `/auth/me` 200 response has an **empty
+schema** (`"application/json": {}`). Verified live: with no session it returns
+401 `{ success:false, error:{ code:'UNAUTHORIZED' } }`. The staff gate depends
+only on a 2xx meaning "signed in", so it is correct against the real endpoint;
+the actual success body must be captured from a real session when the auth UI is
+built.
 
 ---
 
-## GAP-005 — `/public/emergency-requests` response shape is assumed
+## GAP-005 — Emergency intake response shape is assumed
 
-The brief requires the intake response to carry `sensitive`, `unsubscribeToken`
-and `source`. Their types are undefined, so they are absent from the schema.
-
-**Impact:** the unsubscribe path and the "sensitive record" warning cannot be
-implemented until these are defined. Both are required by the brief, so this gap
-blocks a specified feature rather than merely being untidy.
+**Status: superseded.** The live 201 body is
+`{ request: { id, referenceNumber, trackingToken }, contact, consentVersion }`.
+The brief's `sensitive`, `unsubscribeToken` and `source` fields are **not in the
+live contract**. That is an API-side discrepancy to raise: the unsubscribe and
+"sensitive record" surfaces the brief requires cannot be built against an API
+that does not return them.
 
 ---
 
 ## GAP-006 — `EmergencyStatus` and `FacilityType` enums are assumed
 
-The brief names these enums but does not enumerate their members. The partial spec
-guesses `GENERAL / REFERRAL / SPECIALIST / CLINIC / PRIMARY_CARE` for facilities and
-omits emergency statuses entirely.
-
-**Impact:** a guess that turns out wrong produces a UI that renders an unknown
-status with no chip and no colour. Safer than a wrong chip, but still wrong.
-
-**Resolution:** read both from the exported document. Emergency status also needs
-its colour mapping, which depends on knowing whether statuses partition into
-clinically distinct severity bands.
+**Status: superseded.** There is no `FacilityType` enum and no `facilities.type`
+field in the live contract. Facilities carry boolean capabilities
+(`open24h`, `emergency24h`, `ambulanceAvailable`, `emergencyIntakeEnabled`); the
+frontend renders those as words and filters by them client-side. The intake
+`category` enum (`NOT_SURE | BREATHING_DIFFICULTY | SEVERE_INJURY | UNCONSCIOUS |
+CHEST_PAIN | HEAVY_BLEEDING | OTHER`) is the only status-like enum in the public
+surface, and it is expressly not a triage severity.
 
 ---
 
 ## GAP-007 — Pagination shape is undefined
 
-The brief requires pagination everywhere a list can grow. No page size, cursor
-format, or total-count field is specified.
-
-**Assumed:** `{ items: [], total: n }`, from the mock handlers.
-
-**Impact:** every list view's data-access layer is provisional.
+**Status: revised.** `GET /public/facilities/search` returns a flat array with no
+page size, cursor or total. The search is single-page by nature; any future list
+endpoint (staff triage queue, records) must still have its pagination confirmed
+from the exported document rather than assumed.
 
 ---
 
 ## GAP-008 — No contract for the endpoints F0 does not touch
 
-Not modelled at all: `/public/emergency-requests/{reference}/track`,
-`/public/emergency-requests/{reference}/cancel`, display pairing and health, the
-notice feed, on-call rotas, SLA alerts, and the entire staff surface.
-
-**Impact:** expected. F0 is foundations only. Each is logged here as it is needed
-rather than speculatively specified — a speculative schema is a wrong schema.
+**Status: revised.** The emergency track/cancel/update endpoints **exist in the
+live contract** as static POSTs — `/public/emergency-requests/track|cancel|update`,
+keyed by `token` (not reference). What does not exist is a **tracking UI**: the
+intake receipt now hands out a real `referenceNumber` and a real `trackingToken`,
+but no page consumes them yet (F11B candidate, not built). Display pairing and
+health, the notice feed, on-call rotas, SLA alerts and the entire staff surface
+remain unmodelled in the frontend.
 
 ---
 
 ## GAP-009 — No triage queue endpoint
 
-`GET /triage/counts` and `GET /triage/queue` are both undefined. The nav rail
-supports a per-destination count, and `/triage` needs a queue, but neither exists
-in the contract.
-
-**Not assumed.** The rail renders no count rather than a fabricated one, and the
-queue screen is fitted against `EXAMPLE` fixtures. A hard-coded number in a
-navigation bar looks live and is not; a fabricated queue looks like data and is
-not. Both would be worse than an honest gap.
-
-**Impact:** the queue's column order, density and status treatment are reviewable;
-its data access is not.
+**Status: unchanged, still open.** `GET /triage/counts` and `GET /triage/queue`
+are not in the exported document. `/triage` still renders `EXAMPLE` fixtures and
+the nav rail renders no counts. **Not assumed**, for the same reason as before: a
+fabricated queue looks like data and is not.
 
 ---
 
 ## GAP-010 — No staff authentication contract
 
-`/auth/me` in the partial spec is a hand-authored guess at shape (see GAP-003). No
-endpoint establishes a session and none destroys one: there is no `/auth/login` and
-no `/auth/logout`.
+**Status: revised.** Auth is no longer missing from the contract. The document
+has `/auth/login`, `/auth/logout`, `/auth/refresh`, `/auth/me`,
+`/auth/me/preferences`, MFA and password endpoints. The staff gate fails closed
+on `/auth/me` and that already holds against the real endpoint.
 
-**Half closed.** `StaffGate` now sits in the staff route group and fails closed —
-staff content renders only once `/auth/me` has confirmed a session, and an
-unreachable API is treated as signed out rather than as a pass. It does not depend
-on the guessed shape being correct, since it needs only a 2xx to mean "signed in".
+**Still open:** no **auth UI**. No login or logout screen is built, so a session
+on a shared workstation still cannot be started or ended, and the gate's
+signed-out page still offers no sign-in link. This is the one item here that
+blocks a real deployment. It is now a frontend build decision rather than a
+missing-endpoint problem — building it is proposed as the next feature, not
+silently shipped.
 
-**Still open, and a release blocker:** with no sign-out endpoint, a session on a
-shared workstation cannot be ended. No sign-out control is rendered at all, because
-a link to a 404 teaches staff that the control works when it does not — which is
-worse than a visibly missing one. The signed-out page likewise offers no sign-in
-link, for the same reason. Neither may ship to a ward until both routes exist.
+**Upstream defect discovered while verifying:** `POST /auth/login` requires
+`organizationId` in **uuid format**, but the seed data uses string ids
+(`demo-org-nairobi`). No seeded account can log in through the API. Reported for
+the API team's decision; documented in `docs/limitations.md`.
 
 ---
 
 ## GAP-011 — No record detail endpoint
 
-`/triage/{reference}` is linked from every queue row but undefined.
-
-**Impact:** the link target does not exist and will 404 through the proxy. Not
-followed by any test, so the gap cannot regress unnoticed.
+**Status: unchanged, still open.** `/triage/{reference}` remains undefined in the
+exported document. `/triage/EX-0001` renders fixtures and `notFound()`s anything
+else; the queue's row links still point at a 404.

@@ -46,15 +46,15 @@ describe('unwrap', () => {
   });
 
   it('still reads a flat code', async () => {
-    await expect(unwrapForTest(errored(404, { code: 'NOT_FOUND' }))).rejects.toMatchObject({
-      code: 'NOT_FOUND',
+    await expect(unwrapForTest(errored(404, { code: 'RESOURCE_NOT_FOUND' }))).rejects.toMatchObject({
+      code: 'RESOURCE_NOT_FOUND',
     });
   });
 
   it('resolves the code to a catalogue entry so screens show a mapped message', async () => {
     await expect(
-      unwrapForTest(errored(401, { success: false, error: { code: 'UNAUTHENTICATED' } })),
-    ).rejects.toMatchObject({ resolved: expect.objectContaining({ code: 'UNAUTHENTICATED' }) });
+      unwrapForTest(errored(401, { success: false, error: { code: 'UNAUTHORIZED' } })),
+    ).rejects.toMatchObject({ resolved: expect.objectContaining({ code: 'UNAUTHORIZED' }) });
   });
 
   it('falls back to a generic code rather than throwing on an unrecognised body', async () => {

@@ -6,8 +6,9 @@ import { getPublicFacilities } from '@/lib/data/server-facilities';
 /**
  * /request — the public emergency intake form.
  *
- * Built against `POST /public/emergency-requests`, the one endpoint in the partial
- * contract that is fully specified. No fixture data and no invented endpoint.
+ * Built against `POST /public/emergency-requests` from the real careOS API
+ * (see src/components/public/emergency-request-form.tsx for the contract
+ * re-alignment). No fixture data and no invented endpoint.
  *
  * When the facility list cannot be loaded the form is not rendered at all: the
  * facility is a required field, and presenting a select with nothing in it invites a

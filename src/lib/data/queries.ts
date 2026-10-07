@@ -8,11 +8,11 @@ import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
  *
- * These sit on a provisional contract (`openapi/careos.partial.json`, see
- * docs/api-contract-gaps.md). That is a deliberate, recorded position rather than
- * a shortcut: the API exports its real document via `npm run openapi:export`, and
- * when that can be run these types become the generated ones with no code change
- * here — only in the generated file.
+ * These sit on the exported careOS document (`openapi/careos.openapi.json`, run
+ * `npm run openapi:export` in the API repository). Where the export types a
+ * response as `unknown` (the search and intake responses carry only `@example`
+ * shapes), screens validate structurally instead. See docs/api-contract-gaps.md
+ * and docs/limitations.md.
  *
  * `toQueryError` converts an openapi-fetch error into the catalogue's shape, so a
  * screen renders a mapped message and never the API's diagnostic `message`, which

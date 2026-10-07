@@ -1,60 +1,101 @@
 'use client';
 
 import { useMutation } from '@tanstack/react-query';
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
-import { CheckboxField } from '@/components/ui/primitives';
 import { Field, Input, Select, Textarea, controlVariants } from '@/components/ui/field';
 import { api } from '@/api/client';
+import type { components } from '@/api/schema';
 import { unwrapForTest } from '@/lib/data/queries';
 import type { QueryError } from '@/lib/data/queries';
-import { useTranslations } from 'next-intl';
 
 /**
  * Public emergency intake request.
  *
- * The only screen in the app built against a fully documented endpoint, and the
- * only one a member of the public can reach. Two rules shape everything here, and
- * both come from the contract rather than from taste:
+ * Built against `POST /public/emergency-requests` from the real careOS API
+ * (re-aligned here: the partial document's `facilityId`/`patientName`/
+ * `consentToContact` body and `{ id, reference, status }` receipt were a guess;
+ * the live contract sends `slug` + caller fields and returns
+ * `{ request: { id, referenceNumber, trackingToken }, contact, consentVersion }`).
+ * Three rules shape everything here, and all three come from the contract rather
+ * than from taste:
  *
  * 1. **This is not triage.** The spec is explicit: "The caller receives a
  *    reference to track with, not a clinical assessment. The UI must not present a
- *    response as triage." So nothing here asks the patient to self-assess their
- *    severity, nothing implies a queue position, and the receipt makes no promise
- *    about when anyone will be seen. A public that believes it has been assessed is
- *    worse for the patient than one that knows it has not.
+ *    response as triage." The `category` the API asks for is the caller's own
+ *    plain-language description of the situation, and the label says so — picking
+ *    one does not queue anyone or assess severity.
  *
- * 2. **Consent is a real act.** `consentToContact` is `{ const: true }` and is not
- *    pre-ticked. Pre-ticked consent is not consent, and a checkbox that starts
- *    checked is the kind of detail that only surfaces in an audit.
+ * 2. **Consent is the API's act, not a checkbox.** The old `consentToContact`
+ *    field is gone; the live request carries `consentVersion` and is recorded
+ *    server-side. There is therefore no consent checkbox to pre-tick or skip.
  *
- * The form is also the one place a member of the public can be phoned, so the phone
- * field is validated as a phone number and nothing else — no strict length or format
- * gate that would reject a valid number written differently from the developer's.
+ * 3. **The token is the secret.** Tracking and cancellation
+ *    (`/public/emergency-requests/track` and `/cancel`) are keyed by the
+ *    `trackingToken`, not the reference. The reference is for talking to a person;
+ *    the token is what proves the request is yours. Both are shown, and the token
+ *    is called out as something to keep private.
  *
  * PHI note: nothing here is persisted client-side, put in a URL, or logged. A
- * submitted request goes straight to the API in the request body and the form is
- * cleared on success.
+ * submitted request goes straight to the API in the request body and the caller
+ * fields are cleared on success.
  */
 
-type Facilities = ReadonlyArray<{ id: string; name: string }>;
+type SubmitDto = components['schemas']['SubmitEmergencyRequestDto'];
+type RequestCategory = NonNullable<SubmitDto['category']>;
+type ContactPreference = NonNullable<SubmitDto['preferredContact']>;
+
+export const REQUEST_CATEGORIES: readonly RequestCategory[] = [
+  'NOT_SURE',
+  'BREATHING_DIFFICULTY',
+  'SEVERE_INJURY',
+  'UNCONSCIOUS',
+  'CHEST_PAIN',
+  'HEAVY_BLEEDING',
+  'OTHER',
+];
+
+/** Shape of the 201 `data` per the exported contract's own example. */
+interface EmergencyRequestReceipt {
+  readonly request: {
+    readonly id: string;
+    readonly referenceNumber: string;
+    readonly trackingToken: string;
+  };
+  readonly contact?: string | null;
+  readonly consentVersion?: string | null;
+}
+
+type Facilities = ReadonlyArray<{ slug: string; name: string }>;
 
 export function EmergencyRequestForm({
   facilities,
-  initialFacilityId,
+  initialFacilitySlug,
 }: {
   facilities: Facilities;
-  initialFacilityId?: string;
+  initialFacilitySlug?: string;
 }) {
   const t = useTranslations('intake');
+  const locale = useLocale();
   const formId = useId();
 
-  const [patientName, setPatientName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [slug, setSlug] = useState(initialFacilitySlug ?? '');
+  const [callerName, setCallerName] = useState('');
+  const [callerPhone, setCallerPhone] = useState('');
   const [description, setDescription] = useState('');
-  const [facilityId, setFacilityId] = useState(initialFacilityId ?? '');
-  const [consent, setConsent] = useState(false);
+  const [category, setCategory] = useState<RequestCategory | ''>('');
+  const [forSelf, setForSelf] = useState<'true' | 'false' | ''>('');
+  const [peopleCount, setPeopleCount] = useState('1');
+  const [preferredContact, setPreferredContact] = useState<ContactPreference | ''>('');
+  // One idempotency key per form mount: a retried submission must not create a
+  // duplicate request upstream.
+  const clientRequestIdRef = useRef(
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `req-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
 
   /**
    * Field-level validation, kept out of the component.
@@ -66,21 +107,25 @@ export function EmergencyRequestForm({
    */
   function validate() {
     const problems: Partial<
-      Record<'facilityId' | 'patientName' | 'phone' | 'description' | 'consent', string>
+      Record<
+        'slug' | 'callerName' | 'callerPhone' | 'description' | 'category' | 'forSelf' |
+          'peopleCount' | 'preferredContact',
+        string
+      >
     > = {};
-    if (!facilityId) problems.facilityId = t('errors.facility');
-    if (!patientName.trim()) problems.patientName = t('errors.name');
-    if (!phone.trim()) problems.phone = t('errors.phone');
-    else if (!/^[+()\d][\d\s()+.-]{5,}$/.test(phone.trim()))
-      problems.phone = t('errors.phoneFormat');
+    if (!slug) problems.slug = t('errors.facility');
+    if (!callerName.trim()) problems.callerName = t('errors.name');
+    if (!callerPhone.trim()) problems.callerPhone = t('errors.phone');
+    else if (!/^[+()\d][\d\s()+.-]{5,}$/.test(callerPhone.trim()))
+      problems.callerPhone = t('errors.phoneFormat');
     if (!description.trim()) problems.description = t('errors.description');
     else if (description.trim().length < 10) problems.description = t('errors.descriptionShort');
-
-    // Consent is validated here, not after the fact. The body always carries
-    // `consentToContact: true`, because the schema demands it — so anything that
-    // does not block the send has quietly recorded consent the person never gave.
-    if (!consent) problems.consent = t('consent.required');
-
+    if (!category) problems.category = t('errors.category');
+    if (!forSelf) problems.forSelf = t('errors.forSelf');
+    if (!/^\d+$/.test(peopleCount) || Number(peopleCount) < 1)
+      problems.peopleCount = t('errors.peopleCount');
+    else if (Number(peopleCount) > 999) problems.peopleCount = t('errors.peopleCount');
+    if (!preferredContact) problems.preferredContact = t('errors.preferredContact');
     return problems;
   }
 
@@ -88,24 +133,32 @@ export function EmergencyRequestForm({
 
   const submit = useMutation({
     mutationFn: async () => {
-      const result = await api.POST('/public/emergency-requests', {
-        body: {
-          facilityId,
-          patientName: patientName.trim(),
-          phone: phone.trim(),
-          description: description.trim(),
-          consentToContact: true,
-        },
-      });
-      return unwrapForTest<{ reference: string; status: string; createdAt: string }>(result);
+      const body: SubmitDto = {
+        slug,
+        callerName: callerName.trim(),
+        callerPhone: callerPhone.trim(),
+        description: description.trim(),
+        category: category || undefined,
+        forSelf: forSelf === 'true',
+        peopleCount: Number(peopleCount),
+        preferredContact: preferredContact || undefined,
+        locale,
+        clientRequestId: clientRequestIdRef.current,
+      };
+      const result = await api.POST('/public/emergency-requests', { body });
+      return unwrapForTest<EmergencyRequestReceipt>(result);
     },
     onSuccess: () => {
-      // Cleared so a shared or public machine does not keep the details on screen
-      // after submission. The reference is the only thing retained.
-      setPatientName('');
-      setPhone('');
+      // Cleared so a shared or public machine does not keep the caller's details
+      // on screen after submission. The facility stays — it is not PHI and the
+      // next request is likely to the same place.
+      setCallerName('');
+      setCallerPhone('');
       setDescription('');
-      setConsent(false);
+      setCategory('');
+      setForSelf('');
+      setPeopleCount('1');
+      setPreferredContact('');
     },
   });
 
@@ -123,14 +176,29 @@ export function EmergencyRequestForm({
         </h2>
         <p className="mt-2 text-public-body text-secondary">{t('receipt.body')}</p>
 
-        {/* The reference is the only thing the patient needs to act on, so it is
+        {/* The reference is the only thing the caller needs to act on, so it is
             the largest element on the page and selectable. */}
         <p className="mt-5 rounded-lg border border-border bg-surface px-4 py-4">
           <span className="block text-public-caption uppercase tracking-wide text-tertiary">
             {t('receipt.referenceLabel')}
           </span>
           <span className="mt-1 block select-all font-mono text-public-heading font-semibold text-primary">
-            {receipt.reference}
+            {receipt.request.referenceNumber}
+          </span>
+        </p>
+
+        {/* The tracking token is the secret that proves the request is the
+            caller's (track/cancel are keyed by it). Shown and selectable, with its
+            role stated — it is not the reference. */}
+        <p className="mt-4 rounded-lg border border-border bg-surface px-4 py-4">
+          <span className="block text-public-caption uppercase tracking-wide text-tertiary">
+            {t('receipt.trackingLabel')}
+          </span>
+          <span className="mt-1 block select-all font-mono text-public-body font-medium text-primary">
+            {receipt.request.trackingToken}
+          </span>
+          <span className="mt-1 block text-public-caption text-tertiary">
+            {t('receipt.trackingHint')}
           </span>
         </p>
 
@@ -140,7 +208,8 @@ export function EmergencyRequestForm({
 
         {/* Deliberately no "what happens next" list: it would be invented, and an
             invented next step in an emergency is the most damaging thing this
-            screen could say. The tracking endpoint does not exist yet (GAP-008). */}
+            screen could say. A tracking screen itself is future work — the
+            endpoint exists upstream, the UI does not. */}
         <Button className="mt-6" variant="secondary" onClick={() => submit.reset()}>
           {t('receipt.another')}
         </Button>
@@ -184,7 +253,7 @@ export function EmergencyRequestForm({
         id={`${formId}-facility`}
         label={t('facility.label')}
         hint={t('facility.hint')}
-        error={problems.facilityId}
+        error={problems.slug}
         required
       >
         {({ controlId, describedBy, invalid }) => (
@@ -192,13 +261,13 @@ export function EmergencyRequestForm({
             id={controlId}
             aria-describedby={describedBy}
             aria-invalid={invalid || undefined}
-            value={facilityId}
-            onChange={(event) => setFacilityId(event.target.value)}
+            value={slug}
+            onChange={(event) => setSlug(event.target.value)}
             className={controlVariants({ controlSize: 'public' })}
           >
             <option value="">{t('facility.placeholder')}</option>
             {facilities.map((facility) => (
-              <option key={facility.id} value={facility.id}>
+              <option key={facility.slug} value={facility.slug}>
                 {facility.name}
               </option>
             ))}
@@ -206,16 +275,16 @@ export function EmergencyRequestForm({
         )}
       </Field>
 
-      <Field id={`${formId}-name`} label={t('name.label')} error={problems.patientName} required>
+      <Field id={`${formId}-name`} label={t('name.label')} error={problems.callerName} required>
         {({ controlId, describedBy, invalid }) => (
           <Input
             id={controlId}
-            name="patientName"
+            name="callerName"
             autoComplete="name"
             aria-describedby={describedBy}
             aria-invalid={invalid || undefined}
-            value={patientName}
-            onChange={(event) => setPatientName(event.target.value)}
+            value={callerName}
+            onChange={(event) => setCallerName(event.target.value)}
             className={controlVariants({ controlSize: 'public' })}
           />
         )}
@@ -225,22 +294,114 @@ export function EmergencyRequestForm({
         id={`${formId}-phone`}
         label={t('phone.label')}
         hint={t('phone.hint')}
-        error={problems.phone}
+        error={problems.callerPhone}
         required
       >
         {({ controlId, describedBy, invalid }) => (
           <Input
             id={controlId}
-            name="phone"
+            name="callerPhone"
             type="tel"
             inputMode="tel"
             autoComplete="tel"
             aria-describedby={describedBy}
             aria-invalid={invalid || undefined}
-            value={phone}
-            onChange={(event) => setPhone(event.target.value)}
+            value={callerPhone}
+            onChange={(event) => setCallerPhone(event.target.value)}
             className={controlVariants({ controlSize: 'public' })}
           />
+        )}
+      </Field>
+
+      <Field
+        id={`${formId}-category`}
+        label={t('category.label')}
+        hint={t('category.notTriage')}
+        error={problems.category}
+        required
+      >
+        {({ controlId, describedBy, invalid }) => (
+          <Select
+            id={controlId}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            value={category}
+            onChange={(event) => setCategory(event.target.value as RequestCategory | '')}
+            className={controlVariants({ controlSize: 'public' })}
+          >
+            <option value="">{t('category.placeholder')}</option>
+            {REQUEST_CATEGORIES.map((value) => (
+              <option key={value} value={value}>
+                {t(`category.${value}`)}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+
+      <Field id={`${formId}-self`} label={t('forSelf.label')} error={problems.forSelf} required>
+        {({ controlId, describedBy, invalid }) => (
+          <Select
+            id={controlId}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            value={forSelf}
+            onChange={(event) => {
+              setForSelf(event.target.value as 'true' | 'false' | '');
+              if (event.target.value === 'true') setPeopleCount('1');
+            }}
+            className={controlVariants({ controlSize: 'public' })}
+          >
+            <option value="">{t('forSelf.placeholder')}</option>
+            <option value="true">{t('forSelf.yes')}</option>
+            <option value="false">{t('forSelf.no')}</option>
+          </Select>
+        )}
+      </Field>
+
+      <Field
+        id={`${formId}-people`}
+        label={t('peopleCount.label')}
+        hint={t('peopleCount.hint')}
+        error={problems.peopleCount}
+        required
+      >
+        {({ controlId, describedBy, invalid }) => (
+          <Input
+            id={controlId}
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={999}
+            step={1}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            value={peopleCount}
+            onChange={(event) => setPeopleCount(event.target.value)}
+            className={controlVariants({ controlSize: 'public' })}
+          />
+        )}
+      </Field>
+
+      <Field
+        id={`${formId}-contact`}
+        label={t('preferredContact.label')}
+        error={problems.preferredContact}
+        required
+      >
+        {({ controlId, describedBy, invalid }) => (
+          <Select
+            id={controlId}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            value={preferredContact}
+            onChange={(event) => setPreferredContact(event.target.value as ContactPreference | '')}
+            className={controlVariants({ controlSize: 'public' })}
+          >
+            <option value="">{t('preferredContact.placeholder')}</option>
+            <option value="PHONE">{t('preferredContact.PHONE')}</option>
+            <option value="SMS">{t('preferredContact.SMS')}</option>
+          </Select>
         )}
       </Field>
 
@@ -264,19 +425,6 @@ export function EmergencyRequestForm({
           />
         )}
       </Field>
-
-      {/* Not pre-checked, and the label says what will happen with the number. */}
-      <CheckboxField
-        label={t('consent.label')}
-        description={t('consent.description')}
-        checked={consent}
-        onCheckedChange={(checked) => setConsent(checked === true)}
-      />
-      {problems.consent ? (
-        <p role="alert" className="text-public-small text-status-critical">
-          {problems.consent}
-        </p>
-      ) : null}
 
       <div className="flex flex-col gap-3">
         <Button type="submit" size="lg" disabled={submit.isPending}>
@@ -305,6 +453,8 @@ function errorCodeMessage(error: QueryError, t: (key: string) => string): string
     case 'VALIDATION_ERROR':
     case 'UNPROCESSABLE_ENTITY':
       return t('errors.serverValidation');
+    case 'FACILITY_NOT_ACCEPTING_REQUESTS':
+      return t('errors.facilityNotAccepting');
     default:
       return t('errors.generic');
   }

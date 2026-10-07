@@ -31,48 +31,92 @@ export function apiError(code: string, message: string) {
   return { success: false as const, error: { code, message }, meta: { requestId: 'req_mock' } };
 }
 
-const EXAMPLE_FACILITY = {
-  id: 'fac_example_0001',
-  name: 'EXAMPLE General Hospital',
-  shortName: 'EXAMPLE GH',
-  type: 'GENERAL',
-  status: 'ACTIVE',
-  phone: '+254700000000',
-  emergencyPhone: '+254700000001',
-  address: 'EXAMPLE Road, Nairobi',
-};
+const EXAMPLE_FACILITIES = [
+  {
+    id: 'fac_example_0001',
+    slug: 'example-general-hospital',
+    name: 'EXAMPLE General Hospital',
+    summary: 'EXAMPLE 24-hour casualty with online emergency intake.',
+    town: 'Mombasa',
+    county: 'Mombasa County',
+    address: '1 Independence Avenue, Mombasa',
+    phone: '+254700000000',
+    open24h: true,
+    emergency24h: true,
+    ambulanceAvailable: true,
+    emergencyIntakeEnabled: true,
+  },
+  {
+    id: 'fac_example_0002',
+    slug: 'example-referral-centre',
+    name: 'EXAMPLE Referral Centre',
+    summary: 'EXAMPLE regional referral centre.',
+    town: 'Nairobi',
+    county: 'Nairobi County',
+    address: '22 Hospital Road, Nairobi',
+    phone: '+254700000001',
+    open24h: true,
+    emergency24h: false,
+    ambulanceAvailable: true,
+    emergencyIntakeEnabled: false,
+  },
+];
 
 export const handlers = [
-  http.get('*/api/v1/public/facilities', () =>
-    HttpResponse.json(apiOk({ items: [EXAMPLE_FACILITY], total: 1 })),
-  ),
+  // The live contract: GET /public/facilities/search returns a flat array (the
+  // partial document's `{ items, total }` envelope and `/public/facilities` path
+  // do not exist upstream).
+  http.get('*/api/v1/public/facilities/search', ({ request }) => {
+    const url = new URL(request.url);
+    const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
+    let items = EXAMPLE_FACILITIES;
+    if (q) {
+      items = items.filter((facility) =>
+        `${facility.name} ${facility.address ?? ''} ${facility.town ?? ''}`.toLowerCase().includes(q),
+      );
+    }
+    return HttpResponse.json(apiOk(items));
+  }),
 
-  http.get('*/api/v1/public/config', () =>
-    // Shaped from the hand-authored OpenAPI fragment. If the real API differs,
-    // this is recorded in docs/api-contract-gaps.md rather than quietly changed.
+  http.get('*/api/v1/public/facilities/config', () =>
+    // Live shape verified against the running API: app-global directory config.
     HttpResponse.json(
       apiOk({
-        platformName: 'careOS',
-        defaultLocale: 'en',
-        supportedLocales: ['en', 'sw'],
-        features: { emergencyIntake: true, displayScreens: true, patientPortal: false },
+        appName: 'careOS public facility directory',
+        emergencyStatement:
+          'This directory is informational only. In an emergency, call your national emergency number or go to the nearest emergency facility immediately.',
+        acceptsOnlineBooking: true,
       }),
     ),
   ),
 
   http.get('*/api/v1/auth/me', () =>
-    HttpResponse.json(apiError('UNAUTHENTICATED', 'Authentication required.'), { status: 401 }),
+    HttpResponse.json(apiError('UNAUTHORIZED', 'Invalid or missing credentials.'), {
+      status: 401,
+    }),
   ),
 
-  http.post('*/api/v1/public/emergency-requests', async () => {
+  http.post('*/api/v1/public/emergency-requests', async ({ request }) => {
     await delay(MOCK_LATENCY_MS);
+    let body: Record<string, unknown>;
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      return HttpResponse.json(apiError('VALIDATION_ERROR', 'bad json'), { status: 400 });
+    }
+    if (typeof body.slug !== 'string' || body.slug.length === 0) {
+      return HttpResponse.json(apiError('VALIDATION_ERROR', 'slug required'), { status: 400 });
+    }
     return HttpResponse.json(
       apiOk(
         {
-          id: 'emg_example_0001',
-          reference: 'EXAMPLE-0001',
-          status: 'SUBMITTED',
-          createdAt: new Date('2026-01-01T00:00:00.000Z').toISOString(),
+          request: {
+            id: 'emg_example_0001',
+            referenceNumber: 'EMR-EXAMPLE-0001',
+            trackingToken: 'tok_example_track_0001',
+          },
+          contact: '+254700000000',
+          consentVersion: '2026-10-01',
         },
         'req_mock_emergency',
       ),

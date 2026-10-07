@@ -13,7 +13,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | Phase                          | State                                              | Blocked on                                                |
 | ------------------------------ | -------------------------------------------------- | --------------------------------------------------------- |
 | F0 Design system & foundations | **complete**, awaiting design review               | —                                                         |
-| F1 Auth, session, shell        | partial — proxy, gate, shell, nav rail             | `/auth/login`, `/auth/logout`, idle-lock config (GAP-010) |
+| F1 Auth, session, shell        | partial — proxy, gate, shell, nav rail             | auth UI (login/logout) unbuilt; seed login org-id mismatch |
 | F2 Patients & reception        | stub — banner + timeline only                      | patient search, registration, master record               |
 | F3 Scheduling, queue, nursing  | not started                                        | appointments, slots, waitlist, queue, vitals              |
 | F4 Doctor workspace            | not started                                        | encounters, notes, orders, results                        |
@@ -24,7 +24,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F9 Administration & audit      | not started                                        | org, users, permissions, audit log                        |
 | F10 Analytics & reports        | not started                                        | analytics, forecasts, reports                             |
 | F11 Portal & queue display     | partial — display board done                       | portal read models                                        |
-| F11B Public website            | partial — emergency request + facility search done | intake tracking (GAP-008)                                 |
+| F11B Public website            | partial — emergency request + facility search realigned to live contract | intake tracking **UI** (endpoints exist) |
 | F12 Hardening & release        | not started                                        | everything above                                          |
 
 **Signature components (brief §2.4): 20 of 20.**
@@ -41,15 +41,18 @@ the only phase work that does not wait on the API.
 
 ### Three blockers gate the rest
 
-1. **No session can be started or ended.** No `/auth/login` or `/auth/logout`
-   (GAP-010). F1 cannot complete and no staff screen is reachable by a real user.
+1. **No session can be started or ended.** The auth **endpoints exist** upstream
+   (`/auth/login`, `/auth/logout`, `/auth/me`), but no login or logout UI is built
+   (GAP-010), and the seed/login mismatch means no seeded account can log in (`id`
+   format vs string org ids) — so the real session flow cannot even be exercised.
 2. **No triage, queue or patient-record contracts.** `/triage` is fixture-fitted,
    which caps F2 and F3.
 3. **The signature set is complete but un-reviewed** (20 of 20). `CommandPalette`
    was built in-house on the existing Radix `Dialog`, so the `cmdk` dependency
    question is resolved as "no new dependency".
 
-Nothing frontend-side closes (1) or (2). Both need API work.
+(1) is a frontend build item on top of now-existing endpoints, with an API-side
+defect recorded. (2) needs API work.
 
 ### Open decision
 
@@ -145,10 +148,13 @@ Full detail in `docs/limitations.md` — it is deliberately blunt about this.
 
 ### Contract
 
-`openapi/careos.partial.json` is hand-authored and partial; the API checks no
-document in. The API repository gained `npm run openapi:export` to close this
-properly, but it needs a live PostgreSQL and Redis and could not be run here.
-Eight gaps are recorded in `docs/api-contract-gaps.md`.
+`openapi/careos.openapi.json` is a real export from a live careOS API (the API's
+`npm run openapi:export`, run against a locally booted PostgreSQL, Redis and
+prod build), replacing the hand-authored partial document. `src/api/schema.d.ts`
+is regenerated from it. The real document confirmed the facility search and
+intake shapes, corrected the error vocabulary, and revealed upstream quirks —
+see `docs/api-contract-gaps.md`, which is now a review of those changes rather
+than a list of assumptions.
 
 ### Related backend change
 
@@ -253,8 +259,9 @@ one that makes the rest of it safe to build on.
 - The signed-out page picks its message by error code, so an expired session and a
   service outage read differently. Telling someone to sign in when the API is down
   wastes a support call and teaches people to ignore the message.
-- It does not depend on the guessed `/auth/me` shape being correct — it needs only a
-  2xx to mean "signed in" — so it stays correct once the real shape lands.
+- It does not depend on the `/auth/me` success shape — verified live to return 401
+  `UNAUTHORIZED` with no session, but its 200 body is untyped in the export — it
+  needs only a 2xx to mean "signed in", so it stays correct regardless.
 - Six unit tests drive the three states directly. A network abort in the browser was
   tried first and proved unreliable to apply, and a test that intermittently does not
   intercept proves nothing.
@@ -291,11 +298,10 @@ first screen built against a fully documented endpoint. `POST
   self-assessment question, no queue position, no wait estimate, no "a clinician
   will review this". A public that believes it has been assessed is worse off than
   one that knows it has not. Asserted by testing the _absence_ of that language.
-- **Consent blocks the send.** The schema demands `consentToContact: true` literally,
-  so the body always carries `true` — consent is only real if an unticked box
-  prevents submission. That check was missing, and the form was recording consent
-  nobody gave. Caught by a test asserting the send is refused; both the unticked
-  default and the refusal are now pinned.
+- **Consent is the API's act, not a checkbox.** The live body carries
+  `consentVersion` recorded server-side; the old `consentToContact: true` checkbox
+  does not exist upstream. The form no longer collects it, and a test asserts no
+  such box is re-shipped as decoration that records nothing.
 - Phone validated as a phone number and nothing else; a strict format gate rejects
   numbers that work.
 - Details cleared from the screen after a successful send, and kept after a failed
@@ -363,29 +369,36 @@ Two corrections worth recording, because both produced a false green:
 
 ### Release blockers
 
-1. No session can be started or ended (GAP-010).
-2. The intake receipt issues a reference with no tracking page (GAP-008).
+1. No session can be started or ended (GAP-010) — endpoints now exist upstream, UI
+   not built; the seed/login org-id mismatch must also be resolved API-side.
+2. The intake receipt issues a tracking token with no tracking page — the
+   track/cancel endpoints exist upstream, but no tracking UI is built.
 
-No session can be started or ended: no `/auth/login`, no `/auth/logout` (GAP-010).
-The gate fails closed and the shell is safe, but a shared workstation with a session
-that cannot be terminated is not deployable, and no frontend work fixes that. Row
-links still 404. See `docs/limitations.md`.
+No session can be started or ended: `/auth/login` and `/auth/logout` exist, but no
+login or logout screen is built, so a shared workstation with a session that cannot
+be terminated is still not deployable. This is now a frontend build item rather than
+a missing endpoint. Row links still 404. See `docs/limitations.md`.
 
 ## F11B — Public facility search
 
-**Status:** facility search done; intake tracking still blocked on GAP-008.
+**Status:** facility search and emergency intake realigned to the **live** contract;
+intake tracking still unbuilt (tracking **endpoints exist** upstream, but no UI).
 
-`/facilities` is the FacilitySearch page — the first public screen beyond the
-emergency intake, and the second built against a documented endpoint
-(`GET /public/facilities` with `q` and `type`). It renders only the contract's
-published fields: no coordinates (not in the schema), no hours, no invented
-numbers. A facility that returns `INACTIVE` reads "Closed" in words. Every search
-state announces itself (searching / count / no matches / directory unavailable),
-and a stale response can never overwrite a newer search's result.
+`/facilities` is the `FacilitySearch` page — the second public screen, now built
+against the real `GET /public/facilities/search` (the old typed `GET
+/public/facilities` with `q`+`type` was a ghost: the real path 404s). `q` is a
+genuine case-insensitive server-side text search, verified against a booted API.
+Facets come from the API's own booleans — `open24h`, `emergency24h`,
+`ambulanceAvailable` — applied client-side, with the `type`/`status` enum words
+removed (the live model has neither). Every search state announces itself
+(searching / count / no matches / directory unavailable), and a stale response can
+never overwrite a newer search's result.
 
-Two drifts were corrected while building it, because the search is only honest if
-the envelope it reads is the documented one: the e2e stub returned a flat
-facilities array instead of `{ data: { items, total } }`, and
-`getPublicFacilities` read the same wrong shape. Both now match the partial
-contract, which the `extractItems` normaliser treats as provisional — a body that
-drifts again fails into "directory unavailable", never into an empty directory.
+The exported document types the search 200 body as `unknown` and omits the `q`
+param, so the search uses a raw `fetch` and validates the body structurally
+(`extractListingItems`) — a body that drifts again fails into "directory
+unavailable", never into an empty directory. `/request` likewise posts the real
+`SubmitEmergencyRequestDto` (slug-keyed) and shows the real `referenceNumber` +
+`trackingToken` receipt. Both screens' `EXAMPLE`-marked mock data, MSW handlers,
+unit tests and e2e stub were re-aligned to the flat envelope and the live error
+codes.

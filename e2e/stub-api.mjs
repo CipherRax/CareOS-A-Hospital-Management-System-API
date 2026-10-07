@@ -10,10 +10,10 @@
  * It is a real HTTP server, not a `fetch` stub, so the proxy, cookie handling and
  * error envelope are all genuinely exercised.
  *
- * It answers only endpoints that are actually documented in
- * `openapi/careos.partial.json`. Every other path 404s, so a test that accidentally
- * starts depending on more of the API fails loudly rather than quietly passing
- * against invented data.
+ * It answers only the paths the app actually uses, modelled on the exported
+ * `openapi/careos.openapi.json` (not the retired partial document). Every other
+ * path 404s, so a test that accidentally starts depending on more of the API
+ * fails loudly rather than quietly passing against invented data.
  */
 import { createServer } from 'node:http';
 
@@ -45,49 +45,67 @@ const server = createServer((request, response) => {
     return;
   }
 
-  // Published facilities, per the documented response shape and its envelope
-  // ({ data: { items, total } }). Fabricated. Honors the documented `q` (free
-  // text over name and address) and `type` parameters so search behaviour is real
-  // HTTP through the real proxy, and INACTIVE stays present so the Closed word is
-  // exercised rather than assumed.
+  // Published facilities, per the live contract: `GET /public/facilities/search`
+  // returns a flat `{ success, data: […] }` array (there is no `{ items, total }`
+  // envelope and no `/public/facilities` path upstream). The `q` query is the
+  // API's real free-text search, exercised here over name/address/town. Facets
+  // (`open24h`, `emergency24h`, `ambulanceAvailable`) are the live fields; the
+  // partial document's `type`/`status` enums do not exist upstream, so no stub
+  // data fabricates them. All records are fabricated.
   const FACILITIES = [
     {
       id: 'fac-example-1',
+      slug: 'example-general-hospital',
       name: 'EXAMPLE General Hospital',
-      shortName: 'EXAMPLE General',
-      type: 'GENERAL',
-      status: 'ACTIVE',
-      phone: '+254 700 000 111',
-      emergencyPhone: '+254 700 111 222',
+      summary: 'EXAMPLE 24-hour casualty with online emergency intake.',
+      town: 'Mombasa',
+      county: 'Mombasa County',
       address: '1 Independence Avenue, Mombasa',
+      phone: '+254 700 000 111',
+      open24h: true,
+      emergency24h: true,
+      ambulanceAvailable: true,
+      emergencyIntakeEnabled: true,
     },
     {
       id: 'fac-example-2',
+      slug: 'example-referral-centre',
       name: 'EXAMPLE Referral Centre',
-      type: 'REFERRAL',
-      status: 'ACTIVE',
-      phone: '+254 700 000 222',
+      summary: 'EXAMPLE regional referral centre.',
+      town: 'Nairobi',
+      county: 'Nairobi County',
       address: '22 Hospital Road, Nairobi',
+      phone: '+254 700 000 222',
+      open24h: true,
+      emergency24h: false,
+      ambulanceAvailable: true,
+      emergencyIntakeEnabled: false,
     },
     {
       id: 'fac-example-3',
+      slug: 'example-community-clinic',
       name: 'EXAMPLE Community Clinic',
-      type: 'CLINIC',
-      status: 'INACTIVE',
+      summary: 'EXAMPLE daytime community clinic.',
+      town: 'Kisumu',
+      county: 'Kisumu County',
       address: '3 Market Street, Kisumu',
+      open24h: false,
+      emergency24h: false,
+      ambulanceAvailable: false,
+      emergencyIntakeEnabled: false,
     },
   ];
-  if (url.pathname === '/public/facilities' && request.method === 'GET') {
+  if (url.pathname === '/public/facilities/search' && request.method === 'GET') {
     const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
-    const type = url.searchParams.get('type');
     let items = FACILITIES;
     if (q) {
       items = items.filter((facility) =>
-        `${facility.name} ${facility.address ?? ''}`.toLowerCase().includes(q),
+        `${facility.name} ${facility.address ?? ''} ${facility.town ?? ''}`
+          .toLowerCase()
+          .includes(q),
       );
     }
-    if (type) items = items.filter((facility) => facility.type === type);
-    send(response, 200, { success: true, data: { items, total: items.length } });
+    send(response, 200, { success: true, data: items });
     return;
   }
 
@@ -102,11 +120,11 @@ const server = createServer((request, response) => {
 
     // Deliberately validates: the form's own client validation is not the only
     // line of defence, and a stub that accepted anything would hide a form that
-    // posts an invalid body.
+    // posts an invalid body. The live body is slug-keyed (`SubmitEmergencyRequestDto`).
     let body = '';
     request.on('data', (chunk) => (body += chunk));
     request.on('end', () => {
-      let parsed = {};
+      let parsed;
       try {
         parsed = JSON.parse(body || '{}');
       } catch {
@@ -117,13 +135,10 @@ const server = createServer((request, response) => {
         return;
       }
 
-      const missing = ['facilityId', 'patientName', 'phone', 'description'].filter(
-        (key) => typeof parsed[key] !== 'string' || parsed[key].length === 0,
-      );
-      if (missing.length > 0 || parsed.consentToContact !== true) {
+      if (typeof parsed.slug !== 'string' || parsed.slug.length === 0) {
         send(response, 400, {
           success: false,
-          error: { code: 'VALIDATION_ERROR', message: 'invalid', details: missing },
+          error: { code: 'VALIDATION_ERROR', message: 'invalid', details: ['slug'] },
         });
         return;
       }
@@ -131,10 +146,13 @@ const server = createServer((request, response) => {
       send(response, 201, {
         success: true,
         data: {
-          id: 'er-example-1',
-          reference: 'EX-EM-00001',
-          status: 'RECEIVED',
-          createdAt: '2026-10-05T08:00:00Z',
+          request: {
+            id: 'er-example-1',
+            referenceNumber: 'EX-EM-00001',
+            trackingToken: 'ex-tok-00001',
+          },
+          contact: '+254 700 000 111',
+          consentVersion: '2026-10-01',
         },
       });
     });
@@ -159,7 +177,7 @@ const server = createServer((request, response) => {
       send(
         response,
         401,
-        { success: false, error: { code: 'UNAUTHENTICATED' } },
+        { success: false, error: { code: 'UNAUTHORIZED' } },
         {
           'set-cookie': 'careos-session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
         },
@@ -171,7 +189,7 @@ const server = createServer((request, response) => {
     return;
   }
 
-  send(response, 404, { success: false, error: { code: 'NOT_FOUND' } });
+  send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } });
 });
 
 server.listen(PORT, '127.0.0.1', () => {

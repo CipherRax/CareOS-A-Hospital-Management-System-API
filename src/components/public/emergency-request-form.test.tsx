@@ -4,16 +4,16 @@ import { NextIntlClientProvider } from 'next-intl';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import messages from '@/i18n/messages/en.json';
-import { EmergencyRequestForm } from '@/components/public/emergency-request-form';
+import { EmergencyRequestForm, REQUEST_CATEGORIES } from '@/components/public/emergency-request-form';
 import { QueryProvider } from '@/lib/data/query-provider';
 
 /**
  * The intake form's client-side rules.
  *
- * The two that matter most are asserted here rather than left to review: nothing on
- * this screen may imply the request has been assessed, and consent may not start
- * ticked. Both are in the contract rather than in taste, and both are easy to break
- * in a later edit without any test noticing.
+ * The two that matter most are asserted here rather than left to review: nothing
+ * on this screen may imply the request has been assessed, and the body it sends
+ * matches the live `SubmitEmergencyRequestDto` (slug-keyed, not the partial
+ * document's `facilityId`/`consentToContact` guess).
  */
 
 const post = vi.fn();
@@ -21,17 +21,20 @@ vi.mock('@/api/client', () => ({
   api: { POST: (...args: unknown[]) => post(...args) },
 }));
 
-const facilities = [{ id: 'fac-example-1', name: 'EXAMPLE General Hospital' }];
+const facilities = [{ slug: 'example-general-hospital', name: 'EXAMPLE General Hospital' }];
 
 function okReceipt() {
   post.mockResolvedValue({
     data: {
       success: true,
       data: {
-        id: 'er-1',
-        reference: 'EX-EM-00001',
-        status: 'RECEIVED',
-        createdAt: '2026-10-05T08:00:00Z',
+        request: {
+          id: 'er-1',
+          referenceNumber: 'EMR-EXAMPLE-0001',
+          trackingToken: 'tok-example-1',
+        },
+        contact: '+254700000000',
+        consentVersion: '2026-10-01',
       },
     },
     response: new Response(null, { status: 201 }),
@@ -56,32 +59,56 @@ beforeEach(() => {
 });
 
 describe('EmergencyRequestForm', () => {
-  it('never starts with consent ticked', () => {
+  it('demands a category and never lets it read as triage', () => {
     renderForm();
-    expect(screen.getByRole('checkbox')).not.toBeChecked();
+    // The contract: intake must not present a response as triage, and the
+    // category field carries that disclaimer where the reader will see it.
+    expect(
+      screen.getByText(/this form does not assess how serious your condition/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/it does not assess how serious the situation is/i),
+    ).toBeInTheDocument();
   });
 
-  it('will not submit without consent', async () => {
+  it('will not submit without a facility', async () => {
     const user = userEvent.setup();
     renderForm();
-    await fillEverything(user, { consent: false });
     await user.click(screen.getByRole('button', { name: /send request/i }));
 
     expect(post).not.toHaveBeenCalled();
-    expect(await screen.findByText(/before sending/i)).toBeInTheDocument();
+    expect(await screen.findByText(/choose a facility/i)).toBeInTheDocument();
   });
 
-  it('sends consentToContact as literal true, not merely as truthy', async () => {
+  it('sends the live body: slug, caller fields, category and preference', async () => {
     const user = userEvent.setup();
     renderForm();
-    await fillEverything(user, {});
+    await fillEverything(user);
     await user.click(screen.getByRole('button', { name: /send request/i }));
 
     await waitFor(() => expect(post).toHaveBeenCalled());
-    // The schema is `{ const: true }`. Sending the checked state directly would send
-    // a string or boolean-valued object depending on the checkbox library.
     const [, request] = post.mock.calls[0] as [string, { body: Record<string, unknown> }];
-    expect(request.body.consentToContact).toBe(true);
+    expect(request.body.slug).toBe('example-general-hospital');
+    expect(request.body.callerName).toBe('EXAMPLE Test Person');
+    expect(request.body.callerPhone).toBe('+254700000000');
+    expect(request.body.category).toBe('SEVERE_INJURY');
+    expect(request.body.forSelf).toBe(true);
+    expect(request.body.peopleCount).toBe(1);
+    expect(request.body.preferredContact).toBe('PHONE');
+    // An idempotency key so a client retry cannot duplicate the request.
+    expect(typeof request.body.clientRequestId).toBe('string');
+  });
+
+  it('sends forSelf as a real boolean when it is for someone else', async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await fillEverything(user, { forSelf: 'false', peopleCount: '2' });
+    await user.click(screen.getByRole('button', { name: /send request/i }));
+
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const [, request] = post.mock.calls[0] as [string, { body: Record<string, unknown> }];
+    expect(request.body.forSelf).toBe(false);
+    expect(request.body.peopleCount).toBe(2);
   });
 
   it('refuses to send an incomplete request', async () => {
@@ -91,7 +118,7 @@ describe('EmergencyRequestForm', () => {
 
     expect(post).not.toHaveBeenCalled();
     expect(await screen.findByText(/choose a facility/i)).toBeInTheDocument();
-    expect(screen.getByText(/enter the patient's name/i)).toBeInTheDocument();
+    expect(screen.getByText(/enter your name/i)).toBeInTheDocument();
     expect(screen.getByText(/enter a phone number/i)).toBeInTheDocument();
   });
 
@@ -116,13 +143,15 @@ describe('EmergencyRequestForm', () => {
     await waitFor(() => expect(post).toHaveBeenCalled());
   });
 
-  it('shows the reference and no promise of assessment', async () => {
+  it('shows the reference, the tracking token and no promise of assessment', async () => {
     const user = userEvent.setup();
     renderForm();
-    await fillEverything(user, {});
+    await fillEverything(user);
     await user.click(screen.getByRole('button', { name: /send request/i }));
 
-    expect(await screen.findByText('EX-EM-00001')).toBeInTheDocument();
+    expect(await screen.findByText('EMR-EXAMPLE-0001')).toBeInTheDocument();
+    // The secret that track/cancel are keyed by, surfaced explicitly.
+    expect(screen.getByText('tok-example-1')).toBeInTheDocument();
     // The contract: "The UI must not present a response as triage."
     expect(screen.getByText(/has not been assessed/i)).toBeInTheDocument();
     expect(
@@ -130,14 +159,14 @@ describe('EmergencyRequestForm', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('clears the details from the screen after a successful send', async () => {
-    // A shared or public machine must not keep a patient's details on display.
+  it('clears the caller details from the screen after a successful send', async () => {
+    // A shared or public machine must not keep a caller's details on display.
     const user = userEvent.setup();
     renderForm();
-    await fillEverything(user, {});
+    await fillEverything(user);
     await user.click(screen.getByRole('button', { name: /send request/i }));
 
-    await screen.findByText('EX-EM-00001');
+    await screen.findByText('EMR-EXAMPLE-0001');
     expect(screen.queryByDisplayValue('EXAMPLE Test Person')).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue('+254700000000')).not.toBeInTheDocument();
   });
@@ -153,7 +182,7 @@ describe('EmergencyRequestForm', () => {
 
     const user = userEvent.setup();
     renderForm();
-    await fillEverything(user, {});
+    await fillEverything(user);
     await user.click(screen.getByRole('button', { name: /send request/i }));
 
     await screen.findByText(/not sent/i);
@@ -164,20 +193,17 @@ describe('EmergencyRequestForm', () => {
   it('never renders the API diagnostic message', async () => {
     post.mockResolvedValue({
       data: undefined,
-      error: {
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'facilityId is not a UUID' },
-      },
+      error: { success: false, error: { code: 'VALIDATION_ERROR', message: 'slug not found' } },
       response: new Response(null, { status: 400 }),
     });
 
     const user = userEvent.setup();
     renderForm();
-    await fillEverything(user, {});
+    await fillEverything(user);
     await user.click(screen.getByRole('button', { name: /send request/i }));
 
     await screen.findByText(/some details were not accepted/i);
-    expect(screen.queryByText(/not a UUID/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
   });
 
   it('maps a rate limit to something a member of the public can act on', async () => {
@@ -189,10 +215,29 @@ describe('EmergencyRequestForm', () => {
 
     const user = userEvent.setup();
     renderForm();
-    await fillEverything(user, {});
+    await fillEverything(user);
     await user.click(screen.getByRole('button', { name: /send request/i }));
 
     await screen.findByText(/too many requests/i);
+  });
+
+  it('explains a facility refusing requests without the diagnostic message', async () => {
+    post.mockResolvedValue({
+      data: undefined,
+      error: {
+        success: false,
+        error: { code: 'FACILITY_NOT_ACCEPTING_REQUESTS', message: 'diag' },
+      },
+      response: new Response(null, { status: 409 }),
+    });
+
+    const user = userEvent.setup();
+    renderForm();
+    await fillEverything(user);
+    await user.click(screen.getByRole('button', { name: /send request/i }));
+
+    await screen.findByText(/not accepting requests/i);
+    expect(screen.queryByText('diag')).not.toBeInTheDocument();
   });
 
   it('tells the public plainly that this is not for life-threatening emergencies', () => {
@@ -200,18 +245,49 @@ describe('EmergencyRequestForm', () => {
     renderForm();
     expect(screen.getByText(/call your local emergency number/i)).toBeInTheDocument();
   });
+
+  it('pins the category enum to the contract', () => {
+    expect(REQUEST_CATEGORIES).toEqual([
+      'NOT_SURE',
+      'BREATHING_DIFFICULTY',
+      'SEVERE_INJURY',
+      'UNCONSCIOUS',
+      'CHEST_PAIN',
+      'HEAVY_BLEEDING',
+      'OTHER',
+    ]);
+  });
 });
 
 async function fillEverything(
   user: ReturnType<typeof userEvent.setup>,
-  overrides: { phone?: string; consent?: boolean },
+  overrides: { phone?: string; forSelf?: string; peopleCount?: string } = {},
 ) {
-  await user.selectOptions(screen.getByLabelText(/facility/i), 'fac-example-1');
-  await user.type(screen.getByLabelText(/patient name/i), 'EXAMPLE Test Person');
-  await user.type(screen.getByLabelText(/phone number/i), overrides.phone ?? '+254700000000');
+  await user.selectOptions(
+    screen.getByLabelText(/facility/i),
+    'example-general-hospital',
+  );
+  await user.type(screen.getByLabelText(/your name/i), 'EXAMPLE Test Person');
+  await user.type(
+    screen.getByLabelText(/phone number/i),
+    overrides.phone ?? '+254700000000',
+  );
+  await user.selectOptions(
+    screen.getByLabelText(/what best describes/i),
+    'SEVERE_INJURY',
+  );
+  await user.selectOptions(screen.getByLabelText(/for yourself/i), overrides.forSelf ?? 'true');
+  if (overrides.peopleCount) {
+    const count = screen.getByLabelText(/how many people/i);
+    await user.clear(count);
+    await user.type(count, overrides.peopleCount);
+  }
+  await user.selectOptions(
+    screen.getByLabelText(/how should we contact/i),
+    'PHONE',
+  );
   await user.type(
     screen.getByLabelText(/what has happened/i),
     'EXAMPLE symptom description for a test.',
   );
-  if (overrides.consent !== false) await user.click(screen.getByRole('checkbox'));
 }

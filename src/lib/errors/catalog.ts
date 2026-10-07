@@ -21,19 +21,19 @@ export const ERROR_CATALOGUE = {
     messageKey: 'error.validation.body',
     retryable: false,
   },
-  UNAUTHENTICATED: {
+  UNAUTHORIZED: {
     status: 401,
     titleKey: 'error.unauthenticated.title',
     messageKey: 'error.unauthenticated.body',
     retryable: false,
   },
-  FORBIDDEN: {
+  PERMISSION_DENIED: {
     status: 403,
     titleKey: 'error.forbidden.title',
     messageKey: 'error.forbidden.body',
     retryable: false,
   },
-  NOT_FOUND: {
+  RESOURCE_NOT_FOUND: {
     status: 404,
     titleKey: 'error.notFound.title',
     messageKey: 'error.notFound.body',
@@ -109,12 +109,13 @@ export function isApiErrorCode(value: unknown): value is ApiErrorCode {
  * list rather than a graveyard.
  */
 export const UNMAPPED_ERROR_CODES: readonly string[] = [
-  // Brief section 4 does not define these, so no message can be authored for
-  // them without guessing at intent. Tracked in docs/api-contract-gaps.md.
-  'EMERGENCY_REQUEST_NOT_FOUND',
-  'DISPLAY_PAIRING_INVALID',
-  'DISPLAY_OFFLINE',
-  'DIRECTORY_UNAVAILABLE',
+  // Verified present in the exported OpenAPI document but not covered by the
+  // catalogue yet, so no message is authored for them without guessing at intent.
+  // Tracked in docs/api-contract-gaps.md and docs/limitations.md.
+  'PUBLIC_LISTING_NOT_PUBLISHED',
+  'FACILITY_NOT_ACCEPTING_REQUESTS',
+  'LOCATION_REQUIRED',
+  'EMERGENCY_CALL_NOW',
 ];
 
 export interface ResolvedApiError {

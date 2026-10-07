@@ -24,9 +24,9 @@ import { StaffShell } from '@/components/staff/staff-shell';
  * a link that 404s, and a control that looks like it works while it does not is
  * worse than an honest dead end.
  *
- * `/auth/me` itself is a guessed shape (GAP-003). The gate does not depend on the
- * guess being right — it needs only a 2xx to mean "signed in" — so it stays correct
- * once the real shape lands.
+ * `/auth/me` exists upstream (verified live: it returns 401 `UNAUTHORIZED` with no
+ * session) but its success body is untyped in the exported document — the gate
+ * depends only on a 2xx meaning "signed in", so it stays correct regardless.
  */
 export function StaffGate({ children }: { children: React.ReactNode }) {
   const session = useSession();
