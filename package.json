@@ -46,7 +46,7 @@
     "@nestjs/core": "^11.0.0",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-fastify": "^11.0.0",
-    "@nestjs/swagger": "^11.0.0",
+    "@nestjs/swagger": "11.3.0",
     "@nestjs/terminus": "^11.0.0",
     "@nestjs/throttler": "^6.0.0",
     "@prisma/client": "^6.0.0",
@@ -65,7 +65,8 @@
     "pino": "^9.0.0",
     "pino-http": "^10.0.0",
     "prom-client": "^15.1.0",
-    "zod": "^3.24.0"
+    "zod": "^3.24.0",
+    "reflect-metadata": "^0.2.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
