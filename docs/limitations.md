@@ -144,19 +144,22 @@ not acceptable. It is now a frontend build item (proposed, not yet started).
 the login that would exercise `/auth/me`'s success body cannot be performed.
 Raised for the API side to decide; the frontend should not paper over it.
 
-### The intake form hands out a reference with no tracking page
+### The intake tracking page is built on a contract whose success body is untyped
 
 `/request` is built against the live `POST /public/emergency-requests` contract
 (body `SubmitEmergencyRequestDto`, slug-keyed; the receipt shows the real
-`referenceNumber` and `trackingToken`). The tracking endpoints (`track`, `cancel`,
-`update`) exist upstream and are keyed by `token`, but **no tracking UI is built
-yet** — the receipt tells a member of the public to keep a number that currently
-does nothing on this site.
+`referenceNumber` and `trackingToken`). `/track` posts the real
+`TrackEmergencyRequestDto` (`{ token }`) to `POST /public/emergency-requests/track`
+and renders the API's own caller-safe copy (`statusLabel`, `message`, `disclaimer`,
+national `numbers`) verbatim. The 200 body is typed `unknown` in the exported
+document, so the tracker validates it structurally before rendering and fails to a
+plain generic message rather than inventing a state.
 
-The form deliberately offers no invented next steps and no "what happens next" list,
-because a fabricated step in an emergency is the most damaging thing this screen
-could say. That choice makes the missing tracking page more visible rather than less,
-which is the correct direction.
+The tracking token is treated as a secret: it travels in a POST body only, is never
+persisted to storage or the URL, and is cleared from the field when the result
+renders. `<trackingToken>` min-length mirror and live API validation were verified
+against the service but not against a booted API (no seeded request exists to track;
+the token mock value `ex-tok-00001`/`tok_example_track_0001` is `EXAMPLE`-marked).
 
 For the same reason, when the facility list cannot be loaded the page renders a
 plain "temporarily unavailable" notice with no list of phone numbers. Those numbers

@@ -96,6 +96,55 @@ export const handlers = [
     }),
   ),
 
+  http.post('*/api/v1/public/emergency-requests/track', async ({ request }) => {
+    await delay(MOCK_LATENCY_MS);
+    let body: Record<string, unknown>;
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      return HttpResponse.json(apiError('VALIDATION_ERROR', 'bad json'), { status: 400 });
+    }
+    if (typeof body.token !== 'string' || body.token.length === 0) {
+      return HttpResponse.json(apiError('VALIDATION_ERROR', 'token required'), { status: 400 });
+    }
+    // Matches the token the mock intake handler issues. Tracking is keyed by the
+    // token alone — the reference never leaves the caller's receipt.
+    if (body.token !== 'tok_example_track_0001') {
+      return HttpResponse.json(apiError('RESOURCE_NOT_FOUND', 'No request found for that tracking token.'), {
+        status: 404,
+      });
+    }
+    return HttpResponse.json(
+      apiOk(
+        {
+          referenceNumber: 'EMR-EXAMPLE-0001',
+          receivedAt: '2026-09-27T10:00:00.000Z',
+          status: 'RECEIVED',
+          statusLabel: 'Received',
+          action: 'WAIT',
+          message:
+            'We have notified the facility. Keep this token to check again as your request advances.',
+          level: 0,
+          facility: {
+            name: 'EXAMPLE General Hospital',
+            slug: 'example-general-hospital',
+            phone: '+254700000000',
+          },
+          serviceArea: 'EXAMPLE metro',
+          guidance: null,
+          numbers: [
+            { purpose: 'emergency', label: 'National emergency', phone: '+254 999', hours: '24/7' },
+          ],
+          numbersSource: 'seed',
+          disclaimer: 'careOS does not dispatch emergency services or guarantee a response time.',
+          consentVersion: '2026-10-01',
+        },
+        'req_mock_emergency_track',
+      ),
+      { status: 200 },
+    );
+  }),
+
   http.post('*/api/v1/public/emergency-requests', async ({ request }) => {
     await delay(MOCK_LATENCY_MS);
     let body: Record<string, unknown>;
@@ -104,6 +153,8 @@ export const handlers = [
     } catch {
       return HttpResponse.json(apiError('VALIDATION_ERROR', 'bad json'), { status: 400 });
     }
+    // The live body is slug-keyed (`SubmitEmergencyRequestDto`), so a mock that
+    // accepted any shape would hide a form that posts an invalid body.
     if (typeof body.slug !== 'string' || body.slug.length === 0) {
       return HttpResponse.json(apiError('VALIDATION_ERROR', 'slug required'), { status: 400 });
     }

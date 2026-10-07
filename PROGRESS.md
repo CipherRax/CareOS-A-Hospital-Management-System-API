@@ -24,7 +24,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F9 Administration & audit      | not started                                        | org, users, permissions, audit log                        |
 | F10 Analytics & reports        | not started                                        | analytics, forecasts, reports                             |
 | F11 Portal & queue display     | partial — display board done                       | portal read models                                        |
-| F11B Public website            | partial — emergency request + facility search realigned to live contract | intake tracking **UI** (endpoints exist) |
+| F11B Public website            | facility search + emergency intake + intake tracking built on the live contract | session start/end UI (GAP-010) |
 | F12 Hardening & release        | not started                                        | everything above                                          |
 
 **Signature components (brief §2.4): 20 of 20.**
@@ -371,8 +371,6 @@ Two corrections worth recording, because both produced a false green:
 
 1. No session can be started or ended (GAP-010) — endpoints now exist upstream, UI
    not built; the seed/login org-id mismatch must also be resolved API-side.
-2. The intake receipt issues a tracking token with no tracking page — the
-   track/cancel endpoints exist upstream, but no tracking UI is built.
 
 No session can be started or ended: `/auth/login` and `/auth/logout` exist, but no
 login or logout screen is built, so a shared workstation with a session that cannot
@@ -381,8 +379,9 @@ a missing endpoint. Row links still 404. See `docs/limitations.md`.
 
 ## F11B — Public facility search
 
-**Status:** facility search and emergency intake realigned to the **live** contract;
-intake tracking still unbuilt (tracking **endpoints exist** upstream, but no UI).
+**Status:** facility search, emergency intake and intake tracking realigned to the
+**live** contract; the only remaining F11 item is the session start/end UI
+(GAP-010, a release blocker).
 
 `/facilities` is the `FacilitySearch` page — the second public screen, now built
 against the real `GET /public/facilities/search` (the old typed `GET
@@ -402,3 +401,13 @@ unavailable", never into an empty directory. `/request` likewise posts the real
 `trackingToken` receipt. Both screens' `EXAMPLE`-marked mock data, MSW handlers,
 unit tests and e2e stub were re-aligned to the flat envelope and the live error
 codes.
+
+`/track` (F11B tracking page) posts the real `TrackEmergencyRequestDto`
+(`{ token }` — keyed by the receipt token, never the reference), validates the
+`unknown` body structurally before rendering, and shows the API's own
+caller-safe copy (`statusLabel`, `message`, `disclaimer`, national `numbers`)
+verbatim. The token is a secret: it lives in a POST body only, is cleared from the
+field when the result renders, and never reaches storage or the URL. Errors map
+by code to sentences a caller can act on; the API's diagnostic `message` never
+renders. Covered by the MSW track handler (`tok_example_track_0001`), the e2e
+stub (`ex-tok-00001`), unit tests and two e2e/a11y tests.

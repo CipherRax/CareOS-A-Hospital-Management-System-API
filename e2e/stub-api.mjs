@@ -159,6 +159,70 @@ const server = createServer((request, response) => {
     return;
   }
 
+  if (url.pathname === '/public/emergency-requests/track' && request.method === 'POST') {
+    // Tracking is keyed solely by the token the intake receipt issued. The stub
+    // answers the live `trackPublic` shape (caller-safe status/copy, facility,
+    // national numbers) so the tracker renders the API's words, not ours.
+    let body = '';
+    request.on('data', (chunk) => (body += chunk));
+    request.on('end', () => {
+      let parsed;
+      try {
+        parsed = JSON.parse(body || '{}');
+      } catch {
+        send(response, 400, {
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'bad json' },
+        });
+        return;
+      }
+
+      if (typeof parsed.token !== 'string' || parsed.token.length === 0) {
+        send(response, 400, {
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'invalid', details: ['token'] },
+        });
+        return;
+      }
+
+      if (parsed.token !== 'ex-tok-00001') {
+        send(response, 404, {
+          success: false,
+          error: { code: 'RESOURCE_NOT_FOUND', message: 'No request found for that tracking token' },
+        });
+        return;
+      }
+
+      send(response, 200, {
+        success: true,
+        data: {
+          referenceNumber: 'EX-EM-00001',
+          receivedAt: '2026-09-27T10:00:00.000Z',
+          status: 'RECEIVED',
+          statusLabel: 'Received',
+          action: 'WAIT',
+          message:
+            'We have notified the facility. Keep this token to check again as your request advances.',
+          level: 0,
+          facility: {
+            name: 'EXAMPLE General Hospital',
+            slug: 'example-general-hospital',
+            phone: '+254 700 000 111',
+          },
+          serviceArea: 'EXAMPLE metro',
+          guidance: null,
+          numbers: [
+            { purpose: 'emergency', label: 'National emergency', phone: '+254 999', hours: '24/7' },
+          ],
+          numbersSource: 'seed',
+          disclaimer: 'careOS does not dispatch emergency services or guarantee a response time.',
+          consentVersion: '2026-10-01',
+        },
+      });
+    });
+    return;
+  }
+
   if (url.pathname === '/auth/me' && request.method === 'GET') {
     // A cookie the stub reads, not a header the app trusts: the application has no
     // idea this switch exists, so the signed-out state is reached the way a real

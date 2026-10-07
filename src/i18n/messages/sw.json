@@ -188,6 +188,41 @@
   "_review": {
     "reviewedByNativeSpeaker": false,
     "note": "Strings in this catalogue were written without review by a native Swahili speaker. Treat as draft and have them reviewed before release.",
-    "draftNamespaces": ["common", "error", "estimate", "facilities", "intake", "theme"]
+    "draftNamespaces": [
+      "common",
+      "error",
+      "estimate",
+      "facilities",
+      "intake",
+      "theme"
+    ]
+  },
+  "track": {
+    "pageTitle": "Fuatilia ombi lako",
+    "pageIntro": "Angalia kilichotokea tangu utume ombi la dharura.",
+    "title": "Fuatilia ombi la dharura",
+    "intro": "Weka tokeni ya ufuatiliaji kutoka kwenye stakabadhi yako ili kuona hali ya sasa ya ombi lako.",
+    "tokenLabel": "Tokeni ya ufuatiliaji",
+    "tokenHint": "Imechapishwa chini ya nambari ya kumbukumbu kwenye stakabadhi uliyopata ulipotuma ombi.",
+    "submit": "Fuatilia ombi",
+    "searching": "Inaangalia…",
+    "resultTitle": "Ombi lako",
+    "statusLabel": "Hali",
+    "referenceLabel": "Nambari ya kumbukumbu",
+    "receivedLabel": "Imepokelewa",
+    "receivedUnknown": "Muda haujulikani",
+    "facilityLabel": "Kituo",
+    "numbersTitle": "Nambari za dharura",
+    "keepToken": "Hifadhi tokeni yako — unaweza kuitumia kuangalia tena.",
+    "another": "Angalia tokeni nyingine",
+    "urgentNote": "Endapo ni dharura, piga simu nambari yako ya kitaifa ya dharura sasa — usisubiri ukurasa huu kupakiwa.",
+    "errors": {
+      "required": "Weka tokeni kamili ya ufuatiliaji kutoka kwenye stakabadhi yako.",
+      "notFound": "Hakuna ombi lililopatikana kwa tokeni hiyo. Angalia kama umeinakili yote, kisha ujaribu tena.",
+      "rateLimited": "Umetafuta mara nyingi sana. Subiri kidogo, kisha ujaribu tena.",
+      "validation": "Angalia kama umeinakili tokeni yote, kisha ujaribu tena.",
+      "unavailable": "Ufuatiliaji haupatikani kwa sasa. Jaribu tena baada ya muda mfupi.",
+      "generic": "Ombi lako halikuweza kuangaliwa. Jaribu tena."
+    }
   }
 }

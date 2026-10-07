@@ -184,5 +184,33 @@
     "address": "Address",
     "facilityList": "Search results",
     "retry": "Try again"
+  },
+  "track": {
+    "pageTitle": "Track your request",
+    "pageIntro": "Check what has happened since you sent an emergency request.",
+    "title": "Track an emergency request",
+    "intro": "Enter the tracking token from your receipt to see the current state of your request.",
+    "tokenLabel": "Tracking token",
+    "tokenHint": "It is printed under the reference number on the receipt you received when you sent the request.",
+    "submit": "Track request",
+    "searching": "Checking…",
+    "resultTitle": "Your request",
+    "statusLabel": "Status",
+    "referenceLabel": "Reference number",
+    "receivedLabel": "Received",
+    "receivedUnknown": "Time unknown",
+    "facilityLabel": "Facility",
+    "numbersTitle": "Emergency numbers",
+    "keepToken": "Keep your token — you can use it to check again.",
+    "another": "Check another token",
+    "urgentNote": "In an emergency, call your national emergency number now — do not wait for this page to load.",
+    "errors": {
+      "required": "Enter the full tracking token from your receipt.",
+      "notFound": "No request found for that token. Check that you copied the whole token, then try again.",
+      "rateLimited": "Too many searches. Wait a moment, then try again.",
+      "validation": "Check that you copied the whole token, then try again.",
+      "unavailable": "Tracking is temporarily unavailable. Try again shortly.",
+      "generic": "Your request could not be checked. Try again."
+    }
   }
 }

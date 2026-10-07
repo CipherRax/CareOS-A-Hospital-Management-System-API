@@ -40,6 +40,7 @@ const ROUTES = [
   { path: '/display', name: 'Outpatient clinics' },
   { path: '/request', name: 'Emergency care' },
   { path: '/facilities', name: 'Find a facility' },
+  { path: '/track', name: 'Track your request' },
 ] as const;
 
 /**
@@ -294,6 +295,42 @@ test.describe('public emergency intake', () => {
     await expect(page.getByRole('alert').filter({ hasText: /too many requests/i })).toBeVisible();
     // The API's diagnostic `message` is not written for display and must not render.
     await expect(page.getByText('stub')).toHaveCount(0);
+  });
+});
+
+test.describe('public intake tracking', () => {
+  test('shows a tracked request in the API own words and no more', async ({ page }) => {
+    await page.goto('/track');
+    await expect(page.getByRole('heading', { name: 'Track your request' })).toBeVisible();
+
+    await page.getByLabel(/tracking token/i).fill('ex-tok-00001');
+    await page.getByRole('button', { name: /track request/i }).click();
+
+    // The API's caller-safe status label and copy, not our own translation.
+    await expect(page.getByText('EX-EM-00001')).toBeVisible();
+    await expect(page.getByText('Received', { exact: true })).toBeVisible();
+    await expect(page.getByText(/keep this token to check again/i)).toBeVisible();
+    await expect(page.getByRole('link', { name: '+254 700 000 111' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '+254 999' })).toBeVisible();
+    await expect(page.getByText(/careOS does not dispatch emergency services/i)).toBeVisible();
+
+    // A tracker may report a state, never promise one: no help on its way, no
+    // assessment, no staffing claim.
+    await expect(
+      page.getByText(/on its way|a clinician|will be seen|has been assessed|estimated wait/i),
+    ).toHaveCount(0);
+  });
+
+  test('explains an unknown token without leaking the diagnostic message', async ({ page }) => {
+    await page.goto('/track');
+    await page.getByLabel(/tracking token/i).fill('definitely-not-a-real-token');
+    await page.getByRole('button', { name: /track request/i }).click();
+
+    await expect(
+      page.getByRole('alert').filter({ hasText: /no request found for that token/i }),
+    ).toBeVisible();
+    // The API's diagnostic message is not written for display.
+    await expect(page.getByText(/No request found for that tracking token/)).toHaveCount(0);
   });
 });
 
