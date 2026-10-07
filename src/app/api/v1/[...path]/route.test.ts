@@ -233,3 +233,200 @@ describe('API proxy', () => {
     expect(res.headers.get('cache-control') ?? '').toMatch(/no-store/i);
   });
 });
+
+function setCookies(res: Response): string[] {
+  const out: string[] = [];
+  res.headers.forEach((value, key) => {
+    if (key.toLowerCase() === 'set-cookie') out.push(value);
+  });
+  return out;
+}
+
+/** Whether a Set-Cookie line expires the named cookie (Max-Age=0 or epoch Expires). */
+function clearsCookie(cookie: string, name: string): boolean {
+  return cookie.startsWith(`${name}=`) && /Max-Age=0|Expires=\S*Thu, 01 Jan 1970/i.test(cookie);
+}
+
+describe('session bridge (F1)', () => {
+  it('translates the session cookie into a Bearer header upstream', async () => {
+    upstream.mockReturnValue(json({ success: true, data: {} }));
+    await handlers.GET(
+      new Request('http://localhost/api/v1/auth/me', {
+        headers: { cookie: 'careos_session=abc123' },
+      }),
+      context(['auth', 'me']),
+    );
+    expect(server.received.at(-1)?.headers.authorization).toBe('Bearer abc123');
+  });
+
+  it('adds no Bearer header when there is no session cookie', async () => {
+    upstream.mockReturnValue(json({ success: true, data: {} }));
+    await handlers.GET(new Request('http://localhost/api/v1/auth/me'), context(['auth', 'me']));
+    expect(server.received.at(-1)?.headers.authorization).toBeUndefined();
+  });
+
+  it('lifts the token pair from a successful login into HttpOnly cookies and strips it from the body', async () => {
+    upstream.mockReturnValue(
+      json(
+        {
+          success: true,
+          data: {
+            mfaRequired: false,
+            user: { id: 'u1', email: 'nurse@example.org', roles: ['TRIAGE_NURSE'] },
+            tokens: {
+              accessToken: 'access-token-1',
+              refreshToken: 'refresh-token-1',
+              expiresIn: 900,
+              refreshTokenExpiresAt: '2099-01-01T00:00:00Z',
+            },
+          },
+        },
+        { status: 200 },
+      ),
+    );
+
+    const res = await handlers.POST(
+      new Request('http://localhost/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          organizationId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+          email: 'nurse@example.org',
+          password: 'whatever',
+        }),
+      }),
+      context(['auth', 'login']),
+    );
+
+    const body = (await res.json()) as { data: { tokens?: unknown } };
+    // The secret never enters page-reachable memory.
+    expect(body.data.tokens).toBeUndefined();
+
+    const cookies = setCookies(res);
+    const session = cookies.find((c) => c.startsWith('careos_session='));
+    const refresh = cookies.find((c) => c.startsWith('careos_refresh='));
+    expect(session).toContain('access-token-1');
+    expect(session).toContain('HttpOnly');
+    expect(session).toMatch(/SameSite=Lax/i);
+    expect(refresh).toContain('refresh-token-1');
+    expect(refresh).toContain('HttpOnly');
+    // Plain-HTTP requests keep the cookie usable (mirrors the locale route).
+    expect(session).not.toMatch(/Secure/i);
+  });
+
+  it('sets no cookie for a login body without the token pair', async () => {
+    upstream.mockReturnValue(
+      json({
+        success: true,
+        data: { mfaRequired: true, challengeToken: 'ch-1', challengeExpiresIn: 60 },
+      }),
+    );
+    const res = await handlers.POST(
+      new Request('http://localhost/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ organizationId: 'x', email: 'y', password: 'z' }),
+      }),
+      context(['auth', 'login']),
+    );
+    const body = (await res.json()) as { data: { challengeToken: string } };
+    expect(body.data.challengeToken).toBe('ch-1');
+    expect(res.headers.get('set-cookie') ?? '').not.toContain('careos_session');
+  });
+
+  it('injects the refresh cookie into the logout body and clears the session on success', async () => {
+    upstream.mockReturnValue(new Response(null, { status: 204 }));
+    const res = await handlers.POST(
+      new Request('http://localhost/api/v1/auth/logout', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: 'careos_session=access-1; careos_refresh=refresh-1',
+        },
+        body: JSON.stringify({}),
+      }),
+      context(['auth', 'logout']),
+    );
+
+    // The browser cannot know the refresh token, so the proxy completed it.
+    expect(JSON.parse(server.received.at(-1)?.body ?? '{}')).toEqual({ refreshToken: 'refresh-1' });
+    expect(res.status).toBe(204);
+
+    const cookies = setCookies(res);
+    expect(cookies.some((c) => clearsCookie(c, 'careos_session'))).toBe(true);
+    expect(cookies.some((c) => clearsCookie(c, 'careos_refresh'))).toBe(true);
+  });
+
+  it('rotates a stale access token once and retries the request', async () => {
+    let meCalls = 0;
+    // `server.received` accumulates across tests in this file, so assertions are
+    // scoped to the records this test produced.
+    const baseline = server.received.length;
+    upstream.mockImplementation((record: Received) => {
+      if (record.method === 'POST' && record.url === '/auth/refresh') {
+        return json({
+          success: true,
+          data: {
+            mfaRequired: false,
+            tokens: {
+              accessToken: 'new-access',
+              refreshToken: 'new-refresh',
+              expiresIn: 900,
+              refreshTokenExpiresAt: '2099-01-01T00:00:00Z',
+            },
+          },
+        });
+      }
+      meCalls += 1;
+      return meCalls === 1
+        ? json({ success: false, error: { code: 'UNAUTHORIZED' } }, { status: 401 })
+        : json({ success: true, data: { id: 'u1' } });
+    });
+
+    const res = await handlers.GET(
+      new Request('http://localhost/api/v1/auth/me', {
+        headers: { cookie: 'careos_session=stale-access; careos_refresh=refresh-1' },
+      }),
+      context(['auth', 'me']),
+    );
+
+    expect(res.status).toBe(200);
+    const seen = server.received.slice(baseline);
+    // The refresh call carried the refresh cookie value, and the retry used the
+    // rotated access token.
+    const refreshCall = seen.find((r) => r.url === '/auth/refresh');
+    expect(JSON.parse(refreshCall?.body ?? '{}')).toEqual({ refreshToken: 'refresh-1' });
+    const retried = seen.filter((r) => r.url === '/auth/me').at(-1);
+    expect(retried?.headers.authorization).toBe('Bearer new-access');
+    // Retry once only: the original attempt plus one retry.
+    expect(seen.filter((r) => r.url === '/auth/me')).toHaveLength(2);
+    // The rotated pair is handed to the browser.
+    const cookies = setCookies(res);
+    expect(cookies.some((c) => c.startsWith('careos_session=') && c.includes('new-access'))).toBe(
+      true,
+    );
+  });
+
+  it('clears the session cookies when a refresh fails', async () => {
+    const baseline = server.received.length;
+    upstream.mockImplementation((record: Received) => {
+      if (record.method === 'POST' && record.url === '/auth/refresh') {
+        return json({ success: false, error: { code: 'UNAUTHORIZED' } }, { status: 401 });
+      }
+      return json({ success: false, error: { code: 'UNAUTHORIZED' } }, { status: 401 });
+    });
+
+    const res = await handlers.GET(
+      new Request('http://localhost/api/v1/auth/me', {
+        headers: { cookie: 'careos_session=stale; careos_refresh=dead' },
+      }),
+      context(['auth', 'me']),
+    );
+
+    expect(res.status).toBe(401);
+    const cookies = setCookies(res);
+    expect(cookies.some((c) => clearsCookie(c, 'careos_session'))).toBe(true);
+    // No retry of the original request after a failed refresh.
+    expect(server.received.slice(baseline).filter((r) => r.url === '/auth/me')).toHaveLength(1);
+  });
+});

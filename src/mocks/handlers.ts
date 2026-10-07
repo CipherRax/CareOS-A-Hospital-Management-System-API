@@ -1,5 +1,7 @@
 import { http, HttpResponse } from 'msw';
 
+import { REFRESH_COOKIE, SESSION_COOKIE } from '@/lib/session-cookies';
+
 /**
  * API mock handlers.
  *
@@ -62,6 +64,39 @@ const EXAMPLE_FACILITIES = [
   },
 ];
 
+/**
+ * The mock session mirrors the production bridge (`src/app/api/v1/[...path]/route.ts`):
+ * login writes the session cookies and returns the token-stripped body the browser
+ * would really see; `/auth/me` answers by the presence of the session cookie; logout
+ * clears it. `document.cookie` is used so the same handlers work in the browser
+ * (mock dev) and in jsdom (unit tests), and the session is scoped to that context.
+ */
+const MOCK_ACCESS_TOKEN = 'mock-access-token';
+const MOCK_REFRESH_TOKEN = 'mock-refresh-token';
+
+const MOCK_SESSION_USER = {
+  id: 'usr_example_0001',
+  email: 'nurse@example.org',
+  firstName: 'EXAMPLE',
+  lastName: 'Nurse',
+  status: 'ACTIVE',
+  roles: ['TRIAGE_NURSE'],
+};
+
+function setMockCookies() {
+  document.cookie = `${SESSION_COOKIE}=${MOCK_ACCESS_TOKEN}; Path=/; SameSite=Lax`;
+  document.cookie = `${REFRESH_COOKIE}=${MOCK_REFRESH_TOKEN}; Path=/; SameSite=Lax`;
+}
+
+function clearMockCookies() {
+  document.cookie = `${SESSION_COOKIE}=; Path=/; Max-Age=0`;
+  document.cookie = `${REFRESH_COOKIE}=; Path=/; Max-Age=0`;
+}
+
+function hasMockSession(): boolean {
+  return document.cookie.includes(`${SESSION_COOKIE}=${MOCK_ACCESS_TOKEN}`);
+}
+
 export const handlers = [
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
@@ -72,7 +107,9 @@ export const handlers = [
     let items = EXAMPLE_FACILITIES;
     if (q) {
       items = items.filter((facility) =>
-        `${facility.name} ${facility.address ?? ''} ${facility.town ?? ''}`.toLowerCase().includes(q),
+        `${facility.name} ${facility.address ?? ''} ${facility.town ?? ''}`
+          .toLowerCase()
+          .includes(q),
       );
     }
     return HttpResponse.json(apiOk(items));
@@ -90,11 +127,77 @@ export const handlers = [
     ),
   ),
 
-  http.get('*/api/v1/auth/me', () =>
-    HttpResponse.json(apiError('UNAUTHORIZED', 'Invalid or missing credentials.'), {
-      status: 401,
-    }),
-  ),
+  http.post('*/api/v1/auth/login', async ({ request }) => {
+    await delay(MOCK_LATENCY_MS);
+    let body: Record<string, unknown>;
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      return HttpResponse.json(apiError('VALIDATION_ERROR', 'bad json'), { status: 400 });
+    }
+    if (
+      typeof body.organizationId !== 'string' ||
+      typeof body.email !== 'string' ||
+      typeof body.password !== 'string' ||
+      body.password.length === 0
+    ) {
+      return HttpResponse.json(apiError('VALIDATION_ERROR', 'missing fields'), { status: 400 });
+    }
+    // Mirrors the proxy bridge: cookies are set, and the token pair is stripped
+    // from the body the browser sees.
+    setMockCookies();
+    return HttpResponse.json(
+      apiOk({
+        mfaRequired: false,
+        user: MOCK_SESSION_USER,
+        session: {
+          id: 'ses_example_0001',
+          familyId: 'fam_example_0001',
+          createdAt: '2026-09-27T09:00:00.000Z',
+          expiresAt: '2026-09-28T09:00:00.000Z',
+        },
+      }),
+      { status: 200 },
+    );
+  }),
+
+  http.post('*/api/v1/auth/logout', async () => {
+    clearMockCookies();
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get('*/api/v1/auth/me', () => {
+    // No session cookie: signed out, exactly as `/auth/me` reads without a Bearer.
+    if (!hasMockSession()) {
+      return HttpResponse.json(apiError('UNAUTHORIZED', 'Invalid or missing credentials.'), {
+        status: 401,
+      });
+    }
+    return HttpResponse.json(
+      apiOk({
+        user: MOCK_SESSION_USER,
+        organization: {
+          id: 'org_example_0001',
+          name: 'EXAMPLE Health Services',
+          status: 'ACTIVE',
+          featureFlags: {},
+        },
+        roles: ['TRIAGE_NURSE'],
+        roleDetails: MOCK_SESSION_USER.roles.map((key) => ({
+          id: `role_example_${key.toLowerCase()}`,
+          key,
+          name: 'EXAMPLE Nurse',
+        })),
+        security: { passwordChangeRequired: false, mfaEnrolmentRequired: false, staging: [] },
+        session: { id: 'ses_example_0001' },
+        branch: { current: null, allowed: [] },
+        branches: [],
+        patient: null,
+        preferences: null,
+      }),
+      { status: 200 },
+    );
+  }),
 
   http.post('*/api/v1/public/emergency-requests/track', async ({ request }) => {
     await delay(MOCK_LATENCY_MS);
@@ -110,9 +213,12 @@ export const handlers = [
     // Matches the token the mock intake handler issues. Tracking is keyed by the
     // token alone — the reference never leaves the caller's receipt.
     if (body.token !== 'tok_example_track_0001') {
-      return HttpResponse.json(apiError('RESOURCE_NOT_FOUND', 'No request found for that tracking token.'), {
-        status: 404,
-      });
+      return HttpResponse.json(
+        apiError('RESOURCE_NOT_FOUND', 'No request found for that tracking token.'),
+        {
+          status: 404,
+        },
+      );
     }
     return HttpResponse.json(
       apiOk(

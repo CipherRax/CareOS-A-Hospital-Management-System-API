@@ -212,5 +212,33 @@
       "unavailable": "Tracking is temporarily unavailable. Try again shortly.",
       "generic": "Your request could not be checked. Try again."
     }
+  },
+  "auth": {
+    "signInTitle": "Sign in to careOS",
+    "signInIntro": "Sign in to reach staffing screens. Your administrator gives you an organization ID.",
+    "organizationIdLabel": "Organization ID",
+    "organizationIdHint": "The UUID under which this clinic is registered.",
+    "emailLabel": "Email",
+    "passwordLabel": "Password",
+    "submit": "Sign in",
+    "signingIn": "Signing in…",
+    "mfaChallengeTitle": "Two-factor challenge required",
+    "mfaChallengeBody": "This account has a second factor enabled. This sign-in screen currently supports only a single-factor sign-in.",
+    "errorHeading": "Sign-in failed",
+    "unknownName": "Signed in",
+    "signOut": "Sign out",
+    "signInNow": "Sign in",
+    "errors": {
+      "organizationId": "Enter the organization ID.",
+      "email": "Enter your email.",
+      "emailFormat": "Enter a valid email address.",
+      "password": "Enter your password.",
+      "unauthorized": "The email, password or organization ID is incorrect.",
+      "rateLimited": "Too many sign-in attempts. Wait a moment, then try again.",
+      "validation": "Check the details and try again.",
+      "unavailable": "Sign-in is temporarily unavailable. Try again shortly.",
+      "generic": "Sign-in could not be completed. Try again."
+    },
+    "signOutFailed": "Sign out failed"
   }
 }

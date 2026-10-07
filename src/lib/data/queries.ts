@@ -76,13 +76,21 @@ async function unwrap<T>(call: PromiseLike<ApiCallResult> | ApiCallResult): Prom
  */
 export const unwrapForTest = unwrap;
 
-/** Current user. Provisional: `/auth/me` is the one staff endpoint in the partial spec. */
+/** Current user. `/auth/me` is the one staff endpoint in the partial spec. */
 export function useSession() {
   return useQuery({
     queryKey: ['session'],
     queryFn: async (): Promise<Fetched<SessionUser>> => {
       const result = await api.GET('/auth/me');
-      return unwrap<SessionUser>(result);
+      // The export types the 200 body as unknown, so the identity is a guest
+      // until its own shape is proven — the gate depends on a 2xx meaning
+      // "signed in", and the header on the fields below, which are mapped
+      // structurally rather than trusted.
+      const fetched = await unwrap<unknown>(result);
+      return {
+        data: normaliseSessionUser(fetched.data),
+        response: fetched.response,
+      } satisfies Fetched<SessionUser>;
     },
     // Identity does not go stale on its own, and refetching it on every window
     // focus would be noise. It is invalidated explicitly at sign-in and sign-out.
@@ -96,4 +104,29 @@ export interface SessionUser {
   displayName: string;
   roleLabel: string;
   facilityId?: string;
+}
+
+/**
+ * Maps `/auth/me`'s `data` (typed `unknown` in the export) onto the header's
+ * persona. The identity endpoint returns `user` plus `roleDetails`; the fallbacks
+ * are for a body that drifts again, so a malformed response starves the header
+ * rather than crashing it.
+ */
+export function normaliseSessionUser(data: unknown): SessionUser {
+  if (!data || typeof data !== 'object') {
+    return { id: '', displayName: '', roleLabel: '' };
+  }
+  const record = data as {
+    user?: { id?: unknown; firstName?: unknown; otherNames?: unknown; lastName?: unknown };
+    roleDetails?: ReadonlyArray<{ name?: unknown }> | null;
+  };
+  const user = record.user;
+  const id = typeof user?.id === 'string' ? user.id : '';
+  const parts = [user?.firstName, user?.otherNames, user?.lastName].filter(
+    (part): part is string => typeof part === 'string' && part.length > 0,
+  );
+  const displayName = parts.join(' ').trim();
+  const roleLabel =
+    typeof record.roleDetails?.[0]?.name === 'string' ? record.roleDetails[0].name : '';
+  return { id, displayName, roleLabel };
 }

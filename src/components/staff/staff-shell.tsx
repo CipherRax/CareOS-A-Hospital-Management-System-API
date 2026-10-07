@@ -1,6 +1,9 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
+
 import { NavRail, type NavSection } from '@/components/staff/nav-rail';
+import { SignOutButton } from '@/components/auth/sign-out-button';
 import type { SessionUser } from '@/lib/data/queries';
 
 /**
@@ -50,6 +53,8 @@ const SECTIONS: readonly NavSection[] = [
 ];
 
 export function StaffShell({ user, children }: { user: SessionUser; children: React.ReactNode }) {
+  const t = useTranslations('auth');
+
   return (
     <div className="flex min-h-dvh bg-canvas">
       <NavRail sections={SECTIONS} />
@@ -61,13 +66,10 @@ export function StaffShell({ user, children }: { user: SessionUser; children: Re
           <p className="text-body font-medium text-primary">careOS</p>
           <div className="flex items-center gap-3">
             <p className="text-meta text-secondary">
-              {user.displayName}
-              <span className="text-tertiary"> · {user.roleLabel}</span>
+              {user.displayName || t('unknownName')}
+              {user.roleLabel ? <span className="text-tertiary"> · {user.roleLabel}</span> : null}
             </p>
-            {/* No sign-out control. There is no session-terminating endpoint
-                (GAP-010), and a link to a 404 teaches staff that sign-out is
-                handled when it is not. A gate that cannot be left is not
-                deployable: this is a release blocker, tracked, not an oversight. */}
+            <SignOutButton />
           </div>
         </header>
         <main className="min-w-0 flex-1">{children}</main>

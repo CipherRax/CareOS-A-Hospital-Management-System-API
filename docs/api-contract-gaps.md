@@ -136,22 +136,20 @@ fabricated queue looks like data and is not.
 
 ## GAP-010 — No staff authentication contract
 
-**Status: revised.** Auth is no longer missing from the contract. The document
-has `/auth/login`, `/auth/logout`, `/auth/refresh`, `/auth/me`,
-`/auth/me/preferences`, MFA and password endpoints. The staff gate fails closed
-on `/auth/me` and that already holds against the real endpoint.
+**Status: closed.** The document has `/auth/login`, `/auth/logout`,
+`/auth/refresh`, `/auth/me`, `/auth/me/preferences`, MFA and password endpoints,
+and the frontend now builds the session on them: `/login` (posts the real
+`LoginDto`), the proxy-owned HttpOnly cookie bridge, and the header `Sign out`.
+The staff gate fails closed on `/auth/me`, the signed-out page earns a real
+`Sign in` link, and the whole flow is verified end to end against the e2e stub
+through the real proxy.
 
-**Still open:** no **auth UI**. No login or logout screen is built, so a session
-on a shared workstation still cannot be started or ended, and the gate's
-signed-out page still offers no sign-in link. This is the one item here that
-blocks a real deployment. It is now a frontend build decision rather than a
-missing-endpoint problem — building it is proposed as the next feature, not
-silently shipped.
-
-**Upstream defect discovered while verifying:** `POST /auth/login` requires
-`organizationId` in **uuid format**, but the seed data uses string ids
-(`demo-org-nairobi`). No seeded account can log in through the API. Reported for
-the API team's decision; documented in `docs/limitations.md`.
+**Upstream defect discovered while verifying (still open):** `POST /auth/login`
+requires `organizationId` in **uuid format**, but the seed data uses string ids
+(`demo-org-nairobi`). No seeded account can log in through the live API. Reported
+for the API team's decision; documented in `docs/limitations.md`. Until it is
+decided, the frontend's login cannot be exercised against real data — only via
+the stub.
 
 ---
 

@@ -4,6 +4,42 @@ Newest first. Each records what was decided, why, and what it costs.
 
 ---
 
+## ADR-009 — The session token pair is owned by the proxy, never the page
+
+**Context.** The live API is Bearer-only: `POST /auth/login` returns an access
+token and a refresh token in the JSON body, and every staff endpoint reads
+`Authorization: Bearer`. The web app promised the opposite — ADR-004's whole point
+is that the session cookie stays first-party and HttpOnly, so JS can never read a
+token. Logging in `fetch`-style and stashing the pair somewhere page-reachable
+would break that promise (localStorage leaks, service workers leak), and a Bearer
+header set from JS is exactly what ADR-004 exists to avoid.
+
+**Decision.** The proxy owns the session. On a successful login the proxy lifts
+`data.tokens` out of the response body, writes them to two HttpOnly cookies
+(`careos_session`, `careos_refresh`; SameSite=Lax, Secure over TLS), and removes
+`tokens` from what the browser sees. Every proxied request then carries
+`careos_session` as `Authorization: Bearer` upstream — the browser's own
+Authorization is still dropped. On a 401 the proxy rotates once through
+`/auth/refresh` with the refresh cookie and retries; a failed rotation clears both
+cookies. Logout is an empty client body; the proxy injects the refresh token and
+clears both cookies on a 2xx.
+
+**Alternatives considered.** (a) Tokens in page-accessible state/localStorage —
+rejected: defeats ADR-004; (b) the API issuing session cookies — not possible
+without an API change, and the API has no cookie middleware; (c) the browser
+holding Bearer state — rejected, it is the exact leak pattern this design
+removes.
+
+**Consequences.** JS never sees a token, there is one place where the pair is
+handled, and rotating is possible only where the secret is held (the proxy). The
+cost: the proxy now has real session logic (tested in `route.test.ts` against a
+real HTTP server), and a failure that leaves the refresh cookie set but the
+access cookie clear self-heals on the next 401. JS-reachable code relies on the
+proxy having set the bridge correctly, which is why the e2e stub sits upstream of
+the real proxy so the whole chain is exercised.
+
+---
+
 ## ADR-005 — Next.js 16 rather than the brief's Next.js 15
 
 **Context.** The brief's stack table pins Next.js 15. `create-next-app` now

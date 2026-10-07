@@ -32,6 +32,7 @@ const VARIANTS = [
 const ROUTES = [
   { path: '/design-system', name: 'careOS design system' },
   { path: '/', name: 'Overview' },
+  { path: '/login', name: 'Sign in to careOS' },
   { path: '/triage', name: 'Triage queue' },
   // Named by their real h1, not by what the route is called. On a patient record
   // the heading is the patient — that is the design decision under review — and
@@ -78,6 +79,14 @@ function describe(violations: Awaited<ReturnType<typeof analyse>>['violations'])
 
 for (const variant of VARIANTS) {
   test.describe(`${variant.theme} theme, ${variant.density} density`, () => {
+    // Staff routes only render behind a confirmed session, and its href target
+    // state. Establishing the session up front keeps the staff shell itself under
+    // axe — the alternative is the shell never appearing in an accessibility run
+    // at all, which is exactly the cover this sweep is for.
+    test.beforeEach(async ({ page }) => {
+      await signInViaUi(page);
+    });
+
     for (const route of ROUTES) {
       test(`${route.path} has no axe violations`, async ({ page }) => {
         await applyVariant(page, variant.theme, variant.density);
@@ -277,9 +286,7 @@ test.describe('public emergency intake', () => {
     await page.goto('/request');
     await expect(page.getByRole('checkbox')).toHaveCount(0);
     // And the category disclaimer is visible where the reader will see it.
-    await expect(
-      page.getByText(/it does not assess how serious the situation is/i),
-    ).toBeVisible();
+    await expect(page.getByText(/it does not assess how serious the situation is/i)).toBeVisible();
   });
 
   test('explains a rate limit without mentioning the diagnostic message', async ({ page }) => {
@@ -341,27 +348,51 @@ async function fillIntakeRequest(page: Page) {
   await page.getByLabel(/phone number/i).fill('+254700000000');
   await page.getByLabel(/what best describes/i).selectOption('SEVERE_INJURY');
   await page.getByLabel(/for yourself/i).selectOption('true');
-  await page
-    .getByLabel(/how should we contact you/i)
-    .selectOption('PHONE');
-  await page
-    .getByLabel(/what has happened/i)
-    .fill('EXAMPLE symptom description for a test.');
+  await page.getByLabel(/how should we contact you/i).selectOption('PHONE');
+  await page.getByLabel(/what has happened/i).fill('EXAMPLE symptom description for a test.');
+}
+
+/**
+ * Signs in the way a real staff member does: through `/login`, end to end through
+ * the proxy (which lifts the token pair into HttpOnly cookies) and into `/triage`.
+ * The staff routes in the sweep depend on this running first.
+ */
+async function signInViaUi(page: Page) {
+  await page.goto('/login');
+  await page.getByLabel(/organization id/i).fill('org-e2e-example-0001');
+  await page.getByLabel(/^email/i).fill('registrar@example.org');
+  await page.getByLabel(/^password/i).fill('correct-horse');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/triage$/);
 }
 
 test.describe('staff session gate', () => {
   test('shows staff content once a session is confirmed', async ({ page }) => {
-    await page.goto('/triage');
+    // A real sign-in through /login (and the proxy) is what a staff member does.
+    await signInViaUi(page);
     // The rail only exists inside the gate, so its presence is proof the content
-    // behind it rendered.
+    // behind it rendered under a session the proxy actually established.
     await expect(page.getByRole('navigation', { name: 'Clinical' })).toBeVisible();
     await expect(page.getByText('EXAMPLE Dr N. Wanjiru')).toBeVisible();
   });
 
+  test('signs out from the header and lands back on the gate', async ({ page }) => {
+    await signInViaUi(page);
+    await expect(page.getByRole('navigation', { name: 'Clinical' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Sign out' }).click();
+
+    // The proxy ends the session server-side, the session query is invalidated and
+    // the route refreshes onto the signed-out gate.
+    await expect(page.getByRole('heading', { name: 'Please sign in again' })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByRole('navigation', { name: 'Clinical' })).toHaveCount(0);
+  });
+
   test('withholds staff content when there is no session', async ({ page }) => {
-    await page
-      .context()
-      .addCookies([{ name: 'careos-e2e', value: 'signed-out', url: 'http://127.0.0.1:3100' }]);
+    // Fresh context: no session cookie, so the proxy has nothing to translate and
+    // the stub answers 401.
     await page.goto('/triage');
 
     await expect(page.getByRole('heading', { name: 'Please sign in again' })).toBeVisible();
@@ -370,12 +401,15 @@ test.describe('staff session gate', () => {
     // at all. Visible-but-covered would still leak it to a screen reader.
     await expect(page.getByRole('navigation', { name: 'Clinical' })).toHaveCount(0);
     await expect(page.getByText('EXAMPLE Achieng Otieno')).toHaveCount(0);
+
+    // And the dead end is not a dead end anymore: the gate earns the way back in.
+    await expect(page.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
   });
 
   test('treats a failing API as signed out, and says so differently', async ({ page }) => {
     // Fails closed: if the session cannot be confirmed, staff content must not
     // render. And the message must not tell a clinician to sign in when the real
-    // problem is that the service is down.
+    // problem is that the service is down — hence no sign-in link on this screen.
     await page
       .context()
       .addCookies([{ name: 'careos-e2e', value: 'unavailable', url: 'http://127.0.0.1:3100' }]);
@@ -389,6 +423,7 @@ test.describe('staff session gate', () => {
       page.getByRole('heading', { name: 'Service temporarily unavailable' }),
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('heading', { name: 'Please sign in again' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Sign in' })).toHaveCount(0);
   });
 });
 

@@ -26,6 +26,12 @@ vi.mock('@/lib/data/queries', () => ({
   useSession: () => sessionState,
 }));
 
+// The header signs the session out; the SignOutButton is covered by its own tests
+// (and needs a QueryClient). Here it is just chrome to keep the gate in focus.
+vi.mock('@/components/auth/sign-out-button', () => ({
+  SignOutButton: () => null,
+}));
+
 // jsdom has no router, so usePathname resolves to null. StaffShell renders the rail,
 // which needs a real pathname.
 vi.mock('next/navigation', () => ({ usePathname: () => '/triage' }));
@@ -115,11 +121,21 @@ describe('StaffGate', () => {
     ).toBeInTheDocument();
   });
 
-  it('offers no sign-out or sign-in link that would 404', () => {
-    // Both routes are undefined (GAP-010). A link to a 404 teaches staff that the
-    // control works when it does not.
+  it('offers a sign-in link only when the session has simply expired', () => {
+    // F1 made the link real: `/login` now renders. It is still deliberately absent
+    // when the service is down — telling staff to sign in then sends them to the
+    // wrong place and teaches them to ignore the message.
     sessionState.isError = true;
     sessionState.error = { code: 'UNAUTHORIZED', resolved: resolveApiError('UNAUTHORIZED') };
+    const { unmount } = renderGate();
+    const link = screen.getByRole('link', { name: 'Sign in' });
+    expect(link).toHaveAttribute('href', '/login');
+    unmount();
+
+    sessionState.error = {
+      code: 'SERVICE_UNAVAILABLE',
+      resolved: resolveApiError('SERVICE_UNAVAILABLE'),
+    };
     renderGate();
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });

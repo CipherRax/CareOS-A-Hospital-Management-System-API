@@ -13,7 +13,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | Phase                          | State                                              | Blocked on                                                |
 | ------------------------------ | -------------------------------------------------- | --------------------------------------------------------- |
 | F0 Design system & foundations | **complete**, awaiting design review               | —                                                         |
-| F1 Auth, session, shell        | partial — proxy, gate, shell, nav rail             | auth UI (login/logout) unbuilt; seed login org-id mismatch |
+| F1 Auth, session, shell        | **complete** — login/logout, proxy session bridge, gate, shell, nav rail | seed login org-id mismatch; design review deferred to F12 |
 | F2 Patients & reception        | stub — banner + timeline only                      | patient search, registration, master record               |
 | F3 Scheduling, queue, nursing  | not started                                        | appointments, slots, waitlist, queue, vitals              |
 | F4 Doctor workspace            | not started                                        | encounters, notes, orders, results                        |
@@ -24,7 +24,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F9 Administration & audit      | not started                                        | org, users, permissions, audit log                        |
 | F10 Analytics & reports        | not started                                        | analytics, forecasts, reports                             |
 | F11 Portal & queue display     | partial — display board done                       | portal read models                                        |
-| F11B Public website            | facility search + emergency intake + intake tracking built on the live contract | session start/end UI (GAP-010) |
+| F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | — |
 | F12 Hardening & release        | not started                                        | everything above                                          |
 
 **Signature components (brief §2.4): 20 of 20.**
@@ -41,18 +41,18 @@ the only phase work that does not wait on the API.
 
 ### Three blockers gate the rest
 
-1. **No session can be started or ended.** The auth **endpoints exist** upstream
-   (`/auth/login`, `/auth/logout`, `/auth/me`), but no login or logout UI is built
-   (GAP-010), and the seed/login mismatch means no seeded account can log in (`id`
-   format vs string org ids) — so the real session flow cannot even be exercised.
+1. **The seed/login org-id mismatch.** `/auth/login` requires a uuid
+   `organizationId`, but the seeds are string ids (`demo-org-nairobi`), so no
+   seeded account can log in through the API. The frontend session flow is fully
+   built (F1) and verified against the stub; this defect is API-side and is what
+   stops a real end-to-end login.
 2. **No triage, queue or patient-record contracts.** `/triage` is fixture-fitted,
    which caps F2 and F3.
 3. **The signature set is complete but un-reviewed** (20 of 20). `CommandPalette`
    was built in-house on the existing Radix `Dialog`, so the `cmdk` dependency
    question is resolved as "no new dependency".
 
-(1) is a frontend build item on top of now-existing endpoints, with an API-side
-defect recorded. (2) needs API work.
+(2) needs API work. (1) is an API-side defect recorded for decision.
 
 ### Open decision
 
@@ -266,6 +266,30 @@ one that makes the rest of it safe to build on.
   tried first and proved unreliable to apply, and a test that intermittently does not
   intercept proves nothing.
 
+**Session start/end** (`/login`, `SignOutButton`) — the last F11 item, so F1 and
+F11B are both now complete. The session UI is built on a **proxy-owned cookie
+bridge** (`src/app/api/v1/[...path]/route.ts`), which is the one place the token
+pair is handled:
+
+- Login posts the real `LoginDto` through the proxy. On a 2xx the proxy lifts
+  `data.tokens` into two HttpOnly cookies (`careos_session`, `careos_refresh`,
+  SameSite=Lax, Secure over TLS), strips `tokens` from the body the browser sees,
+  and the page never knows the pair existed. A same-origin `fetch` then proves the
+  charm: cookies flow automatically, no header ever paginates JS into the secret.
+- Every proxied request carries `careos_session` as `Authorization: Bearer`
+  upstream; the browser's own Authorization is still dropped. A 401 on a session
+  request (never on login/logout/refresh themselves) rotates once through
+  `/auth/refresh` with the refresh cookie and retries; a failed rotation clears both
+  cookies so a dead session cannot linger on a shared workstation.
+- Logout sends an empty body; the proxy injects the refresh token from the cookie
+  (the browser cannot know it) and clears both cookies on a 2xx. The header's
+  `Sign out` invalidates the session query and refreshes, and the gate lands on its
+  signed-out page — which now earns a `Sign in` link to `/login`.
+- Verified end to end: the e2e stub sits upstream of the real proxy, so sign-in,
+  cookie→Bearer translation, logout and the 401/503 gate paths all run through the
+  real route handler. Verifying inside MSW and the stub rather than against a live
+  API would have proved nothing about the cookie bridge.
+
 **Display board moved to its own unauthenticated route group** — a board for people
 who are not signed in should not be behind the staff session. This broke its `main`
 landmark in all four variants the moment it left the shell, which is the argument for
@@ -369,19 +393,18 @@ Two corrections worth recording, because both produced a false green:
 
 ### Release blockers
 
-1. No session can be started or ended (GAP-010) — endpoints now exist upstream, UI
-   not built; the seed/login org-id mismatch must also be resolved API-side.
+1. The seed/login org-id mismatch (API-side): `POST /auth/login` requires a uuid
+   `organizationId` but the seeds use string ids (`demo-org-nairobi`), so no
+   seeded account can complete a real login. The frontend flow is built and
+   verified (F1) but cannot run against the live API until this is resolved.
+2. Row links still 404.
 
-No session can be started or ended: `/auth/login` and `/auth/logout` exist, but no
-login or logout screen is built, so a shared workstation with a session that cannot
-be terminated is still not deployable. This is now a frontend build item rather than
-a missing endpoint. Row links still 404. See `docs/limitations.md`.
+See `docs/limitations.md`.
 
 ## F11B — Public facility search
 
-**Status:** facility search, emergency intake and intake tracking realigned to the
-**live** contract; the only remaining F11 item is the session start/end UI
-(GAP-010, a release blocker).
+**Status:** complete. Facility search, emergency intake, intake tracking and the
+session start/end UI (F1) are all built on the **live** contract.
 
 `/facilities` is the `FacilitySearch` page — the second public screen, now built
 against the real `GET /public/facilities/search` (the old typed `GET
@@ -411,3 +434,6 @@ field when the result renders, and never reaches storage or the URL. Errors map
 by code to sentences a caller can act on; the API's diagnostic `message` never
 renders. Covered by the MSW track handler (`tok_example_track_0001`), the e2e
 stub (`ex-tok-00001`), unit tests and two e2e/a11y tests.
+
+The F11B slice closed when `/login` shipped (F1): staff can now start and end a
+session from this app, and the public website's last open item is gone.

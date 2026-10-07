@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { useSession } from '@/lib/data/queries';
@@ -19,10 +20,10 @@ import { StaffShell } from '@/components/staff/staff-shell';
  * free pass. A clinician locked out by a network blip is an inconvenience; a
  * clinician looking at another clinician's session is an incident.
  *
- * The signed-out state is its own page rather than a redirect, because there is no
- * sign-in route to redirect to (GAP-010). Inventing `/auth/login` would only produce
- * a link that 404s, and a control that looks like it works while it does not is
- * worse than an honest dead end.
+ * The signed-out state is its own screen with a Sign in action to `/login`
+ * (F1): sign-in posts the real `LoginDto` and the same-origin proxy owns the
+ * session cookies. `unavailable` deliberately gets no link — telling someone to
+ * sign in when the network is down wastes a support call.
  *
  * `/auth/me` exists upstream (verified live: it returns 401 `UNAUTHORIZED` with no
  * session) but its success body is untyped in the exported document — the gate
@@ -60,16 +61,26 @@ export function StaffGate({ children }: { children: React.ReactNode }) {
  */
 function SignedOut({ code }: { code: string | undefined }) {
   const t = useTranslations('error');
-  const key =
-    code === 'NETWORK_ERROR' || code === 'SERVICE_UNAVAILABLE' ? 'unavailable' : 'unauthenticated';
+  const auth = useTranslations('auth');
+  const unavailable = code === 'NETWORK_ERROR' || code === 'SERVICE_UNAVAILABLE';
+  const key = unavailable ? 'unavailable' : 'unauthenticated';
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-canvas px-6">
       <div className="w-full max-w-md rounded-lg border border-border bg-surface p-6">
         <h1 className="text-heading-sm font-semibold text-primary">{t(`${key}.title`)}</h1>
         <p className="mt-2 text-body text-secondary">{t(`${key}.body`)}</p>
-        {/* No link out. There is no sign-in route to link to, and a dead link on a
-            dead end is a support call waiting to happen. */}
+        {/* Only the unauthenticated state earns a way back in. The unavailable
+            state is a network (or upstream) failure: offering a sign-in link
+            would teach people to sign in when the problem is the network. */}
+        {unavailable ? null : (
+          <Link
+            href="/login"
+            className="mt-4 inline-block rounded-md border border-border bg-surface px-4 py-2 text-body font-medium text-primary hover:bg-canvas"
+          >
+            {auth('signInNow')}
+          </Link>
+        )}
       </div>
     </div>
   );

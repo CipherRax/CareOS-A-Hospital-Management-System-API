@@ -124,25 +124,31 @@ unreviewed.
 
 ## Incomplete
 
-### No session can be started or ended yet
+### Session starts and ends only through the proxy-owned cookie bridge
 
 The staff gate fails closed: content renders only after `/auth/me` confirms a
-session, and an unreachable API counts as signed out. The auth **endpoints now
-exist** upstream (`/auth/login`, `/auth/logout`, `/auth/refresh`, `/auth/me`,
-MFA, password), so a session _can_ be started and ended in principle — but no
-login or logout UI is built, so nobody can get in or out through this app. Neither
-the signed-out page nor the header offers a control; both would be links to a
-screen that does not exist.
+session, and an unreachable API counts as signed out. `/login` and the header
+`Sign out` complete this — the last F11 item is built (F1/F11B). The token pair
+is deliberately never in page-reachable memory: the proxy lifts `data.tokens` out
+of the login response into two HttpOnly cookies (`careos_session`,
+`careos_refresh`, SameSite=Lax, Secure over TLS), translates the session cookie
+into `Authorization: Bearer` upstream, rotates once through `/auth/refresh` on a
+401, and injections the refresh token into logout the browser is never allowed to
+know. See the route handler and `docs/decisions.md`.
 
-This is still the one item that blocks a real deployment rather than merely being
-unfinished. A shared clinical workstation with a session that cannot be ended is
-not acceptable. It is now a frontend build item (proposed, not yet started).
+This is still constrained by what the API will let us verify:
 
-**Upstream blocker discovered while verifying:** `POST /auth/login` requires
+**Upstream defect: no seeded account can log in.** `POST /auth/login` requires
 `organizationId` in uuid format, but the seed data assigns string ids
-(`demo-org-nairobi`). No seeded account can complete a login through the API —
-the login that would exercise `/auth/me`'s success body cannot be performed.
-Raised for the API side to decide; the frontend should not paper over it.
+(`demo-org-nairobi`). The login that would exercise `/auth/me`'s success body
+against the live API cannot be performed. Raised for the API side to decide; the
+frontend does not paper over it. The bridge is verified end to end against the e2e
+stub (real HTTP server upstream of the real proxy) and against MSW in unit tests.
+
+**MFA sign-in has no UI.** The login form handles an `mfaRequired: true` reply by
+showing the challenge notice (the API's contract for it, with no live session to
+inspect) and no second-factor entry. Single-factor sign-in is the built path; MFA
+is honest about not being one.
 
 ### The intake tracking page is built on a contract whose success body is untyped
 
@@ -355,12 +361,14 @@ See the note above. It renders design tokens and nothing sensitive, but it is th
 only route in the app that a signed-out visitor can reach, and it stays that way
 until F1 adds a session check.
 
-### No authentication, authorisation, or PHI handling exists yet
+### No authorisation, PHI handling, or audit logging exists yet
 
-Nothing in this repository touches patient data. There is no session handling, no
-route protection, no authorisation, and no PHI in storage. `referrer: 'no-referrer'`
-and a `noindex` robots directive are set as early defaults; they are not
-substitutes for the real work, which starts with the auth layer.
+Nothing in this repository touches patient data. The staff surface now has a real
+sign-in/sign-out, session cookies held by the proxy, and a fails-closed gate, but
+there is still **no authorisation** (permissions are invented `Can`/wildcard
+strings; the API remains the authority), and no PHI in storage. `referrer:
+'no-referrer'` and a `noindex` robots directive are set as early defaults; they
+are not substitutes for real authorisation, which must follow the auth layer.
 
 ### No audit logging
 

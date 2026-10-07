@@ -224,5 +224,33 @@
       "unavailable": "Ufuatiliaji haupatikani kwa sasa. Jaribu tena baada ya muda mfupi.",
       "generic": "Ombi lako halikuweza kuangaliwa. Jaribu tena."
     }
+  },
+  "auth": {
+    "signInTitle": "Ingia kwa careOS",
+    "signInIntro": "Ingia kufikia skrini za wafanyakazi. Msimamizi wako anakupa kitambulisho cha shirika.",
+    "organizationIdLabel": "Kitambulisho cha shirika",
+    "organizationIdHint": "UUID ambayo kituo hiki kimesajiliwa nayo.",
+    "emailLabel": "Barua pepe",
+    "passwordLabel": "Nenosiri",
+    "submit": "Ingia",
+    "signingIn": "Inaingia…",
+    "mfaChallengeTitle": "Uthibitisho wa hatua mbili unahitajika",
+    "mfaChallengeBody": "Akaunti hii ina kipengele cha pili kimewashwa. Skrini hii ya kuingia kwa sasa inasaidia tu uingiaji wa hatua moja.",
+    "errorHeading": "Kuingia kumeshindikana",
+    "unknownName": "Umeingia",
+    "signOut": "Ondoka",
+    "signInNow": "Ingia",
+    "errors": {
+      "organizationId": "Weka kitambulisho cha shirika.",
+      "email": "Weka barua pepe yako.",
+      "emailFormat": "Weka anwani sahihi ya barua pepe.",
+      "password": "Weka nenosiri lako.",
+      "unauthorized": "Barua pepe, nenosiri au kitambulisho cha shirika si sahihi.",
+      "rateLimited": "Umejaribu kuingia mara nyingi sana. Subiri kidogo, kisha ujaribu tena.",
+      "validation": "Angalia maelezo kisha ujaribu tena.",
+      "unavailable": "Kuingia hakupatikani kwa sasa. Jaribu tena baada ya muda mfupi.",
+      "generic": "Kuingia hakukuweza kukamilishwa. Jaribu tena."
+    },
+    "signOutFailed": "Ondoka kumeshindikana"
   }
 }

@@ -19,16 +19,58 @@ import { createServer } from 'node:http';
 
 const PORT = Number(process.env.STUB_API_PORT ?? 3199);
 
-/** Fabricated. Never a real person, and there is no PHI anywhere in this file. */
+/**
+ * The signed-in persona. Everything here is fabricated on a real envelope.
+ *
+ * `/auth/me` returns `data` in the live shape (`user` + `roles`/`roleDetails`,
+ * `organization`, `security`, `session`, …) so the frontend's `normaliseSessionUser`
+ * has a real body to read. Login returns the token pair *in the response body* —
+ * this stub sits *upstream* of the proxy, and the proxy is what lifts the pair
+ * into HttpOnly cookies and strips it from what the browser sees. The header then
+ * reads `EXAMPLE Dr N. Wanjiru` (firstName + otherNames + lastName).
+ */
 const USER = {
-  id: 'usr-example-1',
-  displayName: 'EXAMPLE Dr N. Wanjiru',
-  roleLabel: 'Registrar',
-  facilityId: 'fac-example-1',
+  user: {
+    id: 'usr-example-1',
+    email: 'registrar@example.org',
+    firstName: 'EXAMPLE Dr',
+    otherNames: 'N.',
+    lastName: 'Wanjiru',
+    status: 'ACTIVE',
+  },
+  roles: [{ id: 'role-example-1', key: 'REGISTRAR', name: 'Registrar' }],
+  roleDetails: [{ id: 'role-example-1', key: 'REGISTRAR', name: 'Registrar' }],
+  organization: {
+    id: 'org-example-1',
+    name: 'EXAMPLE Teaching Hospital',
+    status: 'ACTIVE',
+    featureFlags: {},
+  },
+  security: { passwordChangeRequired: false, mfaEnrolmentRequired: false, staging: [] },
+  session: { id: 'ses-example-1', familyId: 'fam-example-1' },
+  branch: { current: null, allowed: [] },
+  branches: [],
+  patient: null,
+  preferences: null,
+};
+
+const SESSION = {
+  id: 'ses-example-1',
+  familyId: 'fam-example-1',
+  createdAt: '2026-09-27T09:00:00.000Z',
+  expiresAt: '2026-09-28T09:00:00.000Z',
+};
+
+/** The only token pair the stub accepts. The proxy mirrors it into cookies. */
+const TOKENS = {
+  accessToken: 'careos-e2e-access-token',
+  refreshToken: 'careos-e2e-refresh-token',
+  expiresIn: 900,
+  refreshTokenExpiresAt: '2026-12-31T00:00:00.000Z',
 };
 
 function send(response, status, body, headers = {}) {
-  const payload = JSON.stringify(body);
+  const payload = body === undefined ? '' : JSON.stringify(body);
   response.writeHead(status, {
     'content-type': 'application/json',
     'content-length': Buffer.byteLength(payload),
@@ -37,7 +79,15 @@ function send(response, status, body, headers = {}) {
   response.end(payload);
 }
 
-const server = createServer((request, response) => {
+function readBody(request) {
+  return new Promise((resolve) => {
+    let body = '';
+    request.on('data', (chunk) => (body += chunk));
+    request.on('end', () => resolve(body));
+  });
+}
+
+const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', `http://127.0.0.1:${PORT}`);
 
   if (url.pathname === '/health') {
@@ -188,7 +238,10 @@ const server = createServer((request, response) => {
       if (parsed.token !== 'ex-tok-00001') {
         send(response, 404, {
           success: false,
-          error: { code: 'RESOURCE_NOT_FOUND', message: 'No request found for that tracking token' },
+          error: {
+            code: 'RESOURCE_NOT_FOUND',
+            message: 'No request found for that tracking token',
+          },
         });
         return;
       }
@@ -223,10 +276,75 @@ const server = createServer((request, response) => {
     return;
   }
 
+  if (url.pathname === '/auth/login' && request.method === 'POST') {
+    // The live contract posts `LoginDto` (organizationId, email, password). The
+    // stub validates as strictly as the API so a test that posts a malformed
+    // body fails loudly instead of silently getting a session.
+    let parsed;
+    try {
+      parsed = JSON.parse((await readBody(request)) || '{}');
+    } catch {
+      send(response, 400, {
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'bad json' },
+      });
+      return;
+    }
+    if (
+      typeof parsed.organizationId !== 'string' ||
+      parsed.organizationId.length === 0 ||
+      typeof parsed.email !== 'string' ||
+      parsed.email.length === 0 ||
+      typeof parsed.password !== 'string' ||
+      parsed.password.length === 0
+    ) {
+      send(response, 400, {
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'invalid' },
+      });
+      return;
+    }
+
+    send(response, 200, {
+      success: true,
+      data: {
+        mfaRequired: false,
+        user: USER.user,
+        session: SESSION,
+        tokens: TOKENS,
+      },
+    });
+    return;
+  }
+
+  if (url.pathname === '/auth/logout' && request.method === 'POST') {
+    // The proxy fills in the refresh token from the cookie; the browser can never
+    // know it. The stub holds the proxy to account: the injected secret must be
+    // the one we issued.
+    let parsed;
+    try {
+      parsed = JSON.parse((await readBody(request)) || '{}');
+    } catch {
+      send(response, 400, {
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'bad json' },
+      });
+      return;
+    }
+    if (parsed.refreshToken !== TOKENS.refreshToken) {
+      send(response, 401, { success: false, error: { code: 'UNAUTHORIZED' } });
+      return;
+    }
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+
   if (url.pathname === '/auth/me' && request.method === 'GET') {
     // A cookie the stub reads, not a header the app trusts: the application has no
-    // idea this switch exists, so the signed-out state is reached the way a real
-    // visitor reaches it — with no session.
+    // idea this switch exists, and the 503 state is reached the way a real visitor
+    // reaches it — the proxy forwards the session cookie as `Authorization: Bearer`,
+    // and the stub answers by whether it recognises the token.
     const cookies = request.headers.cookie ?? '';
 
     // Reachable but broken. Distinct from signed-out so the gate can prove it tells
@@ -237,15 +355,11 @@ const server = createServer((request, response) => {
       return;
     }
 
-    if (cookies.includes('careos-e2e=signed-out')) {
-      send(
-        response,
-        401,
-        { success: false, error: { code: 'UNAUTHORIZED' } },
-        {
-          'set-cookie': 'careos-session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
-        },
-      );
+    // Signed out means what it always did here: no usable session. The proxy turns
+    // the `careos_session` cookie into this header, so its absence is the absence
+    // of a session.
+    if (request.headers.authorization !== `Bearer ${TOKENS.accessToken}`) {
+      send(response, 401, { success: false, error: { code: 'UNAUTHORIZED' } });
       return;
     }
 
