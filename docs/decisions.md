@@ -4,6 +4,43 @@ Newest first. Each records what was decided, why, and what it costs.
 
 ---
 
+## ADR-010 — Strict Content-Security-Policy enforced with a per-request nonce
+
+**Context.** F0 shipped with `script-src 'self' 'unsafe-inline'` because the
+theme bootstrap script is inlined into the document head and must run before the
+bundle can. A hospital platform holding identifiable patient information should
+not allow arbitrary inline script execution; the allowance was recorded as F0
+debt. Closing it needs the inline script _and_ anything Next.js itself inlines
+(the RSC payload, hydration bootstrap) to be allowed individually, per response.
+
+**Decision.** The proxy (`src/proxy.ts`) generates a nonce per request, sets the
+`Content-Security-Policy` response header with it — `script-src 'self'
+'nonce-…`, no `'unsafe-inline'` — and forwards the same value to the page as the
+`x-nonce` request header. Next.js applies that header's value automatically to
+its own inline scripts and styles, and the root layout attaches it to the theme
+bootstrap script (`nonce={nonce}`). `style-src-attr 'unsafe-inline'` survives as
+a scoped allowance: the design-system screen paints token swatches via inline
+`style` attributes, which are a low-risk surface; a `<style>` element remains
+disallowed. The CSP therefore leaves next.config.ts (static headers cannot hold
+a per-request value) and lives where the request path can produce the
+header/markup pairing.
+
+**Alternatives considered.** (a) A static SHA-256 source hash for the theme
+script instead of a nonce — rejected: it covers only our one script, not the
+inline scripts Next itself emits, so `unsafe-inline` could not be dropped all
+the way; (b) the nonce generated in the layout with the header set statically —
+impossible, the value must match and static headers are constant; (c) keeping
+`'unsafe-inline'` for styles everywhere — rejected: `style-src-attr` scopes the
+one legitimate use. Follows the documented Next.js proxy/CSP nonce pattern.
+
+**Consequences.** Every response carries a fresh nonce; the root layout reads a
+request header, keeping all routes dynamic (they already were — the theme and
+locale cookies force that). The e2e security spec pins the policy shape and the
+header/markup nonce binding so a future refactor cannot silently ship a
+non-enforced header.
+
+---
+
 ## ADR-009 — The session token pair is owned by the proxy, never the page
 
 **Context.** The live API is Bearer-only: `POST /auth/login` returns an access

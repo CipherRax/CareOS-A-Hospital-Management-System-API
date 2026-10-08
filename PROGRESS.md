@@ -25,7 +25,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                             |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                        |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                         |
-| F12 Hardening & release        | not started                                                                                | everything above                                          |
+| F12 Hardening & release        | partial — strict nonce-based CSP in; design review, deployment story pending               | —                                                         |
 
 **Signature components (brief §2.4): 20 of 20.**
 
@@ -97,7 +97,9 @@ Skeleton, Dialog, ConfirmDialog, Toaster.
 - `/design-system` exercising every primitive, not just the token layer
 - MSW handlers generated against the same spec as the client types
 - Zod-validated environment, refusing mocks in production
-- Security headers, CSP, `standalone` output, `no-referrer`, `noindex`
+- Security headers, `standalone` output, `no-referrer`, `noindex`
+- Strict CSP with a per-request nonce, asserted from the proxy (ADR-010; no
+  `unsafe-inline` for scripts)
 
 **Tooling**: ESLint flat config, Prettier, Vitest, Testing Library, coverage,
 Playwright with `@axe-core/playwright`, `npm run gate`.
@@ -444,3 +446,18 @@ stub (`ex-tok-00001`), unit tests and two e2e/a11y tests.
 
 The F11B slice closed when `/login` shipped (F1): staff can now start and end a
 session from this app, and the public website's last open item is gone.
+
+## F12 — Hardening, first slice: strict CSP
+
+**Status:** in progress. The F0 `unsafe-inline` debt is closed. The proxy
+(`src/proxy.ts`) issues a nonce per request, asserts `script-src 'self'
+'nonce-…'` (no `'unsafe-inline'`) and `style-src-attr 'unsafe-inline'` (style
+attributes only, no `<style>` elements), and forwards the nonce as `x-nonce`
+for Next to apply to its own inline scripts and for the layout to apply to the
+theme bootstrap script. See ADR-010.
+
+Enforced end to end and against a production build: the e2e security spec pins
+the policy shape plus the header↔markup nonce binding, and the a11y suite (75
+tests) runs the whole app under the strict policy. Remaining F12 work is the
+design review of `/design-system`/`DESIGN.md` (deferred from F0/F1) and the
+deployment story.

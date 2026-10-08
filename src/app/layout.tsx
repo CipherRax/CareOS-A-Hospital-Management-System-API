@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { headers } from 'next/headers';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 
@@ -48,6 +49,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // paint with no flash of the wrong theme; see src/design/theme/preferences.ts.
   const { theme, density } = await getThemePreference();
 
+  // The nonce set by the proxy for this request, so the theme bootstrap script
+  // below satisfies `script-src 'nonce-...'`. Same-source invariant with the
+  // header; see src/proxy.ts and docs/decisions.md ADR-010.
+  const nonce = (await headers()).get('x-nonce') ?? '';
+
   const messages = await getMessages();
   // Must match the resolved locale, not a constant. Screen readers pick a voice
   // from `lang`, so a Swahili page announced with an English voice is not a cosmetic
@@ -71,6 +77,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             preference changed in another tab. Inlined because it must not wait
             for the bundle. */}
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }}
           suppressHydrationWarning
         />

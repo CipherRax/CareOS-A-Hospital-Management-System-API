@@ -8,6 +8,10 @@ import createNextIntlPlugin from 'next-intl/plugin';
  * Referrer-Policy of `no-referrer` stops a leaked facility URL from reaching a
  * third party, and the framing and MIME-sniffing locks close off the cheap
  * clickjacking and content-injection paths.
+ *
+ * `Content-Security-Policy` is asserted in the proxy, not here: it carries a
+ * per-request nonce, so it cannot be a static header. See src/proxy.ts and
+ * docs/decisions.md ADR-010.
  */
 const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
@@ -24,26 +28,6 @@ const securityHeaders = [
   {
     key: 'Strict-Transport-Security',
     value: 'max-age=63072000; includeSubDomains; preload',
-  },
-  {
-    key: 'Content-Security-Policy',
-    value: [
-      "default-src 'self'",
-      // Tailwind and the font CSS ship as same-origin stylesheets; no inline
-      // style allowance is needed for the token system.
-      "style-src 'self' 'unsafe-inline'",
-      // The theme bootstrap script is inlined, which is why this cannot be
-      // tightened to script-src 'self' without a nonce. Tracked in
-      // docs/limitations.md as F0 debt to close with a per-request nonce.
-      "script-src 'self' 'unsafe-inline'",
-      "img-src 'self' data:",
-      "font-src 'self'",
-      "connect-src 'self'",
-      "frame-ancestors 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-      "object-src 'none'",
-    ].join('; '),
   },
 ];
 

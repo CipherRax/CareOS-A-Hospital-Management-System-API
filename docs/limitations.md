@@ -346,17 +346,18 @@ pressure to add tests that satisfy a metric rather than catch a defect.
 
 ## Security debt
 
-### Content-Security-Policy allows `'unsafe-inline'` for scripts
+### Design-system swatches keep inline style attributes
 
-The theme bootstrap script must run before first paint and cannot wait for the
-bundle, so it is inlined and the CSP cannot be tightened to `script-src 'self'`.
+The content security policy is now strict: `script-src` has no `'unsafe-inline'`
+and is enforced with a nonce unique to every response, asserted from the proxy
+(`src/proxy.ts`, ADR-010). One residual allowance remains — `style-src-attr
+'unsafe-inline'` — so the design-system screen can paint color-token swatches
+with inline `style` attributes. Style attributes are a low-risk injection
+surface compared with a `<style>` element, which remains disallowed.
 
-This is a known weakness in a product handling patient data. The fix is a
-per-request nonce, which is a small change but needs care with the inline script's
-position in the document head. Not done in F0.
-
-`style-src` also allows `'unsafe-inline'`, which is less serious — Tailwind and
-font CSS are same-origin — but would be tightened alongside the nonce work.
+The separate narrative work on a security review itself (a human going through
+the page-by-page audit) is still open; automation can only cover the cheap
+paths. See F12 in PROGRESS.md.
 
 ### /design-system is unauthenticated
 
