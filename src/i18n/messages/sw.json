@@ -188,14 +188,7 @@
   "_review": {
     "reviewedByNativeSpeaker": false,
     "note": "Strings in this catalogue were written without review by a native Swahili speaker. Treat as draft and have them reviewed before release.",
-    "draftNamespaces": [
-      "common",
-      "error",
-      "estimate",
-      "facilities",
-      "intake",
-      "theme"
-    ]
+    "draftNamespaces": ["common", "error", "estimate", "facilities", "intake", "theme"]
   },
   "track": {
     "pageTitle": "Fuatilia ombi lako",
@@ -235,7 +228,20 @@
     "submit": "Ingia",
     "signingIn": "Inaingia…",
     "mfaChallengeTitle": "Uthibitisho wa hatua mbili unahitajika",
-    "mfaChallengeBody": "Akaunti hii ina kipengele cha pili kimewashwa. Skrini hii ya kuingia kwa sasa inasaidia tu uingiaji wa hatua moja.",
+    "mfaChallengeBody": "Fungua programu yako ya uthibitishaji kisha ingiza nambari ya tarakimu 6 ya akaunti hii.",
+    "mfaSigningInAs": "Unaingia kama {email}",
+    "mfaFactorLegend": "Sababu ya pili",
+    "mfaSecurityCodeOption": "Nambari ya usalama",
+    "mfaRecoveryOption": "Nambari ya kurejesha",
+    "mfaCodeLabel": "Nambari ya usalama yenye tarakimu 6",
+    "mfaCodeHint": "Kutoka kwenye programu yako ya uthibitishaji.",
+    "mfaRecoveryLabel": "Nambari ya kurejesha",
+    "mfaRecoveryHint": "Nambari uliyopewa wakati wa kuweka uthibitisho wa hatua mbili.",
+    "mfaCodeError": "Ingiza nambari ya tarakimu 6 kutoka kwenye programu yako ya uthibitishaji.",
+    "mfaRecoveryError": "Ingiza nambari ya kurejesha.",
+    "mfaVerify": "Thibitisha",
+    "mfaVerifying": "Inathibitisha…",
+    "mfaCancel": "Ingia na akaunti tofauti",
     "errorHeading": "Kuingia kumeshindikana",
     "unknownName": "Umeingia",
     "signOut": "Ondoka",
@@ -246,6 +252,7 @@
       "emailFormat": "Weka anwani sahihi ya barua pepe.",
       "password": "Weka nenosiri lako.",
       "unauthorized": "Barua pepe, nenosiri au kitambulisho cha shirika si sahihi.",
+      "mfa": "Nambari hiyo haikukubaliwa. Nambari inaweza kuwa si sahihi, au kuingia kunaweza kuwa kumekwisha. Ingia tena kisha utumie nambari ya sasa.",
       "rateLimited": "Umejaribu kuingia mara nyingi sana. Subiri kidogo, kisha ujaribu tena.",
       "validation": "Angalia maelezo kisha ujaribu tena.",
       "unavailable": "Kuingia hakupatikani kwa sasa. Jaribu tena baada ya muda mfupi.",

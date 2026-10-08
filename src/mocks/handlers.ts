@@ -74,6 +74,15 @@ const EXAMPLE_FACILITIES = [
 const MOCK_ACCESS_TOKEN = 'mock-access-token';
 const MOCK_REFRESH_TOKEN = 'mock-refresh-token';
 
+/**
+ * A second EXAMPLE account with TOTP enabled, so the second-factor step in the
+ * login form is reachable in the mock (browser dev). Login for this account
+ * answers with a single-use challenge and *no* cookies; `/auth/mfa/verify`
+ * completes it and then hands out the session exactly as login does.
+ */
+const MOCK_MFA_EMAIL = 'mfa@example.org';
+const MOCK_MFA_CHALLENGE_TOKEN = 'mock-challenge-token';
+
 const MOCK_SESSION_USER = {
   id: 'usr_example_0001',
   email: 'nurse@example.org',
@@ -143,6 +152,18 @@ export const handlers = [
     ) {
       return HttpResponse.json(apiError('VALIDATION_ERROR', 'missing fields'), { status: 400 });
     }
+    // The MFA account is answered with a challenge, not a session: no cookies
+    // are set, and the browser must complete the second factor first.
+    if (body.email === MOCK_MFA_EMAIL) {
+      return HttpResponse.json(
+        apiOk({
+          mfaRequired: true,
+          challengeToken: MOCK_MFA_CHALLENGE_TOKEN,
+          challengeExpiresIn: 300,
+        }),
+        { status: 200 },
+      );
+    }
     // Mirrors the proxy bridge: cookies are set, and the token pair is stripped
     // from the body the browser sees.
     setMockCookies();
@@ -164,6 +185,41 @@ export const handlers = [
   http.post('*/api/v1/auth/logout', async () => {
     clearMockCookies();
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post('*/api/v1/auth/mfa/verify', async ({ request }) => {
+    await delay(MOCK_LATENCY_MS);
+    let body: Record<string, unknown>;
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      return HttpResponse.json(apiError('VALIDATION_ERROR', 'bad json'), { status: 400 });
+    }
+    // The live DTO requires a challenge token and one of { TOTP code, recovery
+    // code }; the challenge is single-use and we recognise only our own.
+    if (
+      body.challengeToken !== MOCK_MFA_CHALLENGE_TOKEN ||
+      (typeof body.code !== 'string' && typeof body.recoveryCode !== 'string')
+    ) {
+      return HttpResponse.json(apiError('UNAUTHORIZED', 'MFA challenge invalid or already used'), {
+        status: 401,
+      });
+    }
+    // Completing the challenge has the same effect as a second-factor login:
+    // the session starts and the tokens stay out of page-reachable memory.
+    setMockCookies();
+    return HttpResponse.json(
+      apiOk({
+        user: MOCK_SESSION_USER,
+        session: {
+          id: 'ses_example_0001',
+          familyId: 'fam_example_0001',
+          createdAt: '2026-09-27T09:00:00.000Z',
+          expiresAt: '2026-09-28T09:00:00.000Z',
+        },
+      }),
+      { status: 200 },
+    );
   }),
 
   http.get('*/api/v1/auth/me', () => {

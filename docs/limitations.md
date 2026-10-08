@@ -145,10 +145,13 @@ against the live API cannot be performed. Raised for the API side to decide; the
 frontend does not paper over it. The bridge is verified end to end against the e2e
 stub (real HTTP server upstream of the real proxy) and against MSW in unit tests.
 
-**MFA sign-in has no UI.** The login form handles an `mfaRequired: true` reply by
-showing the challenge notice (the API's contract for it, with no live session to
-inspect) and no second-factor entry. Single-factor sign-in is the built path; MFA
-is honest about not being one.
+**MFA sign-in is built against the contract, not a live session.** The login form
+completes a second-factor challenge at `/auth/mfa/verify` (TOTP code or recovery
+code), and the proxy treats that response exactly like login — the token pair it
+returns is lifted into the HttpOnly cookies and stripped from the body. The
+live path is verified end to end through the e2e stub (the stub is upstream of
+the real proxy) and through MSW+unit tests; it has not been exercised against a
+booted API, because no seeded account can reach the challenge (see above).
 
 ### The intake tracking page is built on a contract whose success body is untyped
 

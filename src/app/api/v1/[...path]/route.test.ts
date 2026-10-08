@@ -334,6 +334,80 @@ describe('session bridge (F1)', () => {
     expect(res.headers.get('set-cookie') ?? '').not.toContain('careos_session');
   });
 
+  it('completes an MFA challenge: lifts the token pair from /auth/mfa/verify into HttpOnly cookies and strips it from the body', async () => {
+    upstream.mockReturnValue(
+      json(
+        {
+          success: true,
+          data: {
+            user: { id: 'u1', email: 'nurse@example.org', roles: ['TRIAGE_NURSE'] },
+            tokens: {
+              accessToken: 'mfa-access-token',
+              refreshToken: 'mfa-refresh-token',
+              expiresIn: 900,
+              refreshTokenExpiresAt: '2099-01-01T00:00:00Z',
+            },
+          },
+        },
+        { status: 200 },
+      ),
+    );
+
+    const res = await handlers.POST(
+      new Request('http://localhost/api/v1/auth/mfa/verify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ challengeToken: 'ch-1', code: '123456' }),
+      }),
+      context(['auth', 'mfa', 'verify']),
+    );
+
+    const body = (await res.json()) as { data: { tokens?: unknown } };
+    // The secret never enters page-reachable memory, exactly as with login.
+    expect(body.data.tokens).toBeUndefined();
+
+    const cookies = setCookies(res);
+    const session = cookies.find((c) => c.startsWith('careos_session='));
+    const refresh = cookies.find((c) => c.startsWith('careos_refresh='));
+    expect(session).toContain('mfa-access-token');
+    expect(session).toContain('HttpOnly');
+    expect(refresh).toContain('mfa-refresh-token');
+    expect(refresh).toContain('HttpOnly');
+
+    // The challenge body went upstream unchanged, so the API saw the real code.
+    expect(JSON.parse(server.received.at(-1)?.body ?? '{}')).toEqual({
+      challengeToken: 'ch-1',
+      code: '123456',
+    });
+  });
+
+  it('passes a failed MFA challenge through: no rotation, no cookies touched', async () => {
+    const baseline = server.received.length;
+    upstream.mockReturnValue(
+      json({ success: false, error: { code: 'UNAUTHORIZED' } }, { status: 401 }),
+    );
+
+    // Even with stale session cookies present, a 401 from mfa/verify is a bad
+    // challenge, not a stale access token — the proxy must not rotate the family.
+    const res = await handlers.POST(
+      new Request('http://localhost/api/v1/auth/mfa/verify', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: 'careos_session=stale-access; careos_refresh=refresh-1',
+        },
+        body: JSON.stringify({ challengeToken: 'ch-1', code: '654321' }),
+      }),
+      context(['auth', 'mfa', 'verify']),
+    );
+
+    expect(res.status).toBe(401);
+    const seen = server.received.slice(baseline);
+    expect(seen.filter((r) => r.url === '/auth/refresh')).toHaveLength(0);
+    // The failed challenge changes nothing about an existing session.
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
   it('injects the refresh cookie into the logout body and clears the session on success', async () => {
     upstream.mockReturnValue(new Response(null, { status: 204 }));
     const res = await handlers.POST(

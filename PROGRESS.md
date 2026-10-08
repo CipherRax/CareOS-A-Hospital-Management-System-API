@@ -10,22 +10,22 @@ documentation, and a commit.
 Status against the brief's phase table. "Blocked" means the API contract for the
 work does not exist, so the screen cannot be built without inventing an endpoint.
 
-| Phase                          | State                                              | Blocked on                                                |
-| ------------------------------ | -------------------------------------------------- | --------------------------------------------------------- |
-| F0 Design system & foundations | **complete**, awaiting design review               | —                                                         |
-| F1 Auth, session, shell        | **complete** — login/logout, proxy session bridge, gate, shell, nav rail | seed login org-id mismatch; design review deferred to F12 |
-| F2 Patients & reception        | stub — banner + timeline only                      | patient search, registration, master record               |
-| F3 Scheduling, queue, nursing  | not started                                        | appointments, slots, waitlist, queue, vitals              |
-| F4 Doctor workspace            | not started                                        | encounters, notes, orders, results                        |
-| F5 Laboratory & radiology      | not started                                        | lab orders, samples, results                              |
-| F6 Pharmacy & inventory        | not started                                        | dispensing, stock, batches, POs                           |
-| F7 Billing & insurance         | not started                                        | invoices, payments, M-PESA, claims                        |
-| F8 Inpatient & emergency       | not started                                        | wards, beds, admissions                                   |
-| F9 Administration & audit      | not started                                        | org, users, permissions, audit log                        |
-| F10 Analytics & reports        | not started                                        | analytics, forecasts, reports                             |
-| F11 Portal & queue display     | partial — display board done                       | portal read models                                        |
-| F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | — |
-| F12 Hardening & release        | not started                                        | everything above                                          |
+| Phase                          | State                                                                                      | Blocked on                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| F0 Design system & foundations | **complete**, awaiting design review                                                       | —                                                         |
+| F1 Auth, session, shell        | **complete** — login/logout, proxy session bridge, gate, shell, nav rail                   | seed login org-id mismatch; design review deferred to F12 |
+| F2 Patients & reception        | stub — banner + timeline only                                                              | patient search, registration, master record               |
+| F3 Scheduling, queue, nursing  | not started                                                                                | appointments, slots, waitlist, queue, vitals              |
+| F4 Doctor workspace            | not started                                                                                | encounters, notes, orders, results                        |
+| F5 Laboratory & radiology      | not started                                                                                | lab orders, samples, results                              |
+| F6 Pharmacy & inventory        | not started                                                                                | dispensing, stock, batches, POs                           |
+| F7 Billing & insurance         | not started                                                                                | invoices, payments, M-PESA, claims                        |
+| F8 Inpatient & emergency       | not started                                                                                | wards, beds, admissions                                   |
+| F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                        |
+| F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                             |
+| F11 Portal & queue display     | partial — display board done                                                               | portal read models                                        |
+| F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                         |
+| F12 Hardening & release        | not started                                                                                | everything above                                          |
 
 **Signature components (brief §2.4): 20 of 20.**
 
@@ -276,6 +276,13 @@ pair is handled:
   SameSite=Lax, Secure over TLS), strips `tokens` from the body the browser sees,
   and the page never knows the pair existed. A same-origin `fetch` then proves the
   charm: cookies flow automatically, no header ever paginates JS into the secret.
+- `POST /auth/mfa/verify` concludes a second-factor challenge exactly like login:
+  the pair it returns is lifted into the cookies and stripped from the body, and
+  its 401s (a refused or stale challenge) are never mistaken for a stale access
+  token, so the proxy does not rotate there. The form takes either the 6-digit
+  TOTP code or a recovery code, mirrors the DTO's one-of rule client-side, maps a
+  refusal to its own message, and offers a way back to the credentials when the
+  challenge has gone stale.
 - Every proxied request carries `careos_session` as `Authorization: Bearer`
   upstream; the browser's own Authorization is still dropped. A 401 on a session
   request (never on login/logout/refresh themselves) rotates once through

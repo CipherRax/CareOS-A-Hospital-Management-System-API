@@ -10,10 +10,10 @@ import { QueryProvider } from '@/lib/data/query-provider';
 /**
  * The sign-in form's client-side rules.
  *
- * The two that matter most: it posts the exact `LoginDto`, and it never renders a
- * token (the proxy owns them; the component only sees the MFA flag). Every other
- * case here — field validation, error mapping — is the difference between a
- * screen a clinician can use and one that stares back.
+ * The two that matter most: it posts the exact `LoginDto`/`MfaVerifyDto`, and it
+ * never renders a token (the proxy owns them; the component only ever sees the
+ * MFA challenge). Every other case here — field validation, error mapping — is
+ * the difference between a screen a clinician can use and one that stares back.
  */
 
 const post = vi.fn();
@@ -26,10 +26,54 @@ vi.mock('next/navigation', () => ({
   useRouter: () => router,
 }));
 
-function okLogin() {
-  post.mockResolvedValue({
-    data: { success: true, data: { mfaRequired: false } },
-    response: new Response(null, { status: 200 }),
+function envelope(data: unknown, status = 200) {
+  return { data, response: new Response(null, { status }) };
+}
+
+/** The API() helper is stubbed by path so the two-step flow is expressible. */
+function okAuth() {
+  post.mockImplementation((path: string) => {
+    if (path === '/auth/login') {
+      return Promise.resolve(envelope({ success: true, data: { mfaRequired: false } }));
+    }
+    return Promise.resolve(
+      envelope({ success: true, data: { user: { id: 'u1' }, session: { id: 's1' } } }),
+    );
+  });
+}
+
+/** Login answers with an MFA challenge; verify succeeds. */
+function mfaAuth() {
+  post.mockImplementation((path: string) => {
+    if (path === '/auth/login') {
+      return Promise.resolve(
+        envelope({
+          success: true,
+          data: { mfaRequired: true, challengeToken: 'challenge_example_0001' },
+        }),
+      );
+    }
+    return Promise.resolve(
+      envelope({ success: true, data: { user: { id: 'u1' }, session: { id: 's1' } } }),
+    );
+  });
+}
+
+/** Login answers with an MFA challenge; the API refuses the verification. */
+function mfaAuthVerifyRefused() {
+  post.mockImplementation((path: string) => {
+    if (path === '/auth/login') {
+      return Promise.resolve(
+        envelope({
+          success: true,
+          data: { mfaRequired: true, challengeToken: 'challenge_example_0001' },
+        }),
+      );
+    }
+    return Promise.resolve({
+      error: { error: { code: 'UNAUTHORIZED' } },
+      response: new Response(null, { status: 401 }),
+    });
   });
 }
 
@@ -51,10 +95,17 @@ async function fillSignIn() {
   return user;
 }
 
+async function reachChallenge() {
+  const user = await fillSignIn();
+  await user.click(screen.getByRole('button', { name: 'Sign in' }));
+  await screen.findByLabelText(/6-digit security code/i);
+  return user;
+}
+
 beforeEach(() => {
   post.mockReset();
   router.push.mockReset();
-  okLogin();
+  okAuth();
 });
 
 describe('LoginForm', () => {
@@ -88,21 +139,96 @@ describe('LoginForm', () => {
     expect(post).toHaveBeenCalledTimes(1);
   });
 
-  it('offers the MFA challenge instead of a redirect', async () => {
-    post.mockResolvedValue({
-      data: {
-        success: true,
-        data: { mfaRequired: true, challengeToken: 'challenge_example_0001' },
-      },
-      response: new Response(null, { status: 200 }),
-    });
+  it('opens the second-factor step on an MFA challenge instead of a redirect', async () => {
+    mfaAuth();
     renderForm();
     const user = await fillSignIn();
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    expect(await screen.findByRole('alert', { name: '' })).toBeInTheDocument();
-    expect(screen.getByText('Two-factor challenge required')).toBeInTheDocument();
+    expect(await screen.findByText('Two-factor challenge required')).toBeInTheDocument();
+    expect(screen.getByText(/signing in as nurse@example.org/i)).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Security code' })).toBeChecked();
+    expect(screen.getByLabelText(/6-digit security code/i)).toBeInTheDocument();
     expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it('completes the second factor with a TOTP code and lands on triage', async () => {
+    mfaAuth();
+
+    renderForm();
+    const user = await reachChallenge();
+    await user.type(screen.getByLabelText(/6-digit security code/i), '123456');
+    await user.click(screen.getByRole('button', { name: 'Verify' }));
+
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/triage'));
+    expect(post).toHaveBeenCalledTimes(2);
+    const [verifyPath, verifyRequest] = post.mock.calls[1] as [
+      string,
+      { body: Record<string, unknown> },
+    ];
+    expect(verifyPath).toBe('/auth/mfa/verify');
+    expect(verifyRequest.body).toEqual({
+      challengeToken: 'challenge_example_0001',
+      code: '123456',
+    });
+    // The other factor must never ride along on the same request.
+    expect(verifyRequest.body.recoveryCode).toBeUndefined();
+  });
+
+  it('lets a recovery code stand in for the TOTP code', async () => {
+    mfaAuth();
+
+    renderForm();
+    const user = await reachChallenge();
+    await user.click(screen.getByRole('radio', { name: 'Recovery code' }));
+    await user.type(screen.getByRole('textbox', { name: /recovery code/i }), 'rstv-4ak3-9m');
+    await user.click(screen.getByRole('button', { name: 'Verify' }));
+
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/triage'));
+    const [, verifyRequest] = post.mock.calls[1] as [string, { body: Record<string, unknown> }];
+    expect(verifyRequest.body).toEqual({
+      challengeToken: 'challenge_example_0001',
+      recoveryCode: 'rstv-4ak3-9m',
+    });
+    expect(verifyRequest.body.code).toBeUndefined();
+  });
+
+  it('blocks on a TOTP code that is not six digits, without calling the API', async () => {
+    mfaAuth();
+    renderForm();
+    const user = await reachChallenge();
+    await user.type(screen.getByLabelText(/6-digit security code/i), '123');
+    await user.click(screen.getByRole('button', { name: 'Verify' }));
+
+    expect(
+      screen.getByText(/enter the 6-digit code from your authenticator app/i),
+    ).toBeInTheDocument();
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it('maps a refused challenge to a message specific to the second factor', async () => {
+    mfaAuthVerifyRefused();
+    renderForm();
+    const user = await reachChallenge();
+    await user.type(screen.getByLabelText(/6-digit security code/i), '111111');
+    await user.click(screen.getByRole('button', { name: 'Verify' }));
+
+    expect(await screen.findByText(/that code was not accepted/i)).toBeInTheDocument();
+    // A refused challenge is not a signed-out state: no redirect from here.
+    expect(router.push).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/6-digit security code/i)).toBeInTheDocument();
+  });
+
+  it('backs out of the second-factor step to try the credentials again', async () => {
+    mfaAuth();
+    renderForm();
+    const user = await reachChallenge();
+    await user.click(screen.getByRole('button', { name: /sign in with a different account/i }));
+
+    expect(screen.queryByLabelText(/6-digit security code/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(post).toHaveBeenCalledTimes(1);
   });
 
   it('blocks on a missing field with a per-field message, in field order', async () => {

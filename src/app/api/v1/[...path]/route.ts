@@ -27,9 +27,10 @@ import { REFRESH_COOKIE, SESSION_COOKIE } from '@/lib/session-cookies';
  * browser, by the constraint above, must never hold tokens it could lose to XSS,
  * so the proxy owns the session instead:
  *
- *  - On a successful `/auth/login` the token pair is lifted out of the response,
- *    written to two HttpOnly cookies (`careos_session`, `careos_refresh`), and
- *    stripped from the body the browser sees.
+ *  - On a successful `/auth/login` or `/auth/mfa/verify` (the two endpoints that
+ *    conclude a session with a token pair) the tokens are lifted out of the
+ *    response, written to two HttpOnly cookies (`careos_session`,
+ *    `careos_refresh`), and stripped from the body the browser sees.
  *  - On every request, `careos_session` is translated into the Bearer header the
  *    API's guards require.
  *  - On a 401 for a request that carried a session token, the proxy rotates once
@@ -302,12 +303,13 @@ function applySessionCookies(
 }
 
 /**
- * The login response is the only one whose body the proxy rewrites: the token
- * pair is lifted into HttpOnly cookies and removed from what the browser sees,
- * so the secret never exists in page-reachable memory. Kept as a separate step
- * so the "pinch every leak" path is a single function to read.
+ * Concludes a session-bearing flow: `/auth/login` and `/auth/mfa/verify`. This
+ * is the one response whose body the proxy rewrites — the token pair is lifted
+ * into HttpOnly cookies and removed from what the browser sees, so the secret
+ * never exists in page-reachable memory. Kept as a separate step so the "pinch
+ * every leak" path is a single function to read.
  */
-async function finalizeLogin(
+async function finalizeSession(
   upstream: Response,
   request: Request,
   url: URL,
@@ -370,11 +372,13 @@ async function proxy(request: Request, segments: string[]): Promise<Response> {
       : undefined;
 
   const isLogin = request.method === 'POST' && path === 'auth/login';
+  const isMfaVerify = request.method === 'POST' && path === 'auth/mfa/verify';
   const isLogout = request.method === 'POST' && path === 'auth/logout';
   // The public auth endpoints speak for themselves: a 401 from login is "bad
-  // credentials", not "refresh and try again", and rotating inside refresh/logout
-  // would be a loop.
-  const needsRotation = !isLogin && !isLogout && path !== 'auth/refresh';
+  // credentials", from mfa/verify a "challenge invalid or already used" — neither
+  // is "refresh and try again" — and rotating inside refresh/logout would be a
+  // loop.
+  const needsRotation = !isLogin && !isMfaVerify && !isLogout && path !== 'auth/refresh';
 
   // `/auth/logout` requires a `refreshToken` in the body. The browser cannot know
   // one (HttpOnly), so the proxy completes the request the way the design works:
@@ -446,8 +450,8 @@ async function proxy(request: Request, segments: string[]): Promise<Response> {
       return response;
     }
 
-    if (isLogin && upstream.status >= 200 && upstream.status < 300) {
-      return finalizeLogin(upstream, request, incomingUrl, requestId);
+    if ((isLogin || isMfaVerify) && upstream.status >= 200 && upstream.status < 300) {
+      return finalizeSession(upstream, request, incomingUrl, requestId);
     }
 
     const response = fromUpstream(upstream, requestId);

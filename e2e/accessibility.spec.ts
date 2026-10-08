@@ -427,6 +427,40 @@ test.describe('staff session gate', () => {
   });
 });
 
+test.describe('staff second factor', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/login');
+    await page.getByLabel(/organization id/i).fill('org-e2e-example-0001');
+    await page.getByLabel(/^email/i).fill('mfa@example.org');
+    await page.getByLabel(/^password/i).fill('correct-horse');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByText('Two-factor challenge required')).toBeVisible();
+  });
+
+  test('completes sign-in with a TOTP code through the proxy', async ({ page }) => {
+    // The challenge is answered at `/auth/mfa/verify`; the proxy lifts the pair
+    // it returns into the session cookies, exactly as it does after login.
+    await page.getByLabel(/6-digit security code/i).fill('123456');
+    await page.getByRole('button', { name: 'Verify' }).click();
+
+    await expect(page).toHaveURL(/\/triage$/);
+    await expect(page.getByRole('navigation', { name: 'Clinical' })).toBeVisible();
+    await expect(page.getByText('EXAMPLE Dr N. Wanjiru')).toBeVisible();
+  });
+
+  test('does not admit a wrong security code', async ({ page }) => {
+    // A refused challenge must neither start a session nor leave the form with
+    // no way forward.
+    await page.getByLabel(/6-digit security code/i).fill('000000');
+    await page.getByRole('button', { name: 'Verify' }).click();
+
+    await expect(page.getByText(/that code was not accepted/i)).toBeVisible();
+    await expect(page).not.toHaveURL(/\/triage$/);
+    await expect(page.getByRole('navigation', { name: 'Clinical' })).toHaveCount(0);
+    await expect(page.getByLabel(/6-digit security code/i)).toBeVisible();
+  });
+});
+
 test.describe('facilities search', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/facilities');

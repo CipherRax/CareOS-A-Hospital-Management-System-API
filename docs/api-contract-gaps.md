@@ -57,12 +57,12 @@ the live vocabulary; the old `UNAUTHENTICATED`/`FORBIDDEN`/`NOT_FOUND` names are
 gone, replaced by `UNAUTHORIZED`, `PERMISSION_DENIED`, `RESOURCE_NOT_FOUND`. The
 remaining known-unmapped codes are listed in `UNMAPPED_ERROR_CODES`:
 
-| Code                         | Surface                |
-| ---------------------------- | ---------------------- |
-| `PUBLIC_LISTING_NOT_PUBLISHED` | Facility directory   |
-| `FACILITY_NOT_ACCEPTING_REQUESTS` | Emergency intake    |
-| `LOCATION_REQUIRED`          | Emergency intake       |
-| `EMERGENCY_CALL_NOW`         | Emergency intake       |
+| Code                              | Surface            |
+| --------------------------------- | ------------------ |
+| `PUBLIC_LISTING_NOT_PUBLISHED`    | Facility directory |
+| `FACILITY_NOT_ACCEPTING_REQUESTS` | Emergency intake   |
+| `LOCATION_REQUIRED`               | Emergency intake   |
+| `EMERGENCY_CALL_NOW`              | Emergency intake   |
 
 **Resolution:** author a message for each once the screens that surface them
 exist. The list is a to-do list, not a graveyard.
@@ -140,9 +140,11 @@ fabricated queue looks like data and is not.
 `/auth/refresh`, `/auth/me`, `/auth/me/preferences`, MFA and password endpoints,
 and the frontend now builds the session on them: `/login` (posts the real
 `LoginDto`), the proxy-owned HttpOnly cookie bridge, and the header `Sign out`.
-The staff gate fails closed on `/auth/me`, the signed-out page earns a real
-`Sign in` link, and the whole flow is verified end to end against the e2e stub
-through the real proxy.
+Second-factor sign-in posts the real `MfaVerifyDto` to `/auth/mfa/verify` (TOTP
+code or recovery code) and the proxy concludes it exactly like login. The staff
+gate fails closed on `/auth/me`, the signed-out page earns a real `Sign in` link,
+and the whole flow — including the MFA challenge, its refusal, and cookie→Bearer
+translation — is verified end to end against the e2e stub through the real proxy.
 
 **Upstream defect discovered while verifying (still open):** `POST /auth/login`
 requires `organizationId` in **uuid format**, but the seed data uses string ids

@@ -69,6 +69,18 @@ const TOKENS = {
   refreshTokenExpiresAt: '2026-12-31T00:00:00.000Z',
 };
 
+/**
+ * The MFA-secured persona. Login for this account answers with a single-use
+ * challenge and no tokens; `POST /auth/mfa/verify` completes it (code 123456 or
+ * the recovery code `RECOVERY-RSTV-4AK3-9M`) and returns the same session
+ * envelope a non-MFA login would, so the proxy lifts the pair exactly as it
+ * does for `/auth/login`.
+ */
+const MFA_EMAIL = 'mfa@example.org';
+const MFA_CHALLENGE_TOKEN = 'careos-e2e-mfa-challenge';
+const MFA_CODE = '123456';
+const MFA_RECOVERY_CODE = 'RECOVERY-RSTV-4AK3-9M';
+
 function send(response, status, body, headers = {}) {
   const payload = body === undefined ? '' : JSON.stringify(body);
   response.writeHead(status, {
@@ -305,10 +317,61 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (parsed.email === MFA_EMAIL) {
+      send(response, 200, {
+        success: true,
+        data: {
+          mfaRequired: true,
+          challengeToken: MFA_CHALLENGE_TOKEN,
+          challengeExpiresIn: 300,
+        },
+      });
+      return;
+    }
+
     send(response, 200, {
       success: true,
       data: {
         mfaRequired: false,
+        user: USER.user,
+        session: SESSION,
+        tokens: TOKENS,
+      },
+    });
+    return;
+  }
+
+  if (url.pathname === '/auth/mfa/verify' && request.method === 'POST') {
+    // Mirrors the live DTO: a challenge token plus one of { TOTP code, recovery
+    // code }. A wrong challenge or wrong code is a 401, exactly as the API
+    // answers, so the test proves the form shows the refusal without admitting
+    // the session.
+    let parsed;
+    try {
+      parsed = JSON.parse((await readBody(request)) || '{}');
+    } catch {
+      send(response, 400, {
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'bad json' },
+      });
+      return;
+    }
+    const code = typeof parsed.code === 'string' ? parsed.code : '';
+    const recovery =
+      typeof parsed.recoveryCode === 'string'
+        ? parsed.recoveryCode.trim().toUpperCase().replace(/\s+/g, '')
+        : '';
+    if (
+      parsed.challengeToken !== MFA_CHALLENGE_TOKEN ||
+      (code !== MFA_CODE && recovery !== MFA_RECOVERY_CODE)
+    ) {
+      send(response, 401, { success: false, error: { code: 'UNAUTHORIZED' } });
+      return;
+    }
+
+    send(response, 200, {
+      success: true,
+      data: {
         user: USER.user,
         session: SESSION,
         tokens: TOKENS,
