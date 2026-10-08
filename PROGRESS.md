@@ -25,7 +25,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                             |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                        |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                         |
-| F12 Hardening & release        | partial — strict nonce-based CSP in; design review, deployment story pending               | —                                                         |
+| F12 Hardening & release        | partial — strict nonce-based CSP + deployment story in; design review pending              | image build unverified on a Docker-capable machine        |
 
 **Signature components (brief §2.4): 20 of 20.**
 
@@ -461,3 +461,18 @@ the policy shape plus the header↔markup nonce binding, and the a11y suite (75
 tests) runs the whole app under the strict policy. Remaining F12 work is the
 design review of `/design-system`/`DESIGN.md` (deferred from F0/F1) and the
 deployment story.
+
+## F12 — Hardening, second slice: release
+
+**Status:** in progress. The deployment story exists: a two-stage `Dockerfile`
+ships the standalone bundle as an unprivileged process, and
+`docs/deployment.md` records the env contract, TLS/cookie requirements and the
+CSP constraints on a CDN/edge. `npm run gate` now builds with mocks explicitly
+off (`build:prod`), so a developer sandbox `.env` with `NEXT_PUBLIC_ENABLE_MOCKS=true`
+no longer fails the gate's build step; a bare `npm run gate` is green.
+
+Open: the image itself has not been built on this machine (Docker daemon is
+root-only here) — `docker build -t careos-web .` plus a container smoke test
+(`/login` 200 with the nonce CSP header) are the tracked follow-up, on a
+Docker-capable machine. The standalone bundle it wraps is verified: the e2e
+harness boots exactly `npm run build && node .next/standalone/server.js`.

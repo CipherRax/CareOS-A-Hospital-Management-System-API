@@ -1,0 +1,15 @@
+node_modules
+.next
+test-results
+coverage
+.git
+.env
+.env.*
+*.log
+docs
+e2e
+openapi
+AGENTS.md
+CLAUDE.md
+DESIGN.md
+README.md
