@@ -10,22 +10,22 @@ documentation, and a commit.
 Status against the brief's phase table. "Blocked" means the API contract for the
 work does not exist, so the screen cannot be built without inventing an endpoint.
 
-| Phase                          | State                                                                                      | Blocked on                                                |
-| ------------------------------ | ------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
-| F0 Design system & foundations | **complete**, awaiting design review                                                       | —                                                         |
-| F1 Auth, session, shell        | **complete** — login/logout, proxy session bridge, gate, shell, nav rail                   | seed login org-id mismatch; design review deferred to F12 |
-| F2 Patients & reception        | stub — banner + timeline only                                                              | patient search, registration, master record               |
-| F3 Scheduling, queue, nursing  | not started                                                                                | appointments, slots, waitlist, queue, vitals              |
-| F4 Doctor workspace            | not started                                                                                | encounters, notes, orders, results                        |
-| F5 Laboratory & radiology      | not started                                                                                | lab orders, samples, results                              |
-| F6 Pharmacy & inventory        | not started                                                                                | dispensing, stock, batches, POs                           |
-| F7 Billing & insurance         | not started                                                                                | invoices, payments, M-PESA, claims                        |
-| F8 Inpatient & emergency       | not started                                                                                | wards, beds, admissions                                   |
-| F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                        |
-| F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                             |
-| F11 Portal & queue display     | partial — display board done                                                               | portal read models                                        |
-| F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                         |
-| F12 Hardening & release        | partial — strict nonce-based CSP + deployment story in; design review pending              | image build unverified on a Docker-capable machine        |
+| Phase                          | State                                                                                      | Blocked on                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| F0 Design system & foundations | **complete**, design review **passed** (F12)                                               | —                                                  |
+| F1 Auth, session, shell        | **complete** — login/logout, proxy session bridge, gate, shell, nav rail                   | seed login org-id mismatch                         |
+| F2 Patients & reception        | stub — banner + timeline only                                                              | patient search, registration, master record        |
+| F3 Scheduling, queue, nursing  | not started                                                                                | appointments, slots, waitlist, queue, vitals       |
+| F4 Doctor workspace            | not started                                                                                | encounters, notes, orders, results                 |
+| F5 Laboratory & radiology      | not started                                                                                | lab orders, samples, results                       |
+| F6 Pharmacy & inventory        | not started                                                                                | dispensing, stock, batches, POs                    |
+| F7 Billing & insurance         | not started                                                                                | invoices, payments, M-PESA, claims                 |
+| F8 Inpatient & emergency       | not started                                                                                | wards, beds, admissions                            |
+| F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                 |
+| F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                      |
+| F11 Portal & queue display     | partial — display board done                                                               | portal read models                                 |
+| F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                  |
+| F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine |
 
 **Signature components (brief §2.4): 20 of 20.**
 
@@ -33,38 +33,31 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `StatusPill`, `DataTable`, `Timeline`, `QueueTicket`, `NowServing`, `PatientBanner`, `EstimateBadge`, `MoneyText`, `AuditNote`, `BreakGlassDialog`, `AmendmentDialog`, `ConflictDialog`, `BedTile`, `WardBoard`, `BatchRow`, `CommandPalette`, `Can`, `EmptyState`, `FormSection`, `KeyValueGrid` |
 
-Every one is un-reviewed and unexercised against a real record; the tally counts
-existence, not verification.
+Every component above is exercised on `/design-system` (login-gated and
+MFA-protected since F1), which the F12 design review swept across all four
+theme and density pairs — see `docs/design-review.md`. `CommandPalette` is
+built in-house on the existing Radix `Dialog`; the `cmdk` dependency question
+was resolved as "no new dependency".
 
 Every workspace in F2–F9 is assembled from these, so they are the current work: it is
 the only phase work that does not wait on the API.
 
-### Three blockers gate the rest
+### Two blockers gate the rest
 
 1. **The seed/login org-id mismatch.** `/auth/login` requires a uuid
-   `organizationId`, but the seeds are string ids (`demo-org-nairobi`), so no
+   `organizationId`, but the seeds are string ids, so no
    seeded account can log in through the API. The frontend session flow is fully
    built (F1) and verified against the stub; this defect is API-side and is what
    stops a real end-to-end login.
 2. **No triage, queue or patient-record contracts.** `/triage` is fixture-fitted,
    which caps F2 and F3.
-3. **The signature set is complete but un-reviewed** (20 of 20). `CommandPalette`
-   was built in-house on the existing Radix `Dialog`, so the `cmdk` dependency
-   question is resolved as "no new dependency".
-
-(2) needs API work. (1) is an API-side defect recorded for decision.
-
-### Open decision
-
-The brief gates F1 on design review of `/design-system` and `DESIGN.md`. F0 is
-complete and five feature slices have since been built past that gate. Either review
-F0 now, or record explicitly that review is deferred to F12.
 
 ---
 
 ## F0 — Design system and foundations
 
-**Status:** complete, **awaiting design review**. No feature workspace started.
+**Status:** complete, design review **passed** — see `docs/design-review.md`
+for the F12 audit, findings and resolutions.
 
 Review at `/design-system`; read `DESIGN.md` first.
 
@@ -476,3 +469,21 @@ root-only here) — `docker build -t careos-web .` plus a container smoke test
 (`/login` 200 with the nonce CSP header) are the tracked follow-up, on a
 Docker-capable machine. The standalone bundle it wraps is verified: the e2e
 harness boots exactly `npm run build && node .next/standalone/server.js`.
+
+## F12 — Hardening, third slice: design review
+
+**Status:** complete. The F0/F1 design review is done and recorded in
+`docs/design-review.md`. Findings fixed in this slice:
+
+- Four of the twenty signature components were absent from `/design-system`
+  (`StatusPill`, `DataTable`, `Timeline`, `BedTile`), so the live review surface
+  no longer covered the whole set; all four are now demonstrated there.
+- `DESIGN.md` still opened with "awaiting design review" after five feature
+  slices had shipped past the F0 gate; the status line now points at the review
+  artefact instead.
+
+Everything else the review could not assert by eye was already wired into the
+build rather than left to process: contrast pairs (`tokens:verify`, tightest
+passing pair 3.25:1), the single global focus rule, and the axe sweep of
+`/design-system` in all four theme/density combinations. No contrast, shape,
+motion or scale dependency was added to achieve the pass.

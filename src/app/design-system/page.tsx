@@ -34,11 +34,14 @@ import {
   AmendmentDialog,
   AuditNote,
   BatchRow,
+  BedTile,
   BreakGlassBanner,
   BreakGlassDialog,
   Can,
   CommandPalette,
   ConflictDialog,
+  DataTable,
+  type DataTableColumn,
   EmptyState,
   EstimateBadge,
   FormSection,
@@ -48,6 +51,9 @@ import {
   PatientBanner,
   type PatientBannerProps,
   QueueTicket,
+  StatusPill,
+  Timeline,
+  type TimelineEvent,
   WardBoard,
 } from '@/components/clinical';
 import { DENSITIES, type Density, type ThemePreference } from '@/design/theme/preferences';
@@ -124,6 +130,86 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
  * A component library documenting only the recorded case teaches the reader that
  * the other two are the same case.
  */
+interface QueueRow {
+  reference: string;
+  name: string;
+  band: string;
+  tone: 'critical' | 'warning' | 'info' | 'success' | 'neutral';
+  pulse: number;
+  waiting: string;
+}
+
+const QUEUE_ROWS: readonly QueueRow[] = [
+  {
+    reference: 'EX-2106',
+    name: 'EXAMPLE Achieng Otieno',
+    band: 'Red',
+    tone: 'critical',
+    pulse: 118,
+    waiting: '02:11',
+  },
+  {
+    reference: 'EX-2107',
+    name: 'EXAMPLE Brian Odhiambo',
+    band: 'Yellow',
+    tone: 'warning',
+    pulse: 94,
+    waiting: '01:48',
+  },
+  {
+    reference: 'EX-2108',
+    name: 'EXAMPLE Cynthia Moraa',
+    band: 'Green',
+    tone: 'info',
+    pulse: 76,
+    waiting: '01:05',
+  },
+  {
+    reference: 'EX-2109',
+    name: 'EXAMPLE David Kipchoge',
+    band: 'Green',
+    tone: 'info',
+    pulse: 72,
+    waiting: '00:29',
+  },
+  {
+    reference: 'EX-2110',
+    name: 'EXAMPLE Esther Wangari',
+    band: 'Blue',
+    tone: 'success',
+    pulse: 68,
+    waiting: '00:12',
+  },
+];
+
+const TIMELINE_EVENTS: readonly TimelineEvent[] = [
+  {
+    id: 'evt-3',
+    timestamp: '2026-10-08T09:14:00Z',
+    author: 'N. Wanjiru, Triage RN',
+    eventType: 'observation',
+    summary: 'BP 128/82, pulse 76, temp 37.1 °C',
+    tone: 'critical',
+    tag: 'escalated',
+  },
+  {
+    id: 'evt-2',
+    timestamp: '2026-10-08T09:02:00Z',
+    author: 'N. Wanjiru, Triage RN',
+    eventType: 'triage',
+    summary: 'Triage band yellow',
+    detail: 'Arrived by ambulance, alert and oriented.',
+  },
+  {
+    id: 'evt-1',
+    timestamp: '2026-10-08T08:40:00Z',
+    author: 'P. Ndegwa, Ward Clerk',
+    eventType: 'note',
+    summary: 'Registration completed',
+    detail: 'Fluid balance chart opened; 500 ml oral intake documented.',
+  },
+];
+
 const BANNER_DEMO: Record<
   'recorded' | 'noneRecorded' | 'notRecorded',
   PatientBannerProps['patient']
@@ -552,6 +638,21 @@ export default function DesignSystemPage() {
             />
           </div>
 
+          <h3 className="mt-8 mb-2 text-body font-semibold text-primary">BedTile</h3>
+          <p className="mb-3 max-w-prose text-meta text-secondary">
+            The board's tile in isolation. State is a border and a label, never a fill: a wall of
+            coloured tiles is the exact colour-only-status failure the product forbids. The flag
+            (e.g. “O2”) is a word, not a colour cue.
+          </p>
+          <ul className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            <BedTile bed="4A" state="occupied" patientName="EXAMPLE Akech" />
+            <BedTile bed="4B" state="occupied" />
+            <BedTile bed="4C" state="cleaning" flag="O2" />
+            <BedTile bed="4D" state="vacant" />
+            <BedTile bed="4E" state="reserved" />
+            <BedTile bed="4F" state="out-of-service" />
+          </ul>
+
           <h3 className="mt-8 mb-2 text-body font-semibold text-primary">BatchRow</h3>
           <p className="mb-3 max-w-prose text-meta text-secondary">
             One row per operation: state lives on the row, undo is differential, and a failed row
@@ -733,6 +834,74 @@ export default function DesignSystemPage() {
           <h3 className="mt-8 mb-2 text-body font-semibold text-primary">BreakGlassBanner</h3>
           <div className="mb-6 max-w-xl">
             <BreakGlassBanner minutesRemaining={18} onEnd={() => {}} />
+          </div>
+
+          <h3 className="mb-2 text-body font-semibold text-primary">StatusPill</h3>
+          <p className="mb-3 max-w-prose text-meta text-secondary">
+            A status is always a label on a tint — the colour never travels alone. Every tone is
+            asserted as a text/background pair in both themes by <code>npm run tokens:verify</code>.
+          </p>
+          <div className="mb-6 flex flex-wrap items-center gap-3">
+            <StatusPill tone="critical" label="Escalated" title="Explicit acknowledgement" />
+            <StatusPill tone="warning" label="Yellow" size="sm" />
+            <StatusPill tone="info" label="Obs due" size="sm" />
+            <StatusPill tone="success" label="Admitted" />
+            <StatusPill tone="neutral" label="Assigned" />
+          </div>
+
+          <h3 className="mb-2 text-body font-semibold text-primary">DataTable</h3>
+          <p className="mb-3 max-w-prose text-meta text-secondary">
+            A real <code>&lt;table&gt;</code> with a required caption, not a grid of divs. Figures
+            right-align tabular; row rules and whitespace separate rows instead of zebra striping,
+            which would fight a status tint.
+          </p>
+          <div className="mb-6">
+            <DataTable
+              caption="Triage queue waitlist"
+              captionVisible
+              rowKey={(row) => row.reference}
+              columns={
+                [
+                  {
+                    key: 'reference',
+                    header: 'Reference',
+                    cell: (row) => <span className="font-mono text-primary">{row.reference}</span>,
+                  },
+                  {
+                    key: 'patient',
+                    header: 'Patient',
+                    cell: (row) => row.name,
+                  },
+                  {
+                    key: 'band',
+                    header: 'Queue band',
+                    cell: (row) => <StatusPill tone={row.tone} label={row.band} size="sm" />,
+                  },
+                  {
+                    key: 'pulse',
+                    header: 'Pulse',
+                    numeric: true,
+                    cell: (row) => `${row.pulse} bpm`,
+                  },
+                  {
+                    key: 'waiting',
+                    header: 'Waiting',
+                    numeric: true,
+                    cell: (row) => row.waiting,
+                  },
+                ] satisfies readonly DataTableColumn<QueueRow>[]
+              }
+              rows={QUEUE_ROWS}
+            />
+          </div>
+
+          <h3 className="mb-2 text-body font-semibold text-primary">Timeline</h3>
+          <p className="mb-3 max-w-prose text-meta text-secondary">
+            An ordered list with absolute timestamps — sequence is the meaning, and a relative time
+            alone goes stale during a long shift.
+          </p>
+          <div className="mb-6 max-w-2xl">
+            <Timeline events={TIMELINE_EVENTS} timeZone="Africa/Nairobi" />
           </div>
 
           <h3 className="mt-8 mb-2 text-body font-semibold text-primary">

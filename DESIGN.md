@@ -6,7 +6,12 @@ This document is the contract for how careOS looks. It exists so that "make it
 feel more clinical" is answerable with a reference rather than an opinion, and so
 that a reviewer can check a screen against something written down.
 
-Phase F0 status: **awaiting design review.** No feature workspace has been built.
+Phase F0 status: **review passed.** Reviewed in F12 against the live
+`/design-system` surface, which demonstrates all twenty signature components.
+What a review cannot assert by eye — contrast, focus geometry, the radius and
+duration scales — is wired into the build via `npm run tokens:verify`, the
+global focus rule, and the axe sweep of `/design-system` in all four theme and
+density combinations (see `docs/design-review.md`).
 
 Review the live result at `/design-system`. Every colour, radius and duration in
 the product comes from this system.
