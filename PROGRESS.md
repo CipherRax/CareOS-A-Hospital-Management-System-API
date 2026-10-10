@@ -10,22 +10,22 @@ documentation, and a commit.
 Status against the brief's phase table. "Blocked" means the API contract for the
 work does not exist, so the screen cannot be built without inventing an endpoint.
 
-| Phase                          | State                                                                                      | Blocked on                                         |
-| ------------------------------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------- |
-| F0 Design system & foundations | **complete**, design review **passed** (F12)                                               | —                                                  |
-| F1 Auth, session, shell        | **complete** — login/logout, proxy session bridge, gate, shell, nav rail                   | seed login org-id mismatch                         |
-| F2 Patients & reception        | stub — banner + timeline only                                                              | patient search, registration, master record        |
-| F3 Scheduling, queue, nursing  | not started                                                                                | appointments, slots, waitlist, queue, vitals       |
-| F4 Doctor workspace            | not started                                                                                | encounters, notes, orders, results                 |
-| F5 Laboratory & radiology      | not started                                                                                | lab orders, samples, results                       |
-| F6 Pharmacy & inventory        | not started                                                                                | dispensing, stock, batches, POs                    |
-| F7 Billing & insurance         | not started                                                                                | invoices, payments, M-PESA, claims                 |
-| F8 Inpatient & emergency       | not started                                                                                | wards, beds, admissions                            |
-| F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                 |
-| F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                      |
-| F11 Portal & queue display     | partial — display board done                                                               | portal read models                                 |
-| F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                  |
-| F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine |
+| Phase                          | State                                                                                      | Blocked on                                             |
+| ------------------------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| F0 Design system & foundations | **complete**, design review **passed** (F12)                                               | —                                                      |
+| F1 Auth, session, shell        | **complete** — login/logout, proxy session bridge, gate, shell, nav rail                   | live round-trip awaiting a bootable API                |
+| F2 Patients & reception        | stub — banner + timeline only                                                              | live API to verify patient/search contracts            |
+| F3 Scheduling, queue, nursing  | not started                                                                                | live API to verify appointments/queue/vitals contracts |
+| F4 Doctor workspace            | not started                                                                                | encounters, notes, orders, results                     |
+| F5 Laboratory & radiology      | not started                                                                                | lab orders, samples, results                           |
+| F6 Pharmacy & inventory        | not started                                                                                | dispensing, stock, batches, POs                        |
+| F7 Billing & insurance         | not started                                                                                | invoices, payments, M-PESA, claims                     |
+| F8 Inpatient & emergency       | not started                                                                                | wards, beds, admissions                                |
+| F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                     |
+| F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                          |
+| F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
+| F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
+| F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine     |
 
 **Signature components (brief §2.4): 20 of 20.**
 
@@ -44,13 +44,18 @@ the only phase work that does not wait on the API.
 
 ### Two blockers gate the rest
 
-1. **The seed/login org-id mismatch.** `/auth/login` requires a uuid
-   `organizationId`, but the seeds are string ids, so no
-   seeded account can log in through the API. The frontend session flow is fully
-   built (F1) and verified against the stub; this defect is API-side and is what
-   stops a real end-to-end login.
-2. **No triage, queue or patient-record contracts.** `/triage` is fixture-fitted,
-   which caps F2 and F3.
+1. **The seed/login org-id mismatch — fixed API-side (`main` `f8b8492`), awaiting
+   a live API to verify the login end to end.** `/auth/login` used to require a
+   uuid `organizationId` while `Organization.id` is an unconstrained `String`
+   and the seeds are readable tenant names (`demo-org-nairobi`, …), so no
+   seeded account could sign in. The login and password-reset DTOs now trim and
+   accept any 1..128 character org id, matching the model (unit-covered in the
+   API: 921 passing). The frontend session flow (F1) is verified against the
+   stub; the live round-trip still needs a bootable API.
+2. **No triage, queue or patient-record contracts verified against a running
+   API.** `/triage` is fixture-fitted, which caps F2 and F3 until the API can
+   boot here (Postgres/Redis — the Docker daemon on this machine is root-only)
+   and its OpenAPI is regenerated and re-synced into the web client types.
 
 ---
 
