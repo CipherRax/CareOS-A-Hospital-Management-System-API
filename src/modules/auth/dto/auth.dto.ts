@@ -3,7 +3,9 @@ import { z } from 'zod';
 
 const organizationId = z
   .string()
-  .uuid()
+  .trim()
+  .min(1)
+  .max(128)
   .describe('The organization the user belongs to (multi-tenant login)');
 
 export const LoginSchema = z.object({
@@ -132,10 +134,16 @@ export const UpdatePreferencesSchema = z
     density: z.enum(['compact', 'comfortable', 'cozy']).optional(),
     defaultBranchId: z.string().uuid().optional(),
   })
-  .refine((v) => v.locale !== undefined || v.density !== undefined || v.defaultBranchId !== undefined, {
-    message: 'Provide at least one preference to update.',
-    path: ['locale'],
-  });
+  .refine(
+    (v) =>
+      v.locale !== undefined ||
+      v.density !== undefined ||
+      v.defaultBranchId !== undefined,
+    {
+      message: 'Provide at least one preference to update.',
+      path: ['locale'],
+    },
+  );
 export class UpdatePreferencesDto extends createZodDto(UpdatePreferencesSchema) {}
 
 export const PreferencesSchema = z.object({
