@@ -2,6 +2,8 @@ import { http, HttpResponse } from 'msw';
 
 import { REFRESH_COOKIE, SESSION_COOKIE } from '@/lib/session-cookies';
 
+import { patientHandlers } from './patient-handlers';
+
 /**
  * API mock handlers.
  *
@@ -107,6 +109,9 @@ function hasMockSession(): boolean {
 }
 
 export const handlers = [
+  // F2 patient registry (reception): search, registration with duplicate
+  // detection, master record, timeline, access log. See ./patient-handlers.ts.
+  ...patientHandlers,
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).
@@ -338,6 +343,6 @@ export const handlers = [
   }),
 ];
 
-function delay(ms: number) {
+export function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

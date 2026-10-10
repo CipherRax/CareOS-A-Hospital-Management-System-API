@@ -51,6 +51,12 @@ export const ERROR_CATALOGUE = {
     messageKey: 'error.unprocessable.body',
     retryable: false,
   },
+  POSSIBLE_DUPLICATE: {
+    status: 409,
+    titleKey: 'error.possibleDuplicate.title',
+    messageKey: 'error.possibleDuplicate.body',
+    retryable: false,
+  },
   RATE_LIMITED: {
     status: 429,
     titleKey: 'error.rateLimited.title',

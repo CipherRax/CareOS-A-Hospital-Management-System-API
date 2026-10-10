@@ -40,6 +40,10 @@
       "title": "Mtu mwingine ameibadilisha",
       "body": "Rekodi ilibadilishwa na mtu mwingine. Onyesha upya ili kuona toleo la sasa kabla ya kuendelea."
     },
+    "possibleDuplicate": {
+      "title": "Rekodi inaweza kuwa tayari ipo",
+      "body": "Mgonjwa mwenye maelezo kama hayo tayari amesajiliwa. Linganisha rekodi kabla ya kuamua jinsi ya kuendelea."
+    },
     "unprocessable": {
       "title": "Hawezi kushughulikiwa",
       "body": "Ombi limeeleweka lakini halikuweza kukamilishwa kama ilivyowasilishwa."
@@ -188,7 +192,16 @@
   "_review": {
     "reviewedByNativeSpeaker": false,
     "note": "Strings in this catalogue were written without review by a native Swahili speaker. Treat as draft and have them reviewed before release.",
-    "draftNamespaces": ["common", "error", "estimate", "facilities", "intake", "theme"]
+    "draftNamespaces": [
+      "common",
+      "error",
+      "estimate",
+      "facilities",
+      "intake",
+      "patients",
+      "record",
+      "theme"
+    ]
   },
   "track": {
     "pageTitle": "Fuatilia ombi lako",
@@ -259,5 +272,89 @@
       "generic": "Kuingia hakukuweza kukamilishwa. Jaribu tena."
     },
     "signOutFailed": "Ondoka kumeshindikana"
+  },
+  "patients": {
+    "pageTitle": "Mapokezi",
+    "pageIntro": "Tafuta mgonjwa kwa jina, nambari ya mgonjwa au simu, au usajili anayefika bila miadi.",
+    "searchLabel": "Tafuta wagonjwa",
+    "searchPlaceholder": "Jina, nambari ya mgonjwa au simu",
+    "searching": "Inatafuta…",
+    "resultsCount": "{count, plural, =0 {Hakuna wagonjwa walioonekana} one {mgonjwa 1} other {wagonjwa #}}",
+    "noResultsTitle": "Hakuna mgonjwa aliyeonekana",
+    "noResultsBody": "Angalia herufi, au msajili mtu huyu kama anayefika popote pote.",
+    "newPatient": "Sajili anayefika",
+    "emptyTitle": "Tafuta ili kumpata mgonjwa",
+    "emptyBody": "Anza kuandika jina, nambari ya mgonjwa au nambari ya simu. Matokeo yanaonekana unapoandika.",
+    "unavailableTitle": "Rekodi za wagonjwa hazipatikani kwa sasa",
+    "unavailableBody": "Utafutaji haukuweza kukamilishwa. Jaribu tena baada ya muda mfupi.",
+    "name": "Jina",
+    "reference": "Nambari ya mgonjwa",
+    "dob": "Tarehe ya kuzaliwa",
+    "phone": "Simu",
+    "sex": "Jinsia",
+    "open": "Fungua rekodi",
+    "reasonForEntry": "Jinsi mtu huyu alivyofika hapa",
+    "register": {
+      "title": "Sajili anayefika",
+      "intro": "Sajili mgonjwa aliyefika bila miadi.",
+      "identityTitle": "Maelezo ya mgonjwa",
+      "firstName": "Jina la kwanza",
+      "lastName": "Jina la mwisho",
+      "otherNames": "Majina mengine",
+      "dob": "Tarehe ya kuzaliwa",
+      "dobHint": "Inatumiwa kutafuta rekodi zilizopo.",
+      "phone": "Simu",
+      "phoneOptional": "Simu (hiari)",
+      "email": "Barua pepe (hiari)",
+      "county": "Kaunti (hiari)",
+      "town": "Mji (hiari)",
+      "submit": "Sajili mgonjwa",
+      "submitting": "Inasajili…",
+      "duplicateTitle": "Angalia nakala ya rekodi",
+      "duplicateIntroPL": "Rekodi inafanana na maelezo uliyoyapeana. Linganisha kabla ya kuendelea.",
+      "duplicateIntroOther": "Rekodi {count} zinafanana na maelezo uliyoyapeana. Linganisha kabla ya kuendelea.",
+      "candName": "Jina",
+      "candDob": "Tarehe ya kuzaliwa",
+      "candSex": "Jinsia",
+      "candReference": "Nambari ya mgonjwa",
+      "candPhone": "Simu",
+      "thisIsSame": "Fungua rekodi hii",
+      "notDuplicate": "Huyu ni mtu tofauti",
+      "notDuplicateReason": "Sababu kwa nini huyu si mtu yule yule",
+      "notDuplicateReasonHint": "Kwa mfano: “Jina linalofanana, mgonjwa tofauti anaonekana.”",
+      "notDuplicateReasonRequired": "Eleza kwa nini huyu si mgonjwa yule yule.",
+      "notDuplicateSubmitting": "Inathibitisha…",
+      "registered": "Mgonjwa amesajiliwa",
+      "registeredBody": "{firstName} {lastName} amesajiliwa kama {patientNumber}.",
+      "viewRecord": "Fungua rekodi mpya",
+      "registerAnother": "Sajili mwingine anayefika",
+      "invalidDob": "Weka tarehe sahihi ya kuzaliwa.",
+      "futureDob": "Tarehe ya kuzaliwa haiwezi kuwa ya baadaye.",
+      "firstNameRequired": "Ingiza jina la kwanza la mgonjwa.",
+      "lastNameRequired": "Ingiza jina la mwisho la mgonjwa."
+    }
+  },
+  "record": {
+    "title": "Rekodi ya mgonjwa",
+    "tabSummary": "Muhtasari",
+    "tabTimeline": "Mkurunjo",
+    "tabAccessLog": "Rekodi ya upatikanaji",
+    "summarySections": {
+      "contact": "Mawasiliano na maelezo",
+      "guardians": "Walezi na jamaa",
+      "consents": "Idhini",
+      "allergies": "Mzio",
+      "medicalHistory": "Historia ya kimatibabu",
+      "insurance": "Bima"
+    },
+    "none": "Hakuna kilichorekodiwa",
+    "emptyGuardians": "Hakuna mlezi aliyeorodheshwa. Ongeza kwa kuhariri rekodi.",
+    "emptyConsents": "Hakuna uamuzi wa idhini uliorekodiwa.",
+    "emptyMedicalHistory": "Hakuna historia ya kimatibabu iliyorekodiwa.",
+    "relationship": "Uhusiano",
+    "primary": "Mawasiliano ya kwanza",
+    "emergencyContact": "Mawasiliano ya dharura",
+    "accessLogUnavailable": "Jukumu lako haliruhusu kuona rekodi ya upatikanaji.",
+    "registeredOn": "Imeandikishwa {date}"
   }
 }

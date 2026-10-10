@@ -81,6 +81,85 @@ const MFA_CHALLENGE_TOKEN = 'careos-e2e-mfa-challenge';
 const MFA_CODE = '123456';
 const MFA_RECOVERY_CODE = 'RECOVERY-RSTV-4AK3-9M';
 
+const PATIENT_REGISTRY = {
+  'pat_example_1001': {
+    id: 'pat_example_1001',
+    patientNumber: 'PAT-2026-000001',
+    firstName: 'EXAMPLE',
+    otherNames: 'Amina',
+    lastName: 'Yusuf',
+    dateOfBirth: '1992-05-14',
+    sex: 'FEMALE',
+    phone: '0700000001',
+    county: 'Mombasa',
+    town: 'Old Town',
+    status: 'ACTIVE',
+    version: 1,
+  },
+  'pat_example_1002': {
+    id: 'pat_example_1002',
+    patientNumber: 'PAT-2026-000002',
+    firstName: 'EXAMPLE',
+    otherNames: null,
+    lastName: 'Mwangi',
+    dateOfBirth: '1987-03-20',
+    sex: 'MALE',
+    phone: '0700000002',
+    county: 'Nairobi',
+    town: 'Kilimani',
+    status: 'ACTIVE',
+    version: 1,
+  },
+  'pat_example_1003': {
+    id: 'pat_example_1003',
+    patientNumber: 'PAT-2026-000003',
+    firstName: 'EXAMPLE',
+    otherNames: 'Muthoni',
+    lastName: 'Wambui',
+    dateOfBirth: '1975-11-09',
+    sex: 'FEMALE',
+    phone: '0700000003',
+    county: 'Kiambu',
+    town: 'Thika',
+    status: 'ACTIVE',
+    version: 1,
+  },
+};
+let createdSeq = 5;
+
+const SECTIONS = {
+  pat_example_1001: {
+    guardians: [
+      { id: 'g-1001-1', firstName: 'EXAMPLE', lastName: 'Hasan', relationship: 'Guardian', phone: '0700000002', isEmergencyContact: true },
+    ],
+    consents: [{ type: 'TREATMENT', status: 'GRANTED' }],
+    allergies: [{ id: 'a-1001-1', substance: 'Penicillin', severity: 'SEVERE' }],
+    medicalHistory: [{ category: 'DIABETES', description: 'Type 2', onsetDate: '2018-06-01' }],
+  },
+};
+const TIMELINE = {
+  pat_example_1001: [
+    { id: 't-1001-1', occurredAt: '2026-10-05T09:00:00Z', title: 'Registered', type: 'PATIENT_CREATED' },
+  ],
+};
+const ACCESS_LOG = {
+  pat_example_1001: [
+    {
+      id: 'al-1001-1',
+      patientId: 'pat_example_1001',
+      userId: 'usr-example-1',
+      action: 'VIEW',
+      section: 'MASTER',
+      reason: 'INCLINIC_VIEW',
+      ip: '127.0.0.1',
+      userAgent: 'stub',
+      requestId: 'r-1',
+      createdAt: '2026-10-05T09:05:00Z',
+    },
+  ],
+};
+
+
 function send(response, status, body, headers = {}) {
   const payload = body === undefined ? '' : JSON.stringify(body);
   response.writeHead(status, {
@@ -427,6 +506,69 @@ const server = createServer(async (request, response) => {
     }
 
     send(response, 200, { success: true, data: USER });
+    return;
+  }
+
+
+  if (url.pathname === '/patients' && request.method === 'GET') {
+    const q = (url.searchParams.get('q') || '').toLowerCase();
+    let items = Object.values(PATIENT_REGISTRY);
+    if (q) {
+      items = items.filter(p => [p.patientNumber, `${p.firstName} ${p.otherNames||''} ${p.lastName}`, p.phone||''].join(' ').toLowerCase().includes(q));
+    }
+    send(response, 200, { success: true, data: { items, meta: { page:1, limit:25, total: items.length, totalPages: Math.ceil(items.length/25) } } });
+    return;
+  }
+
+  if (url.pathname === '/patients' && request.method === 'POST') {
+    let parsed;
+    try { parsed = JSON.parse((await readBody(request))||'{}'); } catch { send(response,400,{success:false,error:{code:'VALIDATION_ERROR',message:'bad json'}}); return; }
+    const body = parsed;
+    if (!body.firstName || !body.lastName) {
+      send(response,400,{success:false,error:{code:'VALIDATION_ERROR',message:'invalid'}}); return;
+    }
+    // trigger duplicate for the scripted walk-in: EXAMPLE, lastName Yusuf, DOB 1992-05-14
+    if (body.firstName === 'EXAMPLE' && body.lastName === 'Yusuf' && body.dateOfBirth === '1992-05-14') {
+      send(response,409,{success:false,error:{code:'POSSIBLE_DUPLICATE',details:{candidates:[{
+        patientId:'pat_example_1002', patientNumber:'PAT-2026-000002', firstName:'EXAMPLE', lastName:'Yusuf', dateOfBirth:'1992-05-14', score:0.92, reasons:['name-match','dob-match']
+      }]}}});
+      return;
+    }
+    createdSeq++;
+    const id = `pat_example_${1000+createdSeq}`;
+    const num = `PAT-2026-${String(createdSeq).padStart(6,'0')}`;
+    const created = { id, patientNumber:num, firstName:body.firstName, otherNames:body.otherNames||null, lastName:body.lastName, dateOfBirth:body.dateOfBirth||null, sex:body.sex||null, phone:body.phone||null, county:body.county||null, town:body.town||null, status:'ACTIVE', version:1 };
+    PATIENT_REGISTRY[id] = created;
+    send(response,201,{success:true,data:created});
+    return;
+  }
+
+  if (url.pathname.startsWith('/patients/') && url.pathname.endsWith('/confirm-not-duplicate') && request.method === 'POST') {
+    // id not needed for stub
+    send(response,200,{success:true});
+    return;
+  }
+
+  if (url.pathname.match(/^\/patients\/[^/]+$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const p = PATIENT_REGISTRY[id];
+    if (!p) { send(response,404,{success:false,error:{code:'RESOURCE_NOT_FOUND'}}); return; }
+    const sections = SECTIONS[id] || { guardians:[], consents:[], allergies:[], medicalHistory:[] };
+    send(response,200,{success:true,data:{ patient: p, sections }});
+    return;
+  }
+
+  if (url.pathname.match(/^\/patients\/[^/]+\/timeline$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-2,-1)[0];
+    const items = TIMELINE[id] || [];
+    send(response,200,{success:true,data:{ items, meta:{ page:1, limit:25, total:items.length, totalPages:1 } }});
+    return;
+  }
+
+  if (url.pathname.match(/^\/patients\/[^/]+\/access-log$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-2,-1)[0];
+    const items = ACCESS_LOG[id] || [];
+    send(response,200,{success:true,data:{ items, meta:{ page:1, limit:25, total:items.length, totalPages:1 } }});
     return;
   }
 

@@ -160,3 +160,55 @@ the stub.
 **Status: unchanged, still open.** `/triage/{reference}` remains undefined in the
 exported document. `/triage/EX-0001` renders fixtures and `notFound()`s anything
 else; the queue's row links still point at a 404.
+
+---
+
+## GAP-012 — Patient search `q` is not modelled
+
+**Status: narrowed to patient search; still open.** The exported document's
+patient search (`GET /patients`) has no `q` query parameter, and the 200 body is
+typed `unknown`. The frontend therefore searches with a raw `fetch` (`q` + the
+proxy cookie) and validates the page structurally (`extractPatientList`,
+`src/lib/data/patients.ts`). A genuinely empty `items` array reads as a
+no-result search; a drifted row rejects the whole page rather than showing a
+half-rendered table. Same stance as facility search.
+
+## GAP-013 — Master record body is underspecified
+
+**Status: open.** `GET /patients/{id}/master` is exported with a 200 body typed
+`PatientResponseDto` (a plain patient), **not** the `{ patient, sections }`
+envelope the live API returns (`patients.service.ts#masterRecord`). The frontend
+validates the envelope structurally. Consequence: a missing `sections` block (or
+section key) is treated as a drifted body and the record fails closed rather
+than presenting itself as "no allergies" from an absence; explicit empty arrays
+do read as "no data recorded".
+
+## GAP-014 — Sub-entity rows are raw contract rows
+
+**Status: open.** Guardians, consents, allergies, medical history, timeline and
+access-log rows are all unmodelled in the export (the endpoints exist; their row
+serialization is internal). The frontend reads them structurally:
+`readTimelineEvent` accepts the export field names (`title`, `occurredAt`) and
+the legacy fixture names (`summary`, `createdAt`, `author.displayName`); the
+access log reads `{ id, action, section, createdAt }` plus the live API's
+`{ userId, reason, ip }`. The banner's allergy state follows the rows: a present
+list renders the substances; an empty list renders "not recorded", never "no
+allergies" — an absence in the raw data cannot be read as a checked-and-clear.
+
+## GAP-015 — Patient numbers are not route keys
+
+**Status: open.** The master, timeline and access-log endpoints key on the
+patient **id** (`requirePatient` looks up `where: { id }`); a patient number
+(`PAT-YYYY-NNNNNN`) is not accepted. Routes therefore use the uuid id:
+`/patients/[id]`, with a shape guard (4–64 word chars) that `notFound()`s
+malformed ids before the API is reached. Patient numbers are shown and copyable
+but are display-only. A future "can I type the number in the URL?" change needs
+an API lookup-by-number endpoint first.
+
+## GAP-016 — No check-in / queue endpoint for reception
+
+**Status: open (unmodelled feature gap).** The patient registry has search,
+register and the duplicate-resolution flow, but nothing the reception queue
+would sit on (check-in, arrival, waitlist count) is in the exported document.
+The nav rail's patient/queue counts stay empty for now; arrival status remains a
+future slice rather than a fabricated one.

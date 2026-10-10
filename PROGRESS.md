@@ -14,7 +14,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | ------------------------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
 | F0 Design system & foundations | **complete**, design review **passed** (F12)                                               | —                                                      |
 | F1 Auth, session, shell        | **complete** — login/logout, proxy session bridge, gate, shell, nav rail                   | live round-trip awaiting a bootable API                |
-| F2 Patients & reception        | stub — banner + timeline only                                                              | live API to verify patient/search contracts            |
+| F2 Patients & reception        | **in progress** — patient search, walk-in registration with duplicate guard, master record (banner + sections + timeline + access log), MSW fixtures, structural validators | Docker-gated for live API round-trip; contract gaps (GAP-012–GAP-016) documented |
 | F3 Scheduling, queue, nursing  | not started                                                                                | live API to verify appointments/queue/vitals contracts |
 | F4 Doctor workspace            | not started                                                                                | encounters, notes, orders, results                     |
 | F5 Laboratory & radiology      | not started                                                                                | lab orders, samples, results                           |

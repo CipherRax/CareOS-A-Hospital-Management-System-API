@@ -46,9 +46,11 @@ describe('unwrap', () => {
   });
 
   it('still reads a flat code', async () => {
-    await expect(unwrapForTest(errored(404, { code: 'RESOURCE_NOT_FOUND' }))).rejects.toMatchObject({
-      code: 'RESOURCE_NOT_FOUND',
-    });
+    await expect(unwrapForTest(errored(404, { code: 'RESOURCE_NOT_FOUND' }))).rejects.toMatchObject(
+      {
+        code: 'RESOURCE_NOT_FOUND',
+      },
+    );
   });
 
   it('resolves the code to a catalogue entry so screens show a mapped message', async () => {
@@ -72,5 +74,32 @@ describe('unwrap', () => {
 
   it('keeps the catalogue honest about the codes it knows', () => {
     expect(resolveApiError('SERVICE_UNAVAILABLE')).not.toBeNull();
+  });
+});
+
+import { candidatesFromRegisterError } from '@/lib/data/queries';
+
+describe('candidatesFromRegisterError', () => {
+  it('reads candidates from 409 envelope', () => {
+    const candidates = candidatesFromRegisterError({
+      error: {
+        code: 'POSSIBLE_DUPLICATE',
+        details: {
+          candidates: [
+            {
+              patientId: 'pat_example_1002',
+              patientNumber: 'PAT-2026-000002',
+              firstName: 'EXAMPLE',
+              lastName: 'Yusuf',
+              dateOfBirth: '1992-05-14',
+              score: 0.92,
+              reasons: ['name-match'],
+            },
+          ],
+        },
+      },
+    });
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.patientId).toBe('pat_example_1002');
   });
 });
