@@ -199,6 +199,116 @@ const QUEUE_TRANSITIONS = {
 const QUEUE_ACTIVE = new Set(['WAITING', 'CALLED', 'IN_SERVICE']);
 let ticketSeq = 7;
 
+/** F3 scheduling fixtures. Same records as the MSW handlers. */
+const SCHEDULING_BRANCH_ID = 'br_example_0001';
+const PROVIDER_DIRECTORY = [
+  { id: 'usr_example_9101', name: 'EXAMPLE Dr N. Wanjiru', bookable: true, specialization: 'Internal Medicine', professionalTitle: 'Consultant Physician', departmentIds: ['dep_example_outpatient'], branchIds: [SCHEDULING_BRANCH_ID], status: 'ACTIVE' },
+  { id: 'usr_example_9102', name: 'EXAMPLE Dr O. Mwangi', bookable: true, specialization: 'Paediatrics', professionalTitle: 'Paediatrician', departmentIds: ['dep_example_outpatient', 'dep_example_paediatrics'], branchIds: [SCHEDULING_BRANCH_ID], status: 'ACTIVE' },
+  { id: 'usr_example_9103', name: 'EXAMPLE Dr A. Otieno', bookable: true, specialization: 'Emergency Medicine', professionalTitle: 'Emergency Physician', departmentIds: ['dep_example_emergency'], branchIds: [SCHEDULING_BRANCH_ID], status: 'ACTIVE' },
+  { id: 'usr_example_9104', name: 'EXAMPLE Dr F. Hassan', bookable: true, specialization: 'Obstetrics', professionalTitle: 'Obstetrician', departmentIds: ['dep_example_maternity'], branchIds: [SCHEDULING_BRANCH_ID], status: 'ACTIVE' },
+];
+const SCHEDULE_TEMPLATES = [];
+for (const provider of PROVIDER_DIRECTORY) {
+  for (const dayOfWeek of [0, 1, 2, 3, 4]) {
+    SCHEDULE_TEMPLATES.push({ providerId: provider.id, departmentId: provider.departmentIds[0], dayOfWeek, startMinutes: 480, endMinutes: 780, slotDurationMinutes: 30, capacity: 1 });
+  }
+}
+const APPOINTMENT_SEED = [
+  { id: 'apt_example_4001', patientId: 'pat_example_1001', providerId: 'usr_example_9101', departmentId: 'dep_example_outpatient', mode: 'IN_PERSON', appointmentType: 'Follow-up', reason: 'Blood pressure review.', status: 'CONFIRMED', startMinutes: 540 },
+  { id: 'apt_example_4002', patientId: 'pat_example_1002', providerId: 'usr_example_9101', departmentId: 'dep_example_outpatient', mode: 'IN_PERSON', appointmentType: 'New patient', reason: 'Knee pain, referred by physiotherapy.', status: 'BOOKED', startMinutes: 600 },
+  { id: 'apt_example_4003', patientId: 'pat_example_1003', providerId: 'usr_example_9102', departmentId: 'dep_example_paediatrics', mode: 'IN_PERSON', appointmentType: 'Vaccination', reason: null, status: 'CHECKED_IN', startMinutes: 570 },
+  { id: 'apt_example_4004', patientId: 'pat_example_1004', providerId: 'usr_example_9101', departmentId: 'dep_example_outpatient', mode: 'VIRTUAL', appointmentType: 'Review', reason: 'Telephone review of results.', status: 'COMPLETED', startMinutes: 480 },
+  { id: 'apt_example_4005', patientId: 'pat_example_1002', providerId: 'usr_example_9103', departmentId: 'dep_example_emergency', mode: 'IN_PERSON', appointmentType: null, reason: 'Wound check.', status: 'NO_SHOW', startMinutes: 660 },
+];
+const WAITLIST_SEED = [
+  { id: 'wl_example_5001', patientId: 'pat_example_1002', providerId: null, departmentId: 'dep_example_outpatient', status: 'WAITING', offerMinutes: null, notes: 'Prefers mornings.' },
+  { id: 'wl_example_5002', patientId: 'pat_example_1004', providerId: 'usr_example_9101', departmentId: 'dep_example_outpatient', status: 'OFFERED', offerMinutes: 720, notes: null },
+  { id: 'wl_example_5003', patientId: 'pat_example_1003', providerId: null, departmentId: 'dep_example_maternity', status: 'WAITING', offerMinutes: null, notes: 'Needs an interpreter.' },
+];
+const APPOINTMENT_TRANSITIONS = {
+  BOOKED: ['CONFIRMED', 'CHECKED_IN', 'CANCELLED', 'NO_SHOW'],
+  CONFIRMED: ['CHECKED_IN', 'CANCELLED', 'NO_SHOW'],
+  CHECKED_IN: ['IN_PROGRESS', 'CANCELLED', 'NO_SHOW'],
+  IN_PROGRESS: ['COMPLETED'],
+  COMPLETED: [], CANCELLED: [], NO_SHOW: [], RESCHEDULED: [],
+};
+const APPOINTMENT_OCCUPYING = new Set(['BOOKED', 'CONFIRMED', 'CHECKED_IN', 'IN_PROGRESS']);
+const ACTIONABLE_WAITLIST = new Set(['WAITING', 'OFFERED']);
+
+function utcDayStart(dateISO) {
+  const [year, month, day] = dateISO.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+function todayISO() {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+}
+function businessDayKey(iso) {
+  const date = new Date(iso);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+}
+function workdayIndexFor(date) {
+  return (date.getUTCDay() + 6) % 7;
+}
+
+function buildAppointments() {
+  const day = utcDayStart(todayISO()).getTime();
+  return APPOINTMENT_SEED.map((seed) => {
+    const startsAt = new Date(day + seed.startMinutes * 60000).toISOString();
+    return {
+      id: seed.id, organizationId: 'org_example_0001', branchId: SCHEDULING_BRANCH_ID, departmentId: seed.departmentId,
+      patientId: seed.patientId, providerId: seed.providerId, startsAt, endsAt: new Date(Date.parse(startsAt) + 30 * 60000).toISOString(),
+      mode: seed.mode, appointmentType: seed.appointmentType, reason: seed.reason, status: seed.status, version: 1,
+      checkedInAt: null, inProgressAt: null, completedAt: seed.status === 'COMPLETED' ? startsAt : null,
+      noShowAt: seed.status === 'NO_SHOW' ? startsAt : null, cancelledAt: null, cancelReason: null,
+      rescheduledFromId: null, rescheduledToId: null, rescheduledAt: null, createdAt: startsAt, updatedAt: startsAt,
+    };
+  });
+}
+function buildWaitlist() {
+  const day = utcDayStart(todayISO()).getTime();
+  return WAITLIST_SEED.map((seed) => {
+    const offeredStartAt = seed.offerMinutes == null ? null : new Date(day + seed.offerMinutes * 60000).toISOString();
+    return {
+      id: seed.id, branchId: SCHEDULING_BRANCH_ID, departmentId: seed.departmentId, patientId: seed.patientId,
+      providerId: seed.providerId, status: seed.status, offeredAt: offeredStartAt ? new Date(day - 3600000).toISOString() : null,
+      offerExpiresAt: offeredStartAt ? new Date(day + 86400000).toISOString() : null, offeredStartAt,
+      acceptedAppointmentId: null, resolvedAt: null, preferredDate: null, notes: seed.notes,
+      createdAt: new Date(day - 7200000).toISOString(), updatedAt: new Date(day).toISOString(),
+    };
+  });
+}
+const APPOINTMENTS = buildAppointments();
+const LIVE_WAITLIST = buildWaitlist();
+let appointmentSeq = 6;
+let waitlistSeq = 4;
+
+function generateSlots(providerId, departmentId, dateISO) {
+  const day = utcDayStart(dateISO);
+  const dayIndex = workdayIndexFor(day);
+  const templates = SCHEDULE_TEMPLATES.filter((t) => t.providerId === providerId && t.departmentId === departmentId && t.dayOfWeek === dayIndex);
+  const bookings = APPOINTMENTS.filter((a) => a.providerId === providerId && businessDayKey(a.startsAt) === dateISO && APPOINTMENT_OCCUPYING.has(a.status));
+  const now = Date.now();
+  const slots = [];
+  for (const template of templates) {
+    for (let start = template.startMinutes; start + template.slotDurationMinutes <= template.endMinutes; start += template.slotDurationMinutes) {
+      const startsAt = new Date(day.getTime() + start * 60000);
+      const endsAt = new Date(startsAt.getTime() + template.slotDurationMinutes * 60000);
+      const booked = bookings.filter((b) => b.startsAt === startsAt.toISOString()).length;
+      const remaining = Math.max(0, template.capacity - booked);
+      let status = 'AVAILABLE';
+      if (remaining <= 0) status = 'FULL';
+      else if (startsAt.getTime() <= now) status = 'PAST';
+      slots.push({ startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), capacity: template.capacity, booked, remaining, status });
+    }
+  }
+  slots.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+  return slots;
+}
+function appointmentPage(items) {
+  return { items, meta: { page: 1, limit: 100, total: items.length, totalPages: Math.max(1, Math.ceil(items.length / 100)) } };
+}
+
 function queueStats() {
   const callWaits = QUEUE.filter((e) => e.calledAt).map((e) => (Date.parse(e.calledAt) - Date.parse(e.enteredAt)) / 60000);
   const services = QUEUE.filter((e) => e.serviceStartedAt && e.completedAt).map((e) => (Date.parse(e.completedAt) - Date.parse(e.serviceStartedAt)) / 60000);
@@ -707,6 +817,154 @@ const server = createServer(async (request, response) => {
     if (!QUEUE_ACTIVE.has(entry.status)) { send(response,409,{success:false,error:{code:'INVALID_WORKFLOW_TRANSITION'}}); return; }
     entry.operationalPriority = body.operationalPriority;
     send(response, 200, { success: true, data: { ...entry } });
+    return;
+  }
+
+  // F3 scheduling. Same contract and records as the MSW handlers.
+  if (url.pathname === '/providers' && request.method === 'GET') {
+    const departmentId = url.searchParams.get('departmentId');
+    let items = PROVIDER_DIRECTORY.map((p) => ({ ...p }));
+    if (departmentId) items = items.filter((p) => p.departmentIds.includes(departmentId));
+    send(response, 200, { success: true, data: appointmentPage(items) });
+    return;
+  }
+
+  if (url.pathname === '/schedules/slots' && request.method === 'GET') {
+    const providerId = url.searchParams.get('providerId') || '';
+    const departmentId = url.searchParams.get('departmentId') || '';
+    const date = url.searchParams.get('date') || todayISO();
+    send(response, 200, { success: true, data: { date: utcDayStart(date).toISOString(), slots: generateSlots(providerId, departmentId, date) } });
+    return;
+  }
+
+  if (url.pathname === '/appointments/waitlist/entries' && request.method === 'GET') {
+    const departmentId = url.searchParams.get('departmentId');
+    const status = url.searchParams.get('status');
+    let items = [...LIVE_WAITLIST];
+    if (departmentId) items = items.filter((e) => e.departmentId === departmentId);
+    if (status) items = items.filter((e) => e.status === status);
+    send(response, 200, { success: true, data: appointmentPage(items) });
+    return;
+  }
+
+  if (url.pathname === '/appointments/waitlist/entries' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.patientId !== 'string' || typeof body.departmentId !== 'string') {
+      send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return;
+    }
+    if (LIVE_WAITLIST.some((e) => e.patientId === body.patientId && e.departmentId === body.departmentId && ACTIONABLE_WAITLIST.has(e.status))) {
+      send(response, 409, { success: false, error: { code: 'WAITLIST_DUPLICATE' } }); return;
+    }
+    const seq = waitlistSeq++;
+    const now = new Date().toISOString();
+    const entry = { id: `wl_example_${5000 + seq}`, branchId: body.branchId || SCHEDULING_BRANCH_ID, departmentId: body.departmentId, patientId: body.patientId, providerId: body.providerId || null, status: 'WAITING', offeredAt: null, offerExpiresAt: null, offeredStartAt: null, acceptedAppointmentId: null, resolvedAt: null, preferredDate: body.preferredDate || null, notes: body.notes || null, createdAt: now, updatedAt: now };
+    LIVE_WAITLIST.push(entry);
+    send(response, 201, { success: true, data: { entry } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/appointments\/waitlist\/entries\/[^/]+\/accept$/) && request.method === 'POST') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const entry = LIVE_WAITLIST.find((e) => e.id === id);
+    if (!entry) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    if (entry.status !== 'OFFERED') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    const now = new Date().toISOString();
+    const startsAt = entry.offeredStartAt || now;
+    const seq = appointmentSeq++;
+    const appointment = { id: `apt_example_${4000 + seq}`, organizationId: 'org_example_0001', branchId: entry.branchId, departmentId: entry.departmentId, patientId: entry.patientId, providerId: entry.providerId || 'usr_example_9101', startsAt, endsAt: new Date(Date.parse(startsAt) + 30 * 60000).toISOString(), mode: 'IN_PERSON', appointmentType: null, reason: 'Accepted from waitlist.', status: 'BOOKED', version: 1, checkedInAt: null, inProgressAt: null, completedAt: null, noShowAt: null, cancelledAt: null, cancelReason: null, rescheduledFromId: null, rescheduledToId: null, rescheduledAt: null, createdAt: now, updatedAt: now };
+    APPOINTMENTS.push(appointment);
+    entry.status = 'ACCEPTED'; entry.resolvedAt = now; entry.acceptedAppointmentId = appointment.id; entry.updatedAt = now;
+    send(response, 201, { success: true, data: { appointment } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/appointments\/waitlist\/entries\/[^/]+\/decline$/) && request.method === 'POST') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const entry = LIVE_WAITLIST.find((e) => e.id === id);
+    if (!entry) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    entry.status = 'DECLINED'; entry.resolvedAt = new Date().toISOString();
+    send(response, 201, { success: true, data: { declined: true } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/appointments\/waitlist\/entries\/[^/]+\/leave$/) && request.method === 'POST') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const index = LIVE_WAITLIST.findIndex((e) => e.id === id);
+    if (index === -1) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    const [entry] = LIVE_WAITLIST.splice(index, 1);
+    send(response, 201, { success: true, data: { entry: { ...entry, status: 'REMOVED' } } });
+    return;
+  }
+
+  if (url.pathname === '/appointments' && request.method === 'GET') {
+    const departmentId = url.searchParams.get('departmentId');
+    const providerId = url.searchParams.get('providerId');
+    const patientId = url.searchParams.get('patientId');
+    const status = url.searchParams.get('status');
+    const dateFrom = url.searchParams.get('dateFrom');
+    const dateTo = url.searchParams.get('dateTo');
+    let items = [...APPOINTMENTS];
+    if (departmentId) items = items.filter((a) => a.departmentId === departmentId);
+    if (providerId) items = items.filter((a) => a.providerId === providerId);
+    if (patientId) items = items.filter((a) => a.patientId === patientId);
+    if (status) items = items.filter((a) => a.status === status);
+    if (dateFrom) items = items.filter((a) => a.startsAt >= dateFrom);
+    if (dateTo) items = items.filter((a) => a.startsAt <= dateTo);
+    items.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+    send(response, 200, { success: true, data: appointmentPage(items) });
+    return;
+  }
+
+  if (url.pathname === '/appointments' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.patientId !== 'string' || typeof body.providerId !== 'string' || typeof body.departmentId !== 'string' || typeof body.startsAt !== 'string' || typeof body.mode !== 'string') {
+      send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return;
+    }
+    const startsAt = new Date(body.startsAt).toISOString();
+    const slot = generateSlots(body.providerId, body.departmentId, businessDayKey(startsAt)).find((s) => s.startsAt === startsAt);
+    if (!slot || slot.remaining <= 0) { send(response, 409, { success: false, error: { code: 'APPOINTMENT_CONFLICT' } }); return; }
+    const seq = appointmentSeq++;
+    const now = new Date().toISOString();
+    const appointment = { id: `apt_example_${4000 + seq}`, organizationId: 'org_example_0001', branchId: body.branchId || SCHEDULING_BRANCH_ID, departmentId: body.departmentId, patientId: body.patientId, providerId: body.providerId, startsAt, endsAt: new Date(Date.parse(startsAt) + 30 * 60000).toISOString(), mode: body.mode, appointmentType: body.appointmentType || null, reason: body.reason || null, status: 'BOOKED', version: 1, checkedInAt: null, inProgressAt: null, completedAt: null, noShowAt: null, cancelledAt: null, cancelReason: null, rescheduledFromId: null, rescheduledToId: null, rescheduledAt: null, createdAt: now, updatedAt: now };
+    APPOINTMENTS.push(appointment);
+    send(response, 201, { success: true, data: { appointment } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/appointments\/[^/]+\/status$/) && request.method === 'PATCH') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const appointment = APPOINTMENTS.find((a) => a.id === id);
+    if (!appointment) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (!(APPOINTMENT_TRANSITIONS[appointment.status] || []).includes(body.status)) {
+      send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return;
+    }
+    const now = new Date().toISOString();
+    appointment.status = body.status;
+    if (body.status === 'CHECKED_IN') appointment.checkedInAt = now;
+    if (body.status === 'IN_PROGRESS') appointment.inProgressAt = now;
+    if (body.status === 'COMPLETED') appointment.completedAt = now;
+    if (body.status === 'NO_SHOW') appointment.noShowAt = now;
+    if (body.status === 'CANCELLED') { appointment.cancelledAt = now; appointment.cancelReason = body.reason || null; }
+    appointment.version += 1; appointment.updatedAt = now;
+    send(response, 200, { success: true, data: { appointment } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/appointments\/[^/]+\/cancel$/) && request.method === 'POST') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const appointment = APPOINTMENTS.find((a) => a.id === id);
+    if (!appointment) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    if (appointment.status === 'COMPLETED' || appointment.status === 'CANCELLED') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { body = {}; }
+    const now = new Date().toISOString();
+    appointment.status = 'CANCELLED'; appointment.cancelledAt = now; appointment.cancelReason = body.reason || null;
+    appointment.version += 1; appointment.updatedAt = now;
+    send(response, 201, { success: true, data: { appointment } });
     return;
   }
 

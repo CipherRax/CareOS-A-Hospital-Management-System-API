@@ -10,6 +10,7 @@ import type { UseQueryResult } from '@tanstack/react-query';
 
 import { api } from '@/api/client';
 import {
+  buildDisplayName,
   extractPatientMaster,
   extractPatientPage,
   fetchPatientSearch,
@@ -19,6 +20,23 @@ import {
   type PatientListPage,
   type TimelineEventRow,
 } from '@/lib/data/patients';
+import {
+  extractAppointmentRecord,
+  extractWaitlistRecord,
+  fetchAppointments,
+  fetchProviders,
+  fetchSlots,
+  fetchWaitlist,
+  type AppointmentPage,
+  type AppointmentQuery,
+  type AppointmentRow,
+  type ProviderOption,
+  type SchedulingCallError,
+  type SlotDay,
+  type SlotQuery,
+  type WaitlistEntryRecord,
+  type WaitlistPage,
+} from '@/lib/data/scheduling';
 import {
   extractDepartmentList,
   extractQueueStats,
@@ -160,8 +178,8 @@ export function normaliseSessionUser(data: unknown): SessionUser {
   return { id, displayName, roleLabel };
 }
 
-/** Pulls an untyped call (raw search/queue) onto the query error contract. */
-function toQueryError(call: PatientCallError | QueueCallError): QueryError {
+/** Pulls an untyped call (raw search/queue/scheduling) onto the query error contract. */
+function toQueryError(call: PatientCallError | QueueCallError | SchedulingCallError): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
   return { code, status, resolved: resolveApiError(code) } satisfies QueryError;
@@ -582,6 +600,354 @@ export function useUpdateQueuePriority(): UseMutationResult<
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['queue'] });
+    },
+  });
+}
+
+// --- scheduling: appointments, providers, slots, waitlist (F3) ---------------
+
+/**
+ * The day book `GET /appointments`. The export leaves the query unmodelled and
+ * mis-types the 200 as the request DTO (GAP-017), so this rides the raw-fetch path
+ * in `src/lib/data/scheduling.ts`.
+ */
+export function useAppointments(
+  query: AppointmentQuery = {},
+): UseQueryResult<Fetched<AppointmentPage>, QueryError> {
+  return useQuery<Fetched<AppointmentPage>, QueryError>({
+    queryKey: [
+      'appointments',
+      'list',
+      query.departmentId ?? null,
+      query.providerId ?? null,
+      query.status ?? null,
+      query.date ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchAppointments(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<AppointmentPage>;
+      } catch (call) {
+        throw toQueryError(call as SchedulingCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * The bookable-provider directory `GET /providers`, narrowed to a department.
+ * `/providers` is unmodelled in the export (no response schema), so the raw read
+ * validates each row.
+ */
+export function useProviderDirectory(
+  departmentId?: string,
+): UseQueryResult<Fetched<readonly ProviderOption[]>, QueryError> {
+  return useQuery<Fetched<readonly ProviderOption[]>, QueryError>({
+    queryKey: ['providers', 'list', departmentId ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const providers = await fetchProviders({ departmentId }, signal);
+        return {
+          data: providers,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<readonly ProviderOption[]>;
+      } catch (call) {
+        throw toQueryError(call as SchedulingCallError);
+      }
+    },
+    staleTime: 5 * 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Computed bookable slots `GET /schedules/slots`. Disabled until a provider,
+ * department and date are all chosen, because the endpoint requires all three.
+ */
+export function useSlots(
+  query: SlotQuery | null,
+): UseQueryResult<Fetched<SlotDay>, QueryError> {
+  return useQuery<Fetched<SlotDay>, QueryError>({
+    queryKey: ['slots', query?.providerId ?? null, query?.departmentId ?? null, query?.date ?? null],
+    queryFn: async ({ signal }) => {
+      if (!query) throw { code: 'INTERNAL_ERROR', status: 0, resolved: null } satisfies QueryError;
+      try {
+        const day = await fetchSlots(query, signal);
+        return { data: day, response: new Response(null, { status: 200 }) } satisfies Fetched<SlotDay>;
+      } catch (call) {
+        throw toQueryError(call as SchedulingCallError);
+      }
+    },
+    enabled: Boolean(query?.providerId && query?.departmentId && query?.date),
+    staleTime: 30_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/** The department waitlist `GET /appointments/waitlist/entries` (unmodelled query). */
+export function useWaitlist(
+  query: { departmentId?: string; status?: string } = {},
+): UseQueryResult<Fetched<WaitlistPage>, QueryError> {
+  return useQuery<Fetched<WaitlistPage>, QueryError>({
+    queryKey: ['waitlist', 'list', query.departmentId ?? null, query.status ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchWaitlist(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<WaitlistPage>;
+      } catch (call) {
+        throw toQueryError(call as SchedulingCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Resolves a patient display name from `GET /patients/{id}`.
+ *
+ * Appointment rows carry only `patientId` — the list is not joined to the registry
+ * (GAP-018) — so the day book names each row with this lookup, cached by React
+ * Query and deduped by id. It is a workaround for a contract gap, not a design
+ * choice: a real day book would ship the name with the row.
+ */
+export function usePatientName(id: string): UseQueryResult<Fetched<string>, QueryError> {
+  return useQuery<Fetched<string>, QueryError>({
+    queryKey: ['patients', id, 'name'],
+    queryFn: () =>
+      fetchPatientEnvelope<string>(api.GET('/patients/{id}', { params: { path: { id } } }), (body) => {
+        if (!body || typeof body !== 'object') return { ok: false as const };
+        const patient = (body as { patient?: unknown }).patient;
+        if (!patient || typeof patient !== 'object') return { ok: false as const };
+        const record = patient as Record<string, unknown>;
+        const name = buildDisplayName(record.firstName, record.otherNames, record.lastName);
+        return name ? { ok: true as const, data: name } : { ok: false as const };
+      }),
+    enabled: id.length > 0,
+    staleTime: 5 * 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+export interface BookAppointmentInput {
+  patientId: string;
+  providerId: string;
+  branchId: string;
+  departmentId: string;
+  startsAt: string;
+  mode: 'IN_PERSON' | 'VIRTUAL';
+  appointmentType?: string;
+  reason?: string;
+}
+
+/**
+ * Books an appointment (`POST /appointments`, 201). A slot taken between the read
+ * and the write answers 409 `APPOINTMENT_CONFLICT`; the booking panel shows it in
+ * place rather than as a generic failure.
+ */
+export function useBookAppointment(): UseMutationResult<AppointmentRow, QueryError, BookAppointmentInput> {
+  const queryClient = useQueryClient();
+  return useMutation<AppointmentRow, QueryError, BookAppointmentInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/appointments', {
+          body: {
+            patientId: input.patientId,
+            providerId: input.providerId,
+            branchId: input.branchId,
+            departmentId: input.departmentId,
+            startsAt: input.startsAt,
+            mode: input.mode,
+            ...(input.appointmentType ? { appointmentType: input.appointmentType } : {}),
+            ...(input.reason ? { reason: input.reason } : {}),
+          },
+        }),
+      );
+      const parsed = extractAppointmentRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 201, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.appointment;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['slots'] });
+    },
+  });
+}
+
+export interface UpdateAppointmentStatusInput {
+  id: string;
+  status: 'CONFIRMED' | 'CHECKED_IN' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+  reason?: string;
+}
+
+/** Moves an appointment through its flow (`PATCH /appointments/{id}/status`). */
+export function useUpdateAppointmentStatus(): UseMutationResult<
+  AppointmentRow,
+  QueryError,
+  UpdateAppointmentStatusInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<AppointmentRow, QueryError, UpdateAppointmentStatusInput>({
+    mutationFn: async ({ id, ...body }) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/appointments/{id}/status', { params: { path: { id } }, body }),
+      );
+      const parsed = extractAppointmentRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 200, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.appointment;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+    },
+  });
+}
+
+export interface CancelAppointmentInput {
+  id: string;
+  reason?: string;
+  version?: number;
+}
+
+/**
+ * Cancels an appointment (`POST /appointments/{id}/cancel`). The dedicated
+ * endpoint, not the generic transition, so `cancelReason` is recorded.
+ */
+export function useCancelAppointment(): UseMutationResult<AppointmentRow, QueryError, CancelAppointmentInput> {
+  const queryClient = useQueryClient();
+  return useMutation<AppointmentRow, QueryError, CancelAppointmentInput>({
+    mutationFn: async ({ id, reason, version }) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/appointments/{id}/cancel', {
+          params: { path: { id } },
+          body: { ...(reason ? { reason } : {}), ...(version !== undefined ? { version } : {}) },
+        }),
+      );
+      const parsed = extractAppointmentRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 201, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.appointment;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['slots'] });
+    },
+  });
+}
+
+export interface JoinWaitlistInput {
+  patientId: string;
+  branchId: string;
+  departmentId: string;
+  providerId?: string;
+  preferredDate?: string;
+  notes?: string;
+}
+
+/** Joins the department waitlist (`POST /appointments/waitlist/entries`, 201). */
+export function useJoinWaitlist(): UseMutationResult<WaitlistEntryRecord, QueryError, JoinWaitlistInput> {
+  const queryClient = useQueryClient();
+  return useMutation<WaitlistEntryRecord, QueryError, JoinWaitlistInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/appointments/waitlist/entries', {
+          body: {
+            patientId: input.patientId,
+            branchId: input.branchId,
+            departmentId: input.departmentId,
+            ...(input.providerId ? { providerId: input.providerId } : {}),
+            ...(input.preferredDate ? { preferredDate: input.preferredDate } : {}),
+            ...(input.notes ? { notes: input.notes } : {}),
+          },
+        }),
+      );
+      const parsed = extractWaitlistRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 201, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.entry;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['waitlist'] });
+    },
+  });
+}
+
+/** Accepts a waitlist offer, booking the held slot (`POST .../entries/{id}/accept`). */
+export function useAcceptWaitlistOffer(): UseMutationResult<
+  AppointmentRow,
+  QueryError,
+  { id: string; appointmentId?: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation<AppointmentRow, QueryError, { id: string; appointmentId?: string }>({
+    mutationFn: async ({ id, appointmentId }) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/appointments/waitlist/entries/{id}/accept', {
+          params: { path: { id } },
+          body: { ...(appointmentId ? { appointmentId } : {}) },
+        }),
+      );
+      const parsed = extractAppointmentRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 201, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.appointment;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['waitlist'] });
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+    },
+  });
+}
+
+/** Declines a waitlist offer, re-offering the slot (`POST .../entries/{id}/decline`). */
+export function useDeclineWaitlistOffer(): UseMutationResult<
+  unknown,
+  QueryError,
+  { id: string; reason?: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation<unknown, QueryError, { id: string; reason?: string }>({
+    mutationFn: async ({ id, reason }) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/appointments/waitlist/entries/{id}/decline', {
+          params: { path: { id } },
+          body: { ...(reason ? { reason } : {}) },
+        }),
+      );
+      return fetched.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['waitlist'] });
+    },
+  });
+}
+
+/** Removes a WAITING/OFFERED entry from the waitlist (`POST .../entries/{id}/leave`). */
+export function useLeaveWaitlist(): UseMutationResult<WaitlistEntryRecord, QueryError, { id: string }> {
+  const queryClient = useQueryClient();
+  return useMutation<WaitlistEntryRecord, QueryError, { id: string }>({
+    mutationFn: async ({ id }) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/appointments/waitlist/entries/{id}/leave', {
+          params: { path: { id } },
+        }),
+      );
+      const parsed = extractWaitlistRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 201, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.entry;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['waitlist'] });
     },
   });
 }

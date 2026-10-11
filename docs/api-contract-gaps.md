@@ -236,3 +236,29 @@ taken from `queue.service.ts` (`pageOf`, the joined `patient` display name, the
 `enteredAt`/`calledAt`/`serviceStartedAt`/`completedAt` timestamps). The
 transition graph in the same module (`queue-flow.ts`) is mirrored in
 `QUEUE_TRANSITIONS` so the board offers only legal moves.
+
+## GAP-018 — Appointments carry no joined names, and there is no branch source
+
+**Status: open (two related F3 scheduling gaps).** The appointment desk needs two
+things the contract does not provide.
+
+**1. No display names on appointment rows.** `GET /appointments` serializes
+`patientId` and `providerId` only — it is not joined to the patient registry or
+the staff directory. The day book must therefore resolve each row's names itself.
+The patient registry cannot even be batch-read into a map, because
+`GET /patients` exposes only a free-text `q` and pagination, no id filter and no
+"many by ids" lookup. The desk resolves patient names one row at a time through
+`GET /patients/{id}` (`usePatientName`, cached and deduped by React Query) and
+provider names from the catalogue already loaded for booking
+(`GET /providers`). This is an N+1 workaround for a missing join, not a design
+choice: a real day book would ship both names with the row, and the patient
+registry would offer an id-keyed batch read.
+
+**2. No branch source.** `BookAppointmentDto` and the slot query both *require* a
+`branchId`, but nothing exposes the caller's permitted branches: `/auth/me`
+returns `branch: { current: null }`, and departments serialize without a branch.
+The desk is therefore single-branch and posts a constant
+(`SCHEDULING_BRANCH_ID = 'br_example_0001'`), matching the queue board's
+`QUEUE_BRANCH_ID`. A multi-branch deployment needs a branch selector fed by a
+real source (a per-user branch list, or a branch on each department) before this
+is correct.
