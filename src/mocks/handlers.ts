@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw';
 import { REFRESH_COOKIE, SESSION_COOKIE } from '@/lib/session-cookies';
 
 import { patientHandlers } from './patient-handlers';
+import { queueHandlers } from './queue-handlers';
 
 /**
  * API mock handlers.
@@ -112,6 +113,9 @@ export const handlers = [
   // F2 patient registry (reception): search, registration with duplicate
   // detection, master record, timeline, access log. See ./patient-handlers.ts.
   ...patientHandlers,
+  // F3 queue (reception desk): board, metrics, departments, walk-in registration,
+  // ticket status and priority moves. See ./queue-handlers.ts.
+  ...queueHandlers,
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).

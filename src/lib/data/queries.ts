@@ -19,8 +19,21 @@ import {
   type PatientListPage,
   type TimelineEventRow,
 } from '@/lib/data/patients';
+import {
+  extractDepartmentList,
+  extractQueueStats,
+  extractRegisteredWalkIn,
+  fetchQueue,
+  type DepartmentOption,
+  type QueueCallError,
+  type QueuePage,
+  type QueueQuery,
+  type QueueStats,
+  type QueueStatus,
+  type OperationalPriority,
+  type RegisteredWalkIn,
+} from '@/lib/data/queue';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
-
 /**
  * Typed queries.
  *
@@ -147,8 +160,8 @@ export function normaliseSessionUser(data: unknown): SessionUser {
   return { id, displayName, roleLabel };
 }
 
-/** Pulls an untyped patient call (raw search) onto the query error contract. */
-function toQueryError(call: PatientCallError): QueryError {
+/** Pulls an untyped call (raw search/queue) onto the query error contract. */
+function toQueryError(call: PatientCallError | QueueCallError): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
   return { code, status, resolved: resolveApiError(code) } satisfies QueryError;
@@ -410,6 +423,165 @@ export function useConfirmNotDuplicate(): UseMutationResult<
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['patients', variables.id] });
+    },
+  });
+}
+
+/**
+ * The queue board `GET /queue`. `departmentId`/`status` ride the raw-fetch path
+ * because the export leaves the query unmodelled and mis-types the body as the
+ * request DTO (GAP-017).
+ */
+export function useQueue(query: QueueQuery = {}): UseQueryResult<Fetched<QueuePage>, QueryError> {
+  return useQuery<Fetched<QueuePage>, QueryError>({
+    queryKey: ['queue', 'list', query.departmentId ?? null, query.status ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchQueue(query, signal);
+        return {
+          data: page,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<QueuePage>;
+      } catch (call) {
+        throw toQueryError(call as QueueCallError);
+      }
+    },
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/** Waiting-room metrics `GET /queue/metrics` (unmodelled body, read structurally). */
+export function useQueueMetrics(): UseQueryResult<Fetched<QueueStats>, QueryError> {
+  return useQuery<Fetched<QueueStats>, QueryError>({
+    queryKey: ['queue', 'metrics'],
+    queryFn: () =>
+      fetchPatientEnvelope<QueueStats>(
+        api.GET('/queue/metrics'),
+        (body) => {
+          const parsed = extractQueueStats(body);
+          return parsed.ok ? { ok: true as const, data: parsed.stats } : { ok: false as const };
+        },
+      ),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/** Active departments for the walk-in picker. The export types this one right. */
+export function useDepartmentList(): UseQueryResult<Fetched<readonly DepartmentOption[]>, QueryError> {
+  return useQuery<Fetched<readonly DepartmentOption[]>, QueryError>({
+    queryKey: ['departments', 'list'],
+    queryFn: () =>
+      fetchPatientEnvelope<readonly DepartmentOption[]>(
+        api.GET('/departments'),
+        (body) => {
+          const parsed = extractDepartmentList(body);
+          return parsed.ok ? { ok: true as const, data: parsed.departments } : { ok: false as const };
+        },
+      ),
+    staleTime: 10 * 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+export interface RegisterWalkInInput {
+  patientId: string;
+  departmentId: string;
+  branchId?: string | null;
+  source: 'WALK_IN' | 'APPOINTMENT' | 'EMERGENCY';
+  priority: OperationalPriority;
+  note?: string | null;
+}
+
+/**
+ * Registers a walk-in into the queue (`POST /queue/walk-ins/register`, 201). A
+ * patient with an open visit earns `VISIT_ALREADY_ACTIVE`; the receipt carries
+ * the ticket number and position.
+ */
+export function useRegisterWalkIn(): UseMutationResult<
+  RegisteredWalkIn,
+  QueryError,
+  RegisterWalkInInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<RegisteredWalkIn, QueryError, RegisterWalkInInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/queue/walk-ins/register', {
+          body: {
+            patientId: input.patientId,
+            departmentId: input.departmentId,
+            source: input.source,
+            priority: input.priority,
+            ...(input.branchId ? { branchId: input.branchId } : {}),
+            ...(input.note ? { note: input.note } : {}),
+          },
+        }),
+      );
+      const parsed = extractRegisteredWalkIn(fetched.data);
+      if (!parsed.ok) {
+        throw {
+          code: 'INTERNAL_ERROR',
+          status: 201,
+          resolved: resolveApiError('INTERNAL_ERROR'),
+        } satisfies QueryError;
+      }
+      return parsed.receipt;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['queue'] });
+    },
+  });
+}
+
+export interface UpdateQueueStatusInput {
+  id: string;
+  status: QueueStatus;
+  reason?: string;
+  transferredToDepartmentId?: string;
+}
+
+/** Moves a ticket through the queue flow (`PATCH /queue/entries/{id}/status`). */
+export function useUpdateQueueStatus(): UseMutationResult<unknown, QueryError, UpdateQueueStatusInput> {
+  const queryClient = useQueryClient();
+  return useMutation<unknown, QueryError, UpdateQueueStatusInput>({
+    mutationFn: async ({ id, ...body }) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/queue/entries/{id}/status', { params: { path: { id } }, body }),
+      );
+      return fetched.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['queue'] });
+    },
+  });
+}
+
+export interface UpdateQueuePriorityInput {
+  id: string;
+  operationalPriority: OperationalPriority;
+  reason?: string;
+}
+
+/** Reprioritises a waiting ticket (`PATCH /queue/entries/{id}/priority`). */
+export function useUpdateQueuePriority(): UseMutationResult<
+  unknown,
+  QueryError,
+  UpdateQueuePriorityInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<unknown, QueryError, UpdateQueuePriorityInput>({
+    mutationFn: async ({ id, ...body }) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/queue/entries/{id}/priority', { params: { path: { id } }, body }),
+      );
+      return fetched.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['queue'] });
     },
   });
 }

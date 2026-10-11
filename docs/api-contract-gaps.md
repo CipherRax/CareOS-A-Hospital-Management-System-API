@@ -207,8 +207,32 @@ an API lookup-by-number endpoint first.
 
 ## GAP-016 — No check-in / queue endpoint for reception
 
-**Status: open (unmodelled feature gap).** The patient registry has search,
-register and the duplicate-resolution flow, but nothing the reception queue
-would sit on (check-in, arrival, waitlist count) is in the exported document.
-The nav rail's patient/queue counts stay empty for now; arrival status remains a
-future slice rather than a fabricated one.
+**Status: superseded by F3.** Written while scoping F2, when only the patient
+registry had been read. The exported document *does* carry the reception queue
+(`/queue`, `/queue/entries`, `/queue/walk-ins/register`, `/queue/status`,
+`/queue/metrics`, `/departments`); F3 builds on it. The endpoints exist and are
+used, but their response bodies are mis-typed (see GAP-017), which is why F2's
+original "no queue endpoint" reading was wrong. Nav counts stay empty until a
+count is genuinely modelled.
+
+## GAP-017 — Queue response bodies are typed as the request DTOs
+
+**Status: open (contract export defect).** Every F3 queue operation has its 2xx
+response schema set to the operation's *request* DTO rather than the actual body:
+
+- `GET /queue` → `ListQueueQueryDto` (the real body is `{ items, meta }`).
+- `GET /queue/metrics` → `ListQueueQueryDto` (real body: `{ stats }`).
+- `GET /queue/status` → `ListQueueQueryDto` (real body:
+  `{ queued, ticketNumber, position, estimate }`).
+- `POST /queue/walk-ins/register` → `RegisterWalkInDto` (real 201 body is the
+  ticket receipt `{ ticketNumber, visitId, position, status }`).
+- The `PATCH` status/priority routes likewise echo their request DTOs.
+
+The `GET /queue` and `GET /metrics` queries are also unmodelled (`query: never`),
+so department/status filtering rides a raw fetch. Screens therefore read the
+queue structurally (`src/lib/data/queue.ts`) instead of trusting the generated
+types, exactly as the patient search does for GAP-012. The real row shape is
+taken from `queue.service.ts` (`pageOf`, the joined `patient` display name, the
+`enteredAt`/`calledAt`/`serviceStartedAt`/`completedAt` timestamps). The
+transition graph in the same module (`queue-flow.ts`) is mirrored in
+`QUEUE_TRANSITIONS` so the board offers only legal moves.

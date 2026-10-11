@@ -124,6 +124,20 @@ const PATIENT_REGISTRY = {
     status: 'ACTIVE',
     version: 1,
   },
+  'pat_example_1004': {
+    id: 'pat_example_1004',
+    patientNumber: 'PAT-2026-000004',
+    firstName: 'EXAMPLE',
+    otherNames: null,
+    lastName: 'Njoroge',
+    dateOfBirth: '1995-02-18',
+    sex: 'MALE',
+    phone: '0700000004',
+    county: 'Nairobi',
+    town: 'Riverside',
+    status: 'ACTIVE',
+    version: 1,
+  },
 };
 let createdSeq = 5;
 
@@ -158,6 +172,40 @@ const ACCESS_LOG = {
     },
   ],
 };
+
+/** F3 queue fixtures. Offsets are stamped against the clock at call time. */
+const QUEUE_BRANCH_ID = 'br_example_0001';
+const DEPARTMENTS = [
+  { id: 'dep_example_outpatient', name: 'EXAMPLE Outpatient', code: 'OPD', kind: 'STANDARD', active: true, createdAt: '2026-01-04T06:00:00.000Z' },
+  { id: 'dep_example_emergency', name: 'EXAMPLE Emergency', code: 'EMG', kind: 'STANDARD', active: true, createdAt: '2026-01-04T06:00:00.000Z' },
+  { id: 'dep_example_paediatrics', name: 'EXAMPLE Paediatrics', code: 'PED', kind: 'STANDARD', active: true, createdAt: '2026-01-04T06:00:00.000Z' },
+  { id: 'dep_example_maternity', name: 'EXAMPLE Maternity', code: 'MAT', kind: 'STANDARD', active: true, createdAt: '2026-01-04T06:00:00.000Z' },
+];
+const minutesAgo = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
+const QUEUE = [
+  { id: 'qe_example_2001', ticketNumber: 'Q-001', patientId: 'pat_example_1003', patient: 'EXAMPLE Muthoni Wambui', visitId: 'vis_example_3001', departmentId: 'dep_example_emergency', branchId: QUEUE_BRANCH_ID, status: 'WAITING', operationalPriority: 'URGENT', enteredAt: minutesAgo(24), calledAt: null, serviceStartedAt: null, completedAt: null, note: 'Chest pain, triaged by nurse.' },
+  { id: 'qe_example_2002', ticketNumber: 'Q-002', patientId: 'pat_example_1002', patient: 'EXAMPLE Mwangi', visitId: 'vis_example_3002', departmentId: 'dep_example_outpatient', branchId: QUEUE_BRANCH_ID, status: 'CALLED', operationalPriority: 'HIGH', enteredAt: minutesAgo(41), calledAt: minutesAgo(3), serviceStartedAt: null, completedAt: null, note: null },
+  { id: 'qe_example_2003', ticketNumber: 'Q-003', patientId: 'pat_example_1001', patient: 'EXAMPLE Amina Yusuf', visitId: 'vis_example_3003', departmentId: 'dep_example_outpatient', branchId: QUEUE_BRANCH_ID, status: 'WAITING', operationalPriority: 'NORMAL', enteredAt: minutesAgo(12), calledAt: null, serviceStartedAt: null, completedAt: null, note: null },
+  { id: 'qe_example_2004', ticketNumber: 'Q-004', patientId: 'pat_example_1002', patient: 'EXAMPLE Mwangi', visitId: 'vis_example_3004', departmentId: 'dep_example_paediatrics', branchId: QUEUE_BRANCH_ID, status: 'IN_SERVICE', operationalPriority: 'NORMAL', enteredAt: minutesAgo(63), calledAt: minutesAgo(52), serviceStartedAt: minutesAgo(49), completedAt: null, note: null },
+  { id: 'qe_example_2005', ticketNumber: 'Q-005', patientId: 'pat_example_1003', patient: 'EXAMPLE Muthoni Wambui', visitId: 'vis_example_3005', departmentId: 'dep_example_outpatient', branchId: QUEUE_BRANCH_ID, status: 'COMPLETED', operationalPriority: 'NORMAL', enteredAt: minutesAgo(120), calledAt: minutesAgo(95), serviceStartedAt: minutesAgo(92), completedAt: minutesAgo(70), note: null },
+  { id: 'qe_example_2006', ticketNumber: 'Q-006', patientId: 'pat_example_1002', patient: 'EXAMPLE Mwangi', visitId: 'vis_example_3006', departmentId: 'dep_example_maternity', branchId: QUEUE_BRANCH_ID, status: 'NO_SHOW', operationalPriority: 'LOW', enteredAt: minutesAgo(88), calledAt: minutesAgo(60), serviceStartedAt: null, completedAt: null, note: 'Did not answer the call.' },
+];
+const QUEUE_TRANSITIONS = {
+  WAITING: ['CALLED', 'NO_SHOW', 'ABANDONED', 'CANCELLED', 'TRANSFERRED'],
+  CALLED: ['IN_SERVICE', 'WAITING', 'NO_SHOW', 'CANCELLED', 'TRANSFERRED'],
+  IN_SERVICE: ['COMPLETED', 'CANCELLED', 'TRANSFERRED'],
+  COMPLETED: [], NO_SHOW: [], ABANDONED: [], CANCELLED: [], TRANSFERRED: [],
+};
+const QUEUE_ACTIVE = new Set(['WAITING', 'CALLED', 'IN_SERVICE']);
+let ticketSeq = 7;
+
+function queueStats() {
+  const callWaits = QUEUE.filter((e) => e.calledAt).map((e) => (Date.parse(e.calledAt) - Date.parse(e.enteredAt)) / 60000);
+  const services = QUEUE.filter((e) => e.serviceStartedAt && e.completedAt).map((e) => (Date.parse(e.completedAt) - Date.parse(e.serviceStartedAt)) / 60000);
+  const left = QUEUE.filter((e) => e.status === 'ABANDONED' || e.status === 'NO_SHOW').length;
+  const avg = (values) => (values.length === 0 ? null : Math.round(values.reduce((s, v) => s + v, 0) / values.length));
+  return { avgCallWaitMinutes: avg(callWaits), avgServiceMinutes: avg(services), abandonmentRate: QUEUE.length === 0 ? 0 : Math.round(left / QUEUE.length * 100) / 100, currentlyWaiting: QUEUE.filter((e) => e.status === 'WAITING').length };
+}
 
 
 function send(response, status, body, headers = {}) {
@@ -578,6 +626,87 @@ const server = createServer(async (request, response) => {
     const id = url.pathname.split('/').slice(-2,-1)[0];
     const items = ACCESS_LOG[id] || [];
     send(response,200,{success:true,data:{ items, meta:{ page:1, limit:25, total:items.length, totalPages:1 } }});
+    return;
+  }
+
+  // F3 queue. Same contract and records as the MSW handlers.
+  if (url.pathname === '/queue/metrics' && request.method === 'GET') {
+    send(response, 200, { success: true, data: { stats: queueStats() } });
+    return;
+  }
+
+  if (url.pathname === '/queue/status' && request.method === 'GET') {
+    const mine = QUEUE.find((e) => e.status === 'WAITING' || e.status === 'CALLED');
+    if (!mine) { send(response, 200, { success: true, data: { queued: false, ticketNumber: null, position: null, estimate: null } }); return; }
+    const ahead = QUEUE.filter((e) => e.status === 'WAITING' && e.id !== mine.id).length;
+    send(response, 200, { success: true, data: { queued: true, ticketNumber: mine.ticketNumber, position: ahead + 1, estimate: (ahead + 1) * 10 } });
+    return;
+  }
+
+  if (url.pathname === '/queue' && request.method === 'GET') {
+    const departmentId = url.searchParams.get('departmentId');
+    const status = url.searchParams.get('status');
+    let items = [...QUEUE];
+    if (departmentId) items = items.filter((e) => e.departmentId === departmentId);
+    if (status) items = items.filter((e) => e.status === status);
+    items.sort((a, b) => Date.parse(b.enteredAt) - Date.parse(a.enteredAt));
+    send(response, 200, { success: true, data: { items, meta: { page:1, limit:25, total: items.length, totalPages: Math.max(1, Math.ceil(items.length/25)) } } });
+    return;
+  }
+
+  if (url.pathname === '/departments' && request.method === 'GET') {
+    const items = DEPARTMENTS.map((d) => ({ ...d, branchId: QUEUE_BRANCH_ID }));
+    send(response, 200, { success: true, data: { departments: items, meta: { page:1, limit:100, total: items.length, totalPages:1 } } });
+    return;
+  }
+
+  if (url.pathname === '/queue/walk-ins/register' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request))||'{}'); } catch { send(response,400,{success:false,error:{code:'VALIDATION_ERROR'}}); return; }
+    if (typeof body.patientId !== 'string' || typeof body.departmentId !== 'string') {
+      send(response,400,{success:false,error:{code:'VALIDATION_ERROR'}}); return;
+    }
+    if (QUEUE.some((e) => e.patientId === body.patientId && QUEUE_ACTIVE.has(e.status))) {
+      send(response,409,{success:false,error:{code:'VISIT_ALREADY_ACTIVE'}}); return;
+    }
+    const seq = ticketSeq++;
+    const ticketNumber = `Q-${String(seq).padStart(3,'0')}`;
+    const patient = PATIENT_REGISTRY[body.patientId];
+    const entry = { id: `qe_example_${2000+seq}`, ticketNumber, patientId: body.patientId, patient: patient ? `${patient.firstName} ${patient.lastName}` : 'EXAMPLE Patient', visitId: `vis_example_${3000+seq}`, departmentId: body.departmentId, branchId: body.branchId || QUEUE_BRANCH_ID, status: 'WAITING', operationalPriority: body.priority || 'NORMAL', enteredAt: new Date().toISOString(), calledAt: null, serviceStartedAt: null, completedAt: null, note: body.note || null };
+    QUEUE.push(entry);
+    send(response, 201, { success: true, data: { id: entry.id, ticketNumber, visitId: entry.visitId, status: entry.status, position: QUEUE.filter((e) => e.status === 'WAITING').length } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/queue\/entries\/[^/]+\/status$/) && request.method === 'PATCH') {
+    const id = url.pathname.split('/').slice(-2,-1)[0];
+    const entry = QUEUE.find((e) => e.id === id);
+    if (!entry) { send(response,404,{success:false,error:{code:'RESOURCE_NOT_FOUND'}}); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request))||'{}'); } catch { send(response,400,{success:false,error:{code:'VALIDATION_ERROR'}}); return; }
+    if (!(QUEUE_TRANSITIONS[entry.status] || []).includes(body.status)) {
+      send(response,409,{success:false,error:{code:'INVALID_WORKFLOW_TRANSITION'}}); return;
+    }
+    const now = new Date().toISOString();
+    entry.status = body.status;
+    if (body.status === 'CALLED') entry.calledAt = now;
+    if (body.status === 'IN_SERVICE') entry.serviceStartedAt = now;
+    if (body.status === 'COMPLETED') entry.completedAt = now;
+    if (body.status === 'WAITING') entry.calledAt = null;
+    send(response, 200, { success: true, data: { ...entry } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/queue\/entries\/[^/]+\/priority$/) && request.method === 'PATCH') {
+    const id = url.pathname.split('/').slice(-2,-1)[0];
+    const entry = QUEUE.find((e) => e.id === id);
+    if (!entry) { send(response,404,{success:false,error:{code:'RESOURCE_NOT_FOUND'}}); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request))||'{}'); } catch { send(response,400,{success:false,error:{code:'VALIDATION_ERROR'}}); return; }
+    if (typeof body.operationalPriority !== 'string') { send(response,400,{success:false,error:{code:'VALIDATION_ERROR'}}); return; }
+    if (!QUEUE_ACTIVE.has(entry.status)) { send(response,409,{success:false,error:{code:'INVALID_WORKFLOW_TRANSITION'}}); return; }
+    entry.operationalPriority = body.operationalPriority;
+    send(response, 200, { success: true, data: { ...entry } });
     return;
   }
 
