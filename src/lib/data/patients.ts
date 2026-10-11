@@ -222,21 +222,26 @@ function readMedicalHistory(value: unknown): {
  * that come back as a non-array fail the whole response (fail closed), while each
  * array row is validated individually.
  */
+/**
+ * Reads a master record payload (`{ patient, sections }`).
+ *
+ * The typed client unwraps the `{ success, data }` envelope before this runs, so
+ * this reads the payload directly. The export types that payload as a plain
+ * patient while the API returns the envelope's contents (GAP-013), hence the
+ * structural read.
+ */
 export function extractPatientMaster(
-  body: unknown,
+  payload: unknown,
 ): { ok: true; record: PatientMasterRecord } | { ok: false } {
-  if (!isRecord(body)) return { ok: false };
-  if (body.success !== true) return { ok: false };
-  const data = body.data;
-  if (!isRecord(data)) return { ok: false };
+  if (!isRecord(payload)) return { ok: false };
 
-  const patient = readPatientRow(data.patient);
+  const patient = readPatientRow(payload.patient);
   if (!patient) return { ok: false };
 
-  const sections = isRecord(data.sections) ? data.sections : {};
+  const sections = isRecord(payload.sections) ? payload.sections : {};
   // A missing `sections` block (or a section key) is a drifted body, not an
   // "empty record". Explicit empty arrays read as "no data recorded"; an absent
-  // array cannot be trusted, so the whole envelope fails closed.
+  // array cannot be trusted, so the whole payload fails closed.
   const guardians = readGuardians(sections.guardians);
   const consents = readConsents(sections.consents);
   const allergies = readAllergies(sections.allergies);
@@ -259,18 +264,19 @@ export function extractPatientMaster(
   };
 }
 
-/** Reads a `{ items, meta }` page used by the timeline and access log endpoints. */
+/**
+ * Reads an `{ items, meta }` page payload used by the timeline and access-log
+ * endpoints. As with the master record, the typed client has already unwrapped
+ * the envelope.
+ */
 export function extractPatientPage(
-  body: unknown,
+  payload: unknown,
 ): { ok: true; items: readonly unknown[]; total: number } | { ok: false } {
-  if (!isRecord(body)) return { ok: false };
-  if (body.success !== true) return { ok: false };
-  const data = body.data;
-  if (!isRecord(data)) return { ok: false };
-  if (!Array.isArray(data.items)) return { ok: false };
-  const meta = isRecord(data.meta) ? data.meta : {};
-  const total = typeof meta.total === 'number' ? meta.total : data.items.length;
-  return { ok: true, items: data.items, total };
+  if (!isRecord(payload)) return { ok: false };
+  if (!Array.isArray(payload.items)) return { ok: false };
+  const meta = isRecord(payload.meta) ? payload.meta : {};
+  const total = typeof meta.total === 'number' ? meta.total : payload.items.length;
+  return { ok: true, items: payload.items, total };
 }
 
 /**

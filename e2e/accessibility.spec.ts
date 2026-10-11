@@ -41,8 +41,8 @@ const ROUTES = [
   { path: '/display', name: 'Outpatient clinics' },
   { path: '/request', name: 'Emergency care' },
   { path: '/facilities', name: 'Find a facility' },
-  { path: '/patients', name: 'Find patients' },
-  { path: '/patients/register', name: 'Register walk-in' },
+  { path: '/patients', name: 'Reception' },
+  { path: '/patients/register', name: 'Register a walk-in' },
   { path: '/patients/pat_example_1001', name: 'EXAMPLE Amina Yusuf' },
 
   { path: '/track', name: 'Track your request' },

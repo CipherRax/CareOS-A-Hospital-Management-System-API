@@ -549,6 +549,15 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (url.pathname.match(/^\/patients\/[^/]+\/master$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const p = PATIENT_REGISTRY[id];
+    if (!p) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    const sections = SECTIONS[id] || { guardians: [], consents: [], allergies: [], medicalHistory: [] };
+    send(response, 200, { success: true, data: { patient: p, sections } });
+    return;
+  }
+
   if (url.pathname.match(/^\/patients\/[^/]+$/) && request.method === 'GET') {
     const id = url.pathname.split('/').slice(-1)[0];
     const p = PATIENT_REGISTRY[id];

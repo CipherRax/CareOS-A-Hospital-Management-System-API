@@ -116,33 +116,30 @@ describe('extractPatientList', () => {
 });
 
 describe('extractPatientMaster', () => {
-  const envelope = {
-    success: true,
-    data: {
-      patient: row,
-      sections: {
-        guardians: [
-          {
-            id: 'g-1',
-            firstName: 'EXAMPLE',
-            lastName: 'Hasan',
-            relationship: 'Guardian',
-            phone: '0700000002',
-          },
-        ],
-        consents: [{ type: 'TREATMENT', status: 'GRANTED' }],
-        allergies: [{ id: 'a-1', substance: 'Penicillin', severity: 'SEVERE' }],
-        medicalHistory: [
-          { category: 'DIABETES', description: 'Type 2, diagnosed 2018', onsetDate: '2018-06-01' },
-        ],
-      },
+  const payload = {
+    patient: row,
+    sections: {
+      guardians: [
+        {
+          id: 'g-1',
+          firstName: 'EXAMPLE',
+          lastName: 'Hasan',
+          relationship: 'Guardian',
+          phone: '0700000002',
+        },
+      ],
+      consents: [{ type: 'TREATMENT', status: 'GRANTED' }],
+      allergies: [{ id: 'a-1', substance: 'Penicillin', severity: 'SEVERE' }],
+      medicalHistory: [
+        { category: 'DIABETES', description: 'Type 2, diagnosed 2018', onsetDate: '2018-06-01' },
+      ],
     },
   };
 
   it('extracts the patient and all four sections', () => {
-    const result = extractPatientMaster(envelope);
-    expect(result.ok && result.record?.patient.displayName).toBe('EXAMPLE Amina Yusuf');
-    expect(result.ok && result.record?.sections.guardians).toHaveLength(1);
+    const result = extractPatientMaster(payload);
+    expect(result.ok && result.record.patient.displayName).toBe('EXAMPLE Amina Yusuf');
+    expect(result.ok && result.record.sections.guardians).toHaveLength(1);
     const ok = result as { ok: true; record: import('@/lib/data/patients').PatientMasterRecord };
     if (!ok.ok) throw new Error('expected ok');
     expect(ok.record.sections.consents[0]?.type).toBe('TREATMENT');
@@ -152,21 +149,18 @@ describe('extractPatientMaster', () => {
 
   it('fails closed when the sections block is missing entirely', () => {
     // An absent block cannot distinguish "nothing recorded" from a drifted body,
-    // so the envelope is rejected rather than rendered as an empty record.
-    expect(extractPatientMaster({ success: true, data: { patient: row } })).toEqual({ ok: false });
+    // so the payload is rejected rather than rendered as an empty record.
+    expect(extractPatientMaster({ patient: row })).toEqual({ ok: false });
   });
 
   it('treats explicit empty section arrays as "no data recorded"', () => {
     const result = extractPatientMaster({
-      success: true,
-      data: {
-        patient: row,
-        sections: {
-          guardians: [],
-          consents: [],
-          allergies: [],
-          medicalHistory: [],
-        },
+      patient: row,
+      sections: {
+        guardians: [],
+        consents: [],
+        allergies: [],
+        medicalHistory: [],
       },
     });
     expect(result.ok && result.record.sections.guardians).toEqual([]);
@@ -174,29 +168,26 @@ describe('extractPatientMaster', () => {
   });
 
   it('rejects a drifted body rather than rendering a banner', () => {
-    const broken = JSON.parse(JSON.stringify(envelope));
-    broken.data.patient.phone = { not: 'a string' };
+    const broken = JSON.parse(JSON.stringify(payload));
+    broken.patient.phone = { not: 'a string' };
     // phone is optional, so this still reads; break the patientNumber instead.
-    delete broken.data.patient.patientNumber;
+    delete broken.patient.patientNumber;
     expect(extractPatientMaster(broken)).toEqual({ ok: false });
 
-    const brokenSections = JSON.parse(JSON.stringify(envelope));
-    brokenSections.data.sections.guardians = [{ firstName: 'no lastName' }];
+    const brokenSections = JSON.parse(JSON.stringify(payload));
+    brokenSections.sections.guardians = [{ firstName: 'no lastName' }];
     expect(extractPatientMaster(brokenSections)).toEqual({ ok: false });
   });
 });
 
 describe('extractPatientPage', () => {
   it('reads items and the meta total', () => {
-    const result = extractPatientPage({
-      success: true,
-      data: { items: ['a'], meta: { total: 12 } },
-    });
+    const result = extractPatientPage({ items: ['a'], meta: { total: 12 } });
     expect(result).toEqual({ ok: true, items: ['a'], total: 12 });
   });
 
   it('defaults the total to the item count', () => {
-    const result = extractPatientPage({ success: true, data: { items: ['a', 'b'] } });
+    const result = extractPatientPage({ items: ['a', 'b'] });
     expect(result).toEqual({ ok: true, items: ['a', 'b'], total: 2 });
   });
 });
