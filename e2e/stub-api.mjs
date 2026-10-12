@@ -309,6 +309,38 @@ function buildVitals() {
 }
 const VITALS = buildVitals();
 let vitalSeq = 7004;
+
+// --- encounters (F4 doctor workspace) -----------------------------------
+// Same contract and records as the MSW handlers, stamped against the current
+// clock so "opened" reads sensibly on any day.
+const ENCOUNTER_BRANCH_ID = 'br_example_0001';
+const ENCOUNTER_SEED = [
+  { id: 'enc_example_6001', departmentId: 'dep_example_outpatient', patientId: 'pat_example_1001', providerId: 'usr_example_9001', type: 'OUTPATIENT', status: 'OPEN', visitId: 'vis_example_3001', note: null, openedMinutesAgo: 14, inProgressMinutesAgo: null, completedMinutesAgo: null },
+  { id: 'enc_example_6002', departmentId: 'dep_example_emergency', patientId: 'pat_example_1002', providerId: 'usr_example_9002', type: 'EMERGENCY', status: 'IN_PROGRESS', visitId: 'vis_example_3002', note: 'Tachycardic on arrival; monitoring in examination bay 2.', openedMinutesAgo: 96, inProgressMinutesAgo: 78, completedMinutesAgo: null },
+  { id: 'enc_example_6003', departmentId: 'dep_example_paediatrics', patientId: 'pat_example_1003', providerId: 'usr_example_9003', type: 'FOLLOW_UP', status: 'COMPLETED', visitId: 'vis_example_3003', note: null, openedMinutesAgo: 220, inProgressMinutesAgo: 205, completedMinutesAgo: 170 },
+  { id: 'enc_example_6004', departmentId: 'dep_example_outpatient', patientId: 'pat_example_1004', providerId: null, type: 'OUTPATIENT', status: 'OPEN', visitId: 'vis_example_3004', note: 'Reviews the previous INR result with the clinician.', openedMinutesAgo: 6, inProgressMinutesAgo: null, completedMinutesAgo: null },
+];
+const ENCOUNTER_TRANSITIONS = {
+  OPEN: ['IN_PROGRESS'],
+  IN_PROGRESS: ['COMPLETED'],
+  COMPLETED: [],
+};
+function buildEncounters() {
+  return ENCOUNTER_SEED.map((seed) => {
+    const openedAt = minutesAgo(seed.openedMinutesAgo);
+    return {
+      id: seed.id, organizationId: 'org_example_0001', branchId: ENCOUNTER_BRANCH_ID,
+      departmentId: seed.departmentId, patientId: seed.patientId, providerId: seed.providerId,
+      type: seed.type, status: seed.status, visitId: seed.visitId, appointmentId: null,
+      note: seed.note, openedById: seed.providerId || 'usr_example_9004', openedAt,
+      inProgressAt: seed.inProgressMinutesAgo === null ? null : minutesAgo(seed.inProgressMinutesAgo),
+      completedAt: seed.completedMinutesAgo === null ? null : minutesAgo(seed.completedMinutesAgo),
+      version: 1, createdAt: openedAt, updatedAt: minutesAgo(seed.openedMinutesAgo),
+    };
+  });
+}
+const ENCOUNTERS = buildEncounters();
+
 function computeBmi(weightKg, heightCm) {
   if (weightKg === null || heightCm === null || !Number.isFinite(weightKg) || !Number.isFinite(heightCm) || weightKg <= 0 || heightCm <= 0 || heightCm < 60 || heightCm > 260 || weightKg < 1 || weightKg > 500) return null;
   const metres = heightCm / 100;
@@ -1162,6 +1194,55 @@ const server = createServer(async (request, response) => {
     if (index < 0) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
     LIVE_OVERRIDES.splice(index, 1);
     send(response, 204, undefined);
+    return;
+  }
+
+// --- encounters (F4 doctor workspace) ---------------------------------
+  if (url.pathname === '/encounters' && request.method === 'GET') {
+    const patientId = url.searchParams.get('patientId');
+    const departmentId = url.searchParams.get('departmentId');
+    const providerId = url.searchParams.get('providerId');
+    const type = url.searchParams.get('type');
+    const status = url.searchParams.get('status');
+    let items = [...ENCOUNTERS];
+    if (patientId) items = items.filter((e) => e.patientId === patientId);
+    if (departmentId) items = items.filter((e) => e.departmentId === departmentId);
+    if (providerId) items = items.filter((e) => e.providerId === providerId);
+    if (type) items = items.filter((e) => e.type === type);
+    if (status) items = items.filter((e) => e.status === status);
+    items.sort((a, b) => Date.parse(b.openedAt) - Date.parse(a.openedAt));
+    send(response, 200, listEnvelope(items, 50));
+    return;
+  }
+
+  if (url.pathname.match(/^\/encounters\/[^/]+$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const encounter = ENCOUNTERS.find((e) => e.id === id);
+    if (!encounter) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { encounter: { ...encounter } } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/encounters\/[^/]+\/status$/) && request.method === 'PATCH') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const encounter = ENCOUNTERS.find((e) => e.id === id);
+    if (!encounter) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.status !== 'string' || body.status.length === 0) {
+      send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return;
+    }
+    const next = body.status;
+    if (!(ENCOUNTER_TRANSITIONS[encounter.status] || []).includes(next)) {
+      send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return;
+    }
+    const now = new Date().toISOString();
+    encounter.status = next;
+    encounter.version += 1;
+    encounter.updatedAt = now;
+    if (next === 'COMPLETED') encounter.completedAt = now;
+    else encounter.inProgressAt = now;
+    send(response, 200, { success: true, data: { encounter: { ...encounter } } });
     return;
   }
 

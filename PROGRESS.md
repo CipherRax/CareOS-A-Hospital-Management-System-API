@@ -16,7 +16,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F1 Auth, session, shell        | **complete** — login/logout, proxy session bridge, gate, shell, nav rail                   | live round-trip awaiting a bootable API                |
 | F2 Patients & reception        | **complete** — patient search, walk-in registration with duplicate guard, master record (banner + sections + timeline + access log), MSW fixtures, structural validators | shipped (`a185d69`, `8b6ce44`); live API round-trip Docker-gated; GAP-012–GAP-016 documented |
 | F3 Scheduling, queue, nursing  | **complete** — reception queue slice (live queue board, walk-in ticket issuance, status/priority moves), appointment desk slice (day book, booking with slot search, appointment status moves, department waitlist), nursing vitals slice (patient chart, record/correct with BMI), schedule admin slice (weekly template CRUD + dated exceptions), and reschedule from the day book | live API round-trip Docker-gated; GAP-017–GAP-019 documented |
-| F4 Doctor workspace            | not started                                                                                | encounters, notes, orders, results                     |
+| F4 Doctor workspace            | encounters slice 1 **complete** — encounter list (`/encounters`) with status/department filters, and the encounter workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place); MSW fixtures + stub + e2e swept | notes, orders, results (slices 2–4) |
 | F5 Laboratory & radiology      | not started                                                                                | lab orders, samples, results                           |
 | F6 Pharmacy & inventory        | not started                                                                                | dispensing, stock, batches, POs                        |
 | F7 Billing & insurance         | not started                                                                                | invoices, payments, M-PESA, claims                     |
@@ -492,3 +492,30 @@ build rather than left to process: contrast pairs (`tokens:verify`, tightest
 passing pair 3.25:1), the single global focus rule, and the axe sweep of
 `/design-system` in all four theme/density combinations. No contrast, shape,
 motion or scale dependency was added to achieve the pass.
+
+## F4 — Doctor workspace, slice 1: encounters
+
+**Status:** complete. The encounter list and workspace are live against the
+contract verified from the API source (`src/modules/encounters`):
+
+- `/encounters` lists encounters with status and department filters, one row
+  per visit (patient, opened time, type, department, status), named patients
+  resolved on demand exactly like the day book (GAP-018).
+- `/encounters/[id]` is the workspace: details (type, department, provider,
+  opened/in-progress/completed stamps, note) and the workflow moves
+  **OPEN → IN_PROGRESS → COMPLETED** mirroring the API's system edges, with
+  COMPLETED locked. Completing asks for confirmation; a move the server now
+  rejects (409 `INVALID_WORKFLOW_TRANSITION`, e.g. a stale tab) surfaces a
+  status-specific alert instead of a generic failure.
+- Move set, statuses and types are shared between the UI and the structural
+  validators (`src/lib/data/encounters.ts`) so the workflow cannot drift from
+  the screens.
+
+Contract notes recorded against the source (`docs/api-contract-gaps.md`,
+GAP-020): both `GET /encounters` and the single-encounter reads drift from
+their export — the list's 200 is typed as the request DTO with no query model
+(raw-fetched and validated structurally), and the detail/transition reads
+answer `{ encounter }` while typed as the bare entity (unwrap + structural
+read). Records are EXAMPLE-prefixed and duplicated deliberately between the
+MSW registry and `e2e/stub-api.mjs`. Gate: lint, typecheck, 341 unit tests,
+`build:prod`, 111 a11y/e2e — all green.

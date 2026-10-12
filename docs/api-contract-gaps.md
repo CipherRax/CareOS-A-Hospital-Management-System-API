@@ -280,3 +280,27 @@ feedback the contract can give. Because `date` is typed `unknown` in the export,
 the request body is built structurally. A complete screen needs a read endpoint
 (`GET /schedules/overrides?providerId=&from=&to=` returning `{ items, meta }`,
 mirroring templates) plus typed `date`/`startMinutes`/`endMinutes` fields.
+
+## GAP-020 — Encounters reads are mis-typed against what the service returns
+
+**Status: open (F4 encounters).** Verified against `src/modules/encounters` and
+the exported `schema.d.ts`:
+
+- `GET /encounters` has `query: never` in the export (no query model) and its
+  200 is typed as `ListEncountersQueryDto` — the request DTO, not a page. The
+  handler is a genuine `PageResult` (unwrapped `data: [...]` + sibling `meta`),
+  so the only safe read is the raw-fetch path: `fetchEncounters` in
+  `src/lib/data/encounters.ts` validates each row structurally, exactly as
+  GAP-017 did for queues.
+- `GET /encounters/{id}` and `PATCH /encounters/{id}/status` are typed as the
+  bare `EncounterResponseDto`, but the service answers `{ encounter }`. The
+  typed client is used for the URL/body, then the unwrapped body is passed
+  through `extractEncounterRecord`. Get and transition therefore read the same
+  validator the list uses, so a drift would fail in one place.
+
+The workflow surface is not in doubt: statuses OPEN → IN_PROGRESS → COMPLETED
+are enforced server-side (COMPLETED is terminal, illegal moves answer 409
+`INVALID_WORKFLOW_TRANSITION`), and the UI mirrors exactly those edges. What the
+contract fixes is the typed read shape and a query model (filters
+patient/branch/department/provider/type/status/date range/page/limit are
+already implemented server-side).

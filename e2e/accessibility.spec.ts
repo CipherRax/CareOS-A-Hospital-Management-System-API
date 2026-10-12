@@ -37,6 +37,8 @@ const ROUTES = [
   { path: '/queue', name: 'Reception queue' },
   { path: '/appointments', name: 'Appointments' },
   { path: '/vitals', name: 'Vitals' },
+  { path: '/encounters', name: 'Encounters' },
+  { path: '/encounters/enc_example_6001', name: 'EXAMPLE Amina Yusuf' },
   { path: '/schedules', name: 'Schedules' },
   // Named by their real h1, not by what the route is called. On a patient record
   // the heading is the patient — that is the design decision under review — and

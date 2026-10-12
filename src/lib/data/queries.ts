@@ -72,6 +72,15 @@ import {
   type OperationalPriority,
   type RegisteredWalkIn,
 } from '@/lib/data/queue';
+import {
+  extractEncounterRecord,
+  fetchEncounters,
+  type EncounterPage,
+  type EncounterQuery,
+  type EncounterRow,
+  type EncounterStatus,
+  type EncountersCallError,
+} from '@/lib/data/encounters';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
@@ -1328,3 +1337,95 @@ export function useDeleteOverride(): UseMutationResult<void, QueryError, { id: s
 
 /** The branch every schedule-admin write posts, matching the desk (GAP-018). */
 export const SCHEDULES_ADMIN_BRANCH_ID = SCHEDULES_BRANCH_ID;
+
+// --- encounters (F4) --------------------------------------------------------
+
+/**
+ * Encounter list `GET /encounters?{filters}`. The export leaves the query
+ * unmodelled and mis-types the 200 as the request DTO (GAP-020), so this rides
+ * the raw-fetch path in `src/lib/data/encounters.ts`.
+ */
+export function useEncounters(
+  query: EncounterQuery = {},
+): UseQueryResult<Fetched<EncounterPage>, QueryError> {
+  return useQuery<Fetched<EncounterPage>, QueryError>({
+    queryKey: [
+      'encounters',
+      'list',
+      query.patientId ?? null,
+      query.departmentId ?? null,
+      query.status ?? null,
+      query.type ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchEncounters(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<EncounterPage>;
+      } catch (call) {
+        throw toQueryError(call as EncountersCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Single encounter `GET /encounters/{id}`. The export types the 200 as the bare
+ * entity, but the service answers `{ encounter }`, so the unwrapped body is
+ * validated structurally.
+ */
+export function useEncounter(id: string): UseQueryResult<Fetched<EncounterRow>, QueryError> {
+  return useQuery<Fetched<EncounterRow>, QueryError>({
+    queryKey: ['encounters', id],
+    queryFn: () =>
+      fetchPatientEnvelope<EncounterRow>(
+        api.GET('/encounters/{id}', { params: { path: { id } } }),
+        (body) => {
+          const parsed = extractEncounterRecord(body);
+          return parsed.ok ? { ok: true as const, data: parsed.encounter } : { ok: false as const };
+        },
+      ),
+    enabled: id.length > 0,
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+export interface TransitionEncounterInput {
+  id: string;
+  status: EncounterStatus;
+}
+
+/**
+ * Moves an encounter `PATCH /encounters/{id}/status`. The API validates the move
+ * through the workflow engine, so a stale workspace that offers an edge the
+ * server no longer allows gets 409 INVALID_WORKFLOW_TRANSITION, surfaced
+ * in-place rather than as a generic failure.
+ */
+export function useTransitionEncounter(): UseMutationResult<
+  EncounterRow,
+  QueryError,
+  TransitionEncounterInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<EncounterRow, QueryError, TransitionEncounterInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/encounters/{id}/status', {
+          params: { path: { id: input.id } },
+          body: { status: input.status },
+        }),
+      );
+      const parsed = extractEncounterRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 200, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.encounter;
+    },
+    onSuccess: (_encounter, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['encounters', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['encounters', 'list'] });
+    },
+  });
+}
