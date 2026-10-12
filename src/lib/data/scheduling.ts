@@ -1,5 +1,14 @@
 import { publicEnv } from '@/lib/env';
 
+import {
+  nullableString,
+  pageTotal,
+  queryString,
+  readEnvelope,
+  stringArray,
+  type EnvelopeCallError,
+} from '@/lib/data/envelope';
+
 /**
  * Appointments, scheduling and the department waitlist (F3).
  *
@@ -154,15 +163,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function nullableString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
-function stringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === 'string');
-}
-
 /** Reads one serialized appointment; returns null when the row cannot be one. */
 export function readAppointment(value: unknown): AppointmentRow | null {
   if (!isRecord(value)) return null;
@@ -185,16 +185,18 @@ export function readAppointment(value: unknown): AppointmentRow | null {
   };
 }
 
-/** Reads an `{ items, meta }` appointment page. An empty array is an empty day. */
+/**
+ * Reads an appointment page from the unwrapped envelope: `data` is the array of
+ * rows and `meta` the pagination sibling. An empty array is an empty day.
+ */
 export function extractAppointmentPage(
-  payload: unknown,
+  data: unknown,
+  meta?: unknown,
 ): { ok: true; page: AppointmentPage } | { ok: false } {
-  if (!isRecord(payload)) return { ok: false };
-  if (!Array.isArray(payload.items)) return { ok: false };
-  const items = payload.items.map(readAppointment);
+  if (!Array.isArray(data)) return { ok: false };
+  const items = data.map(readAppointment);
   if (items.some((item) => item === null)) return { ok: false };
-  const meta = isRecord(payload.meta) ? payload.meta : {};
-  const total = typeof meta.total === 'number' ? meta.total : items.length;
+  const total = pageTotal(meta, items.length);
   return { ok: true, page: { items: items as readonly AppointmentRow[], total } };
 }
 
@@ -218,14 +220,13 @@ export function readWaitlistEntry(value: unknown): WaitlistEntryRow | null {
 }
 
 export function extractWaitlistPage(
-  payload: unknown,
+  data: unknown,
+  meta?: unknown,
 ): { ok: true; page: WaitlistPage } | { ok: false } {
-  if (!isRecord(payload)) return { ok: false };
-  if (!Array.isArray(payload.items)) return { ok: false };
-  const items = payload.items.map(readWaitlistEntry);
+  if (!Array.isArray(data)) return { ok: false };
+  const items = data.map(readWaitlistEntry);
   if (items.some((item) => item === null)) return { ok: false };
-  const meta = isRecord(payload.meta) ? payload.meta : {};
-  const total = typeof meta.total === 'number' ? meta.total : items.length;
+  const total = pageTotal(meta, items.length);
   return { ok: true, page: { items: items as readonly WaitlistEntryRow[], total } };
 }
 
@@ -235,11 +236,10 @@ export function extractWaitlistPage(
  * becoming a blank option in the booking picker.
  */
 export function extractProviderPage(
-  payload: unknown,
+  data: unknown,
 ): { ok: true; providers: readonly ProviderOption[] } | { ok: false } {
-  if (!isRecord(payload)) return { ok: false };
-  if (!Array.isArray(payload.items)) return { ok: false };
-  const providers = payload.items.flatMap((value): ProviderOption[] => {
+  if (!Array.isArray(data)) return { ok: false };
+  const providers = data.flatMap((value): ProviderOption[] => {
     if (!isRecord(value)) return [];
     if (typeof value.id !== 'string' || typeof value.name !== 'string' || !value.name) return [];
     return [
@@ -359,46 +359,7 @@ export function todayISO(now: Date = new Date()): string {
 }
 
 /** Shape every scheduling raw call rejects with, matching the query error contract. */
-export interface SchedulingCallError {
-  readonly code: string;
-  readonly status: number;
-}
-
-function callErrorCodeFrom(body: unknown): string {
-  if (!isRecord(body)) return 'INTERNAL_ERROR';
-  const envelope = isRecord(body.error) ? body.error : body;
-  return typeof envelope.code === 'string' ? envelope.code : 'INTERNAL_ERROR';
-}
-
-/**
- * Shared raw read: same-origin fetch (cookies ride along), a drift-safe success
- * envelope check, then structural validation of the unwrapped `data`.
- */
-async function readEnvelope<T>(
-  url: string,
-  parse: (data: unknown) => { ok: true; value: T } | { ok: false },
-  signal?: AbortSignal,
-): Promise<T> {
-  const response = await fetch(url, { signal, credentials: 'same-origin' });
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    body = undefined;
-  }
-  if (!response.ok) {
-    throw { code: callErrorCodeFrom(body), status: response.status } satisfies SchedulingCallError;
-  }
-  const envelope = isRecord(body) ? body : {};
-  if (envelope.success !== true || !isRecord(envelope.data)) {
-    throw { code: 'INTERNAL_ERROR', status: 200 } satisfies SchedulingCallError;
-  }
-  const parsed = parse(envelope.data);
-  if (!parsed.ok) {
-    throw { code: 'INTERNAL_ERROR', status: 200 } satisfies SchedulingCallError;
-  }
-  return parsed.value;
-}
+export type SchedulingCallError = EnvelopeCallError;
 
 export interface AppointmentQuery {
   readonly departmentId?: string;
@@ -406,15 +367,6 @@ export interface AppointmentQuery {
   readonly status?: string;
   /** A `YYYY-MM-DD` day; the reader widens it to an inclusive local-day range. */
   readonly date?: string;
-}
-
-function queryString(params: Record<string, string | undefined>): string {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value) search.set(key, value);
-  }
-  const suffix = search.toString();
-  return suffix ? `?${suffix}` : '';
 }
 
 /** Raw day-book read against `GET /appointments` (unmodelled query, mis-typed body). */
@@ -433,8 +385,8 @@ export async function fetchAppointments(
   })}`;
   return readEnvelope<AppointmentPage>(
     url,
-    (data) => {
-      const page = extractAppointmentPage(data);
+    (data, meta) => {
+      const page = extractAppointmentPage(data, meta);
       return page.ok ? { ok: true, value: page.page } : { ok: false };
     },
     signal,
@@ -453,8 +405,8 @@ export async function fetchWaitlist(
   })}`;
   const parsed = await readEnvelope<WaitlistPage>(
     url,
-    (data) => {
-      const page = extractWaitlistPage(data);
+    (data, meta) => {
+      const page = extractWaitlistPage(data, meta);
       return page.ok ? { ok: true, value: page.page } : { ok: false };
     },
     signal,

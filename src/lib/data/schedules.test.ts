@@ -66,19 +66,19 @@ describe('readTemplate', () => {
 });
 
 describe('extractTemplatePage', () => {
-  it('reads the { items, meta } body', () => {
-    const parsed = extractTemplatePage({ items: [template], meta: { total: 1 } });
+  it('reads the unwrapped data array with a meta total', () => {
+    const parsed = extractTemplatePage([template], { total: 1 });
     expect(parsed.ok && parsed.page.items).toHaveLength(1);
     expect(parsed.ok && parsed.page.total).toBe(1);
   });
 
-  it('treats an empty list as a provider with no hours', () => {
-    const parsed = extractTemplatePage({ items: [] });
+  it('treats an empty data array as a provider with no hours', () => {
+    const parsed = extractTemplatePage([]);
     expect(parsed.ok && parsed.page.items).toHaveLength(0);
   });
 
   it('fails closed on a malformed body', () => {
-    expect(extractTemplatePage({ items: [{}] })).toEqual({ ok: false });
+    expect(extractTemplatePage([{}])).toEqual({ ok: false });
     expect(extractTemplatePage(null)).toEqual({ ok: false });
   });
 

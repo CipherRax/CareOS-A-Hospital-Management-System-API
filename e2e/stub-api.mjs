@@ -363,8 +363,8 @@ function generateSlots(providerId, departmentId, dateISO) {
   slots.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
   return slots;
 }
-function appointmentPage(items) {
-  return { items, meta: { page: 1, limit: 100, total: items.length, totalPages: Math.max(1, Math.ceil(items.length / 100)) } };
+function listEnvelope(items, limit = 100) {
+  return { success: true, data: items, meta: { page: 1, limit, total: items.length, totalPages: Math.max(1, Math.ceil(items.length / limit)) } };
 }
 
 function queueStats() {
@@ -732,7 +732,7 @@ const server = createServer(async (request, response) => {
     if (q) {
       items = items.filter(p => [p.patientNumber, `${p.firstName} ${p.otherNames||''} ${p.lastName}`, p.phone||''].join(' ').toLowerCase().includes(q));
     }
-    send(response, 200, { success: true, data: { items, meta: { page:1, limit:25, total: items.length, totalPages: Math.ceil(items.length/25) } } });
+    send(response, 200, listEnvelope(items, 25));
     return;
   }
 
@@ -786,14 +786,14 @@ const server = createServer(async (request, response) => {
   if (url.pathname.match(/^\/patients\/[^/]+\/timeline$/) && request.method === 'GET') {
     const id = url.pathname.split('/').slice(-2,-1)[0];
     const items = TIMELINE[id] || [];
-    send(response,200,{success:true,data:{ items, meta:{ page:1, limit:25, total:items.length, totalPages:1 } }});
+    send(response, 200, listEnvelope(items, 25));
     return;
   }
 
   if (url.pathname.match(/^\/patients\/[^/]+\/access-log$/) && request.method === 'GET') {
     const id = url.pathname.split('/').slice(-2,-1)[0];
     const items = ACCESS_LOG[id] || [];
-    send(response,200,{success:true,data:{ items, meta:{ page:1, limit:25, total:items.length, totalPages:1 } }});
+    send(response, 200, listEnvelope(items, 25));
     return;
   }
 
@@ -818,13 +818,13 @@ const server = createServer(async (request, response) => {
     if (departmentId) items = items.filter((e) => e.departmentId === departmentId);
     if (status) items = items.filter((e) => e.status === status);
     items.sort((a, b) => Date.parse(b.enteredAt) - Date.parse(a.enteredAt));
-    send(response, 200, { success: true, data: { items, meta: { page:1, limit:25, total: items.length, totalPages: Math.max(1, Math.ceil(items.length/25)) } } });
+    send(response, 200, listEnvelope(items, 25));
     return;
   }
 
   if (url.pathname === '/departments' && request.method === 'GET') {
     const items = DEPARTMENTS.map((d) => ({ ...d, branchId: QUEUE_BRANCH_ID }));
-    send(response, 200, { success: true, data: { departments: items, meta: { page:1, limit:100, total: items.length, totalPages:1 } } });
+    send(response, 200, listEnvelope(items, 100));
     return;
   }
 
@@ -883,7 +883,7 @@ const server = createServer(async (request, response) => {
     const departmentId = url.searchParams.get('departmentId');
     let items = PROVIDER_DIRECTORY.map((p) => ({ ...p }));
     if (departmentId) items = items.filter((p) => p.departmentIds.includes(departmentId));
-    send(response, 200, { success: true, data: appointmentPage(items) });
+    send(response, 200, listEnvelope(items));
     return;
   }
 
@@ -901,7 +901,7 @@ const server = createServer(async (request, response) => {
     let items = [...LIVE_WAITLIST];
     if (departmentId) items = items.filter((e) => e.departmentId === departmentId);
     if (status) items = items.filter((e) => e.status === status);
-    send(response, 200, { success: true, data: appointmentPage(items) });
+    send(response, 200, listEnvelope(items));
     return;
   }
 
@@ -970,7 +970,7 @@ const server = createServer(async (request, response) => {
     if (dateFrom) items = items.filter((a) => a.startsAt >= dateFrom);
     if (dateTo) items = items.filter((a) => a.startsAt <= dateTo);
     items.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
-    send(response, 200, { success: true, data: appointmentPage(items) });
+    send(response, 200, listEnvelope(items));
     return;
   }
 
@@ -1054,7 +1054,7 @@ const server = createServer(async (request, response) => {
     if (patientId) items = items.filter((v) => v.patientId === patientId);
     if (visitId) items = items.filter((v) => v.visitId === visitId);
     items.sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt) || Date.parse(b.createdAt) - Date.parse(a.createdAt));
-    send(response, 200, { success: true, data: { items: items.map(serializeVital), meta: { page: 1, limit: 100, total: items.length, totalPages: Math.max(1, Math.ceil(items.length / 100)) } } });
+    send(response, 200, listEnvelope(items.map(serializeVital)));
     return;
   }
 
@@ -1095,7 +1095,7 @@ const server = createServer(async (request, response) => {
     if (departmentId) items = items.filter((t) => t.departmentId === departmentId);
     if (dayOfWeek !== null) items = items.filter((t) => t.dayOfWeek === Number(dayOfWeek));
     items.sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startMinutes - b.startMinutes);
-    send(response, 200, { success: true, data: { items, meta: { page: 1, limit: 100, total: items.length, totalPages: Math.max(1, Math.ceil(items.length / 100)) } } });
+    send(response, 200, listEnvelope(items));
     return;
   }
 

@@ -1,5 +1,12 @@
 import { publicEnv } from '@/lib/env';
 
+import {
+  isRecord,
+  pageTotal,
+  readEnvelope,
+  type EnvelopeCallError,
+} from '@/lib/data/envelope';
+
 /**
  * Patient registry (F2 — reception).
  *
@@ -80,10 +87,6 @@ export interface PatientMasterRecord {
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 /** Joins the name parts a serialized patient ships, ignoring blanks. */
 export function buildDisplayName(
   firstName: unknown,
@@ -117,25 +120,20 @@ export function readPatientRow(value: unknown): PatientListItem | null {
 }
 
 /**
- * Reads a search result page (`GET /patients`).
- *
- * Envelope is `{ success, data: { items, meta: { total } } }`. An envelope with a
- * usable shape but rows that do not read as patients is a broken response, not a
- * zero-result search; only a genuinely empty `items` array counts as "no matches".
+ * Reads a search result page (`GET /patients`) from the unwrapped envelope:
+ * `data` is the array of rows and `meta` the pagination sibling. Rows that do
+ * not read as patients are a broken response, not a zero-result search; only a
+ * genuinely empty `data` array counts as "no matches".
  */
 export function extractPatientList(
-  body: unknown,
+  data: unknown,
+  meta?: unknown,
 ): { ok: true; page: PatientListPage } | { ok: false } {
-  if (!isRecord(body)) return { ok: false };
-  if (body.success !== true) return { ok: false };
-  const data = body.data;
-  if (!isRecord(data)) return { ok: false };
-  if (!Array.isArray(data.items)) return { ok: false };
+  if (!Array.isArray(data)) return { ok: false };
 
-  const items = data.items.map(readPatientRow);
+  const items = data.map(readPatientRow);
   if (items.some((item) => item === null)) return { ok: false };
-  const meta = isRecord(data.meta) ? data.meta : {};
-  const total = typeof meta.total === 'number' ? meta.total : items.length;
+  const total = pageTotal(meta, items.length);
   return { ok: true, page: { items: items as readonly PatientListItem[], total } };
 }
 
@@ -265,18 +263,17 @@ export function extractPatientMaster(
 }
 
 /**
- * Reads an `{ items, meta }` page payload used by the timeline and access-log
- * endpoints. As with the master record, the typed client has already unwrapped
- * the envelope.
+ * Reads a list page from the unwrapped envelope (`data` array + `meta` sibling).
+ * Used by the timeline and access-log endpoints, where the typed client has
+ * already unwrapped the success envelope.
  */
 export function extractPatientPage(
-  payload: unknown,
+  data: unknown,
+  meta?: unknown,
 ): { ok: true; items: readonly unknown[]; total: number } | { ok: false } {
-  if (!isRecord(payload)) return { ok: false };
-  if (!Array.isArray(payload.items)) return { ok: false };
-  const meta = isRecord(payload.meta) ? payload.meta : {};
-  const total = typeof meta.total === 'number' ? meta.total : payload.items.length;
-  return { ok: true, items: payload.items, total };
+  if (!Array.isArray(data)) return { ok: false };
+  const total = pageTotal(meta, data.length);
+  return { ok: true, items: data, total };
 }
 
 /**
@@ -324,24 +321,14 @@ export interface TimelineEventRow {
 }
 
 /** Shape every patient call rejects with, matching the query error contract. */
-export interface PatientCallError {
-  readonly code: string;
-  readonly status: number;
-}
-
-/** Pulls the error code out of a non-2xx body the way the typed client does. */
-function errorCodeFrom(body: unknown): string {
-  if (!isRecord(body)) return 'INTERNAL_ERROR';
-  const envelope = isRecord(body.error) ? body.error : body;
-  return typeof envelope.code === 'string' ? envelope.code : 'INTERNAL_ERROR';
-}
+export type PatientCallError = EnvelopeCallError;
 
 /**
  * Raw search against `GET /patients?q=…`.
  *
  * `q` is unmodelled in the export (GAP-012), so the typed client cannot express
- * it. This uses the facilities precedent: same-origin fetch (cookies ride along),
- * a drift-safe envelope check, then structural row validation.
+ * it. Same-origin fetch (cookies ride along), a drift-safe envelope check, then
+ * structural row validation of the unwrapped `data`.
  */
 export async function fetchPatientSearch(
   q: string,
@@ -349,19 +336,13 @@ export async function fetchPatientSearch(
 ): Promise<PatientListPage> {
   const needle = q.trim();
   const url = `${publicEnv.apiBasePath}/patients?q=${encodeURIComponent(needle)}&limit=25`;
-  const response = await fetch(url, { signal, credentials: 'same-origin' });
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    body = undefined;
-  }
-  if (!response.ok) {
-    throw { code: errorCodeFrom(body), status: response.status } satisfies PatientCallError;
-  }
-  const parsed = extractPatientList(body);
-  if (!parsed.ok) {
-    throw { code: 'INTERNAL_ERROR', status: 200 } satisfies PatientCallError;
-  }
-  return parsed.page;
+  const parsed = await readEnvelope<PatientListPage>(
+    url,
+    (data, meta) => {
+      const page = extractPatientList(data, meta);
+      return page.ok ? { ok: true, value: page.page } : { ok: false };
+    },
+    signal,
+  );
+  return parsed;
 }

@@ -31,6 +31,25 @@ export function apiOk<T>(data: T, requestId = 'req_mock') {
 }
 
 /**
+ * Response envelope for a paginated list. The live API's interceptor unwraps
+ * page results into `data: [...items]` with the pagination as a *sibling* `meta`,
+ * so `apiOk({ items, meta })` would match the OpenAPI export but not the wire.
+ */
+export function apiPage<T>(items: readonly T[], total?: number, limit = 100) {
+  const count = total ?? items.length;
+  return {
+    success: true as const,
+    data: items,
+    meta: {
+      page: 1,
+      limit,
+      total: count,
+      totalPages: Math.max(1, Math.ceil(count / limit)),
+    },
+  };
+}
+
+/**
  * Error body only. The HTTP status is supplied by the caller to
  * `HttpResponse.json(body, { status })` so the two cannot disagree.
  */

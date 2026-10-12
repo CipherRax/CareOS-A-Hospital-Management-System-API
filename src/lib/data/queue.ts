@@ -1,13 +1,15 @@
 import { publicEnv } from '@/lib/env';
 
+import { isRecord, nullableString, pageTotal, readEnvelope, type EnvelopeCallError } from '@/lib/data/envelope';
+
 /**
  * Queue contract readers (F3).
  *
  * The exported document mis-types every queue 200 as its *request* DTO —
  * `GET /queue` returns `ListQueueQueryDto`, `POST /queue/walk-ins/register`
  * returns `RegisterWalkInDto`, and so on (GAP-017). The real bodies come from
- * `queue.service.ts` (`{ items, meta }` pages, `{ stats }`, the walk-in receipt),
- * so each is validated here rather than trusted.
+ * `queue.service.ts` (page envelopes, `{ stats }`, the walk-in receipt), so each
+ * is validated here rather than trusted.
  *
  * The queue flow itself is fixed by the API's `queue-flow.ts`: a ticket walks
  * WAITING → CALLED → IN_SERVICE → COMPLETED, and NO_SHOW / ABANDONED / CANCELLED
@@ -104,14 +106,6 @@ export interface DepartmentOption {
   readonly active: boolean;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function nullableString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
 /** Reads one queue row; returns null when the row cannot be a ticket. */
 export function readQueueEntry(value: unknown): QueueEntryRow | null {
   if (!isRecord(value)) return null;
@@ -138,19 +132,18 @@ export function readQueueEntry(value: unknown): QueueEntryRow | null {
 }
 
 /**
- * Reads the queue page payload (`{ items, meta }`). The typed client has already
- * unwrapped the success envelope. A non-array `items` is a broken body; a
- * genuinely empty array is an empty board.
+ * Reads the queue page from the unwrapped envelope: `data` is the array of
+ * tickets and `meta` the pagination sibling. A non-array `data` is a broken body;
+ * a genuinely empty array is an empty board.
  */
 export function extractQueuePage(
-  payload: unknown,
+  data: unknown,
+  meta?: unknown,
 ): { ok: true; page: QueuePage } | { ok: false } {
-  if (!isRecord(payload)) return { ok: false };
-  if (!Array.isArray(payload.items)) return { ok: false };
-  const items = payload.items.map(readQueueEntry);
+  if (!Array.isArray(data)) return { ok: false };
+  const items = data.map(readQueueEntry);
   if (items.some((item) => item === null)) return { ok: false };
-  const meta = isRecord(payload.meta) ? payload.meta : {};
-  const total = typeof meta.total === 'number' ? meta.total : items.length;
+  const total = pageTotal(meta, items.length);
   return { ok: true, page: { items: items as readonly QueueEntryRow[], total } };
 }
 
@@ -190,17 +183,16 @@ export function extractRegisteredWalkIn(
 }
 
 /**
- * Reads the department list (`{ departments, meta }` — note `departments`, not
- * `items`). The export types this one correctly (`DepartmentListResponseDto`),
- * but the read stays structural so a drifted body does not become a picker with
- * a blank first option.
+ * Reads the department list from the unwrapped envelope (`{ data: [...] }`).
+ * The export types this one (`DepartmentListResponseDto`) but still lists it as
+ * a page, so `data` is the array of departments; the read stays structural so a
+ * drifted body does not become a picker with a blank first option.
  */
 export function extractDepartmentList(
-  payload: unknown,
+  data: unknown,
 ): { ok: true; departments: readonly DepartmentOption[] } | { ok: false } {
-  if (!isRecord(payload)) return { ok: false };
-  if (!Array.isArray(payload.departments)) return { ok: false };
-  const departments = payload.departments.flatMap((value): DepartmentOption[] => {
+  if (!Array.isArray(data)) return { ok: false };
+  const departments = data.flatMap((value): DepartmentOption[] => {
     if (!isRecord(value)) return [];
     if (typeof value.id !== 'string' || typeof value.name !== 'string') return [];
     return [
@@ -249,10 +241,7 @@ export function waitingMinutes(entry: QueueEntryRow, now: number = Date.now()): 
 }
 
 /** Shape every queue raw call rejects with, matching the query error contract. */
-export interface QueueCallError {
-  readonly code: string;
-  readonly status: number;
-}
+export type QueueCallError = EnvelopeCallError;
 
 export interface QueueQuery {
   readonly departmentId?: string;
@@ -276,29 +265,13 @@ export async function fetchQueue(
   if (query.status) params.set('status', query.status);
   const suffix = params.toString();
   const url = `${publicEnv.apiBasePath}/queue${suffix ? `?${suffix}` : ''}`;
-  const response = await fetch(url, { signal, credentials: 'same-origin' });
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    body = undefined;
-  }
-  if (!response.ok) {
-    throw { code: queueErrorCodeFrom(body), status: response.status } satisfies QueueCallError;
-  }
-  const envelope = isRecord(body) ? body : {};
-  if (envelope.success !== true || !isRecord(envelope.data)) {
-    throw { code: 'INTERNAL_ERROR', status: 200 } satisfies QueueCallError;
-  }
-  const parsed = extractQueuePage(envelope.data);
-  if (!parsed.ok) {
-    throw { code: 'INTERNAL_ERROR', status: 200 } satisfies QueueCallError;
-  }
-  return parsed.page;
-}
-
-function queueErrorCodeFrom(body: unknown): string {
-  if (!isRecord(body)) return 'INTERNAL_ERROR';
-  const envelope = isRecord(body.error) ? body.error : body;
-  return typeof envelope.code === 'string' ? envelope.code : 'INTERNAL_ERROR';
+  const parsed = await readEnvelope<QueuePage>(
+    url,
+    (data, meta) => {
+      const page = extractQueuePage(data, meta);
+      return page.ok ? { ok: true, value: page.page } : { ok: false };
+    },
+    signal,
+  );
+  return parsed;
 }

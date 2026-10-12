@@ -13,7 +13,7 @@ import {
   type ScheduleTemplateFixture,
   type WaitlistFixture,
 } from '@/mocks/fixtures/scheduling-registry';
-import { apiError, apiOk, delay, MOCK_LATENCY_MS } from './handlers';
+import { apiError, apiOk, apiPage, delay, MOCK_LATENCY_MS } from './handlers';
 
 /**
  * F3 scheduling handlers (reception desk).
@@ -214,10 +214,7 @@ let templateSequence = 800 + SCHEDULES.length;
 let overrideSequence = 900;
 
 function pageEnvelope<T>(items: readonly T[], total: number) {
-  return apiOk({
-    items,
-    meta: { page: 1, limit: 100, total, totalPages: Math.max(1, Math.ceil(total / 100)) },
-  });
+  return apiPage(items, total, 100);
 }
 
 function providerRows() {

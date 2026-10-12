@@ -84,34 +84,25 @@ describe('readPatientRow', () => {
 });
 
 describe('extractPatientList', () => {
-  it('extracts the row list', () => {
-    const result = extractPatientList({
-      success: true,
-      data: { items: [row], meta: { total: 1 } },
-    });
+  it('extracts the row list from the unwrapped data array', () => {
+    const result = extractPatientList([row], { total: 1 });
     expect(result.ok && result.page.total).toBe(1);
     expect(result.ok && result.page.items.length).toBe(1);
   });
 
   it('defaults the total to the row count without a meta block', () => {
-    const result = extractPatientList({ success: true, data: { items: [row] } });
+    const result = extractPatientList([row]);
     expect(result.ok && result.page.total).toBe(1);
   });
 
-  it('counts an empty `items` array as a legitimate no-result search', () => {
-    const result = extractPatientList({ success: true, data: { items: [] } });
+  it('counts an empty `data` array as a legitimate no-result search', () => {
+    const result = extractPatientList([]);
     expect(result).toEqual({ ok: true, page: { items: [], total: 0 } });
   });
 
-  it('rejects a non-success envelope and a broken row', () => {
-    expect(extractPatientList({ success: false })).toEqual({ ok: false });
-    expect(extractPatientList({ success: true, data: {} })).toEqual({ ok: false });
-    expect(
-      extractPatientList({
-        success: true,
-        data: { items: [{ patientNumber: 5 }] },
-      }),
-    ).toEqual({ ok: false });
+  it('rejects a non-array body and a broken row', () => {
+    expect(extractPatientList({ data: [] })).toEqual({ ok: false });
+    expect(extractPatientList([{ patientNumber: 5 }])).toEqual({ ok: false });
   });
 });
 
@@ -181,13 +172,13 @@ describe('extractPatientMaster', () => {
 });
 
 describe('extractPatientPage', () => {
-  it('reads items and the meta total', () => {
-    const result = extractPatientPage({ items: ['a'], meta: { total: 12 } });
+  it('reads the data array and the meta total', () => {
+    const result = extractPatientPage(['a'], { total: 12 });
     expect(result).toEqual({ ok: true, items: ['a'], total: 12 });
   });
 
   it('defaults the total to the item count', () => {
-    const result = extractPatientPage({ items: ['a', 'b'] });
+    const result = extractPatientPage(['a', 'b']);
     expect(result).toEqual({ ok: true, items: ['a', 'b'], total: 2 });
   });
 });

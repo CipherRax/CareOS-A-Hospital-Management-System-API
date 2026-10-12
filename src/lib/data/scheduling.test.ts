@@ -70,25 +70,25 @@ describe('readAppointment', () => {
 });
 
 describe('extractAppointmentPage', () => {
-  it('reads the { items, meta } body', () => {
-    const parsed = extractAppointmentPage({ items: [row], meta: { total: 1 } });
+  it('reads the unwrapped data array with a meta total', () => {
+    const parsed = extractAppointmentPage([row], { total: 1 });
     expect(parsed.ok && parsed.page.items).toHaveLength(1);
     expect(parsed.ok && parsed.page.total).toBe(1);
   });
 
-  it('treats an empty items array as an empty day', () => {
-    const parsed = extractAppointmentPage({ items: [], meta: { total: 0 } });
+  it('treats an empty data array as an empty day', () => {
+    const parsed = extractAppointmentPage([], { total: 0 });
     expect(parsed.ok && parsed.page.items).toHaveLength(0);
   });
 
-  it('fails closed when items is missing or malformed', () => {
-    expect(extractAppointmentPage({ meta: {} })).toEqual({ ok: false });
-    expect(extractAppointmentPage({ items: [{}] })).toEqual({ ok: false });
+  it('fails closed when data is missing or malformed', () => {
+    expect(extractAppointmentPage({})).toEqual({ ok: false });
+    expect(extractAppointmentPage([{}])).toEqual({ ok: false });
     expect(extractAppointmentPage(null)).toEqual({ ok: false });
   });
 
   it('falls back to the item count when meta.total is absent', () => {
-    const parsed = extractAppointmentPage({ items: [row] });
+    const parsed = extractAppointmentPage([row]);
     expect(parsed.ok && parsed.page.total).toBe(1);
   });
 });
@@ -118,10 +118,10 @@ describe('readWaitlistEntry', () => {
     expect(readWaitlistEntry({ id: 'x' })).toBeNull();
   });
 
-  it('reads an { items, meta } waitlist page', () => {
-    const parsed = extractWaitlistPage({ items: [entry] });
+  it('reads an unwrapped waitlist page', () => {
+    const parsed = extractWaitlistPage([entry]);
     expect(parsed.ok && parsed.page.items).toHaveLength(1);
-    expect(extractWaitlistPage({ items: [{}] })).toEqual({ ok: false });
+    expect(extractWaitlistPage([{}])).toEqual({ ok: false });
   });
 
   it('reads the { entry } body a join answers with', () => {
@@ -132,24 +132,20 @@ describe('readWaitlistEntry', () => {
 });
 
 describe('extractProviderPage', () => {
-  it('reads the provider directory', () => {
-    const parsed = extractProviderPage({
-      items: [
-        { id: 'usr_example_9001', name: 'EXAMPLE Dr Mwangi', bookable: true, departmentIds: ['dep_1'] },
-      ],
-    });
+  it('reads the provider directory array', () => {
+    const parsed = extractProviderPage([
+      { id: 'usr_example_9001', name: 'EXAMPLE Dr Mwangi', bookable: true, departmentIds: ['dep_1'] },
+    ]);
     expect(parsed.ok && parsed.providers).toHaveLength(1);
     expect(parsed.ok && parsed.providers[0]?.name).toBe('EXAMPLE Dr Mwangi');
   });
 
   it('drops entries that are not named providers instead of inventing a blank option', () => {
-    const parsed = extractProviderPage({
-      items: [{ id: 'usr_1', name: 'EXAMPLE Dr A' }, { id: 'usr_2' }, { name: 'No id' }, 42],
-    });
+    const parsed = extractProviderPage([{ id: 'usr_1', name: 'EXAMPLE Dr A' }, { id: 'usr_2' }, { name: 'No id' }, 42]);
     expect(parsed.ok && parsed.providers).toHaveLength(1);
   });
 
-  it('fails closed without an items array', () => {
+  it('fails closed without an array', () => {
     expect(extractProviderPage({ providers: [] })).toEqual({ ok: false });
     expect(extractProviderPage(null)).toEqual({ ok: false });
   });

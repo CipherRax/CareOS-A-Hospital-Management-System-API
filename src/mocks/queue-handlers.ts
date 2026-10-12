@@ -7,7 +7,7 @@ import {
   QUEUE_ENTRIES,
   type QueueEntryFixture,
 } from '@/mocks/fixtures/queue-registry';
-import { apiError, apiOk, delay, MOCK_LATENCY_MS } from './handlers';
+import { apiError, apiOk, apiPage, delay, MOCK_LATENCY_MS } from './handlers';
 
 /**
  * F3 queue handlers (reception desk).
@@ -96,10 +96,7 @@ function nextTicket(): { ticketNumber: string; sequence: number } {
 }
 
 function pageEnvelope<T>(items: readonly T[], total: number) {
-  return apiOk({
-    items,
-    meta: { page: 1, limit: 25, total, totalPages: Math.max(1, Math.ceil(total / 25)) },
-  });
+  return apiPage(items, total, 25);
 }
 
 /** Waiting-room metrics, computed from the live board the way the API does. */
@@ -165,9 +162,7 @@ export const queueHandlers = [
 
   http.get('*/api/v1/departments', () => {
     const departments = DEPARTMENTS.map((department) => ({ ...department, branchId: QUEUE_BRANCH_ID }));
-    return HttpResponse.json(
-      apiOk({ departments, meta: { page: 1, limit: 100, total: departments.length, totalPages: 1 } }),
-    );
+    return HttpResponse.json(apiPage(departments, undefined, 100));
   }),
 
   http.post('*/api/v1/queue/walk-ins/register', async ({ request }) => {

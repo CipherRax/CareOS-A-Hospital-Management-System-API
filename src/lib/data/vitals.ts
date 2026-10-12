@@ -1,5 +1,15 @@
 import { publicEnv } from '@/lib/env';
 
+import {
+  isRecord,
+  nullableNumber,
+  nullableString,
+  pageTotal,
+  queryString,
+  readEnvelope,
+  type EnvelopeCallError,
+} from '@/lib/data/envelope';
+
 /**
  * Nursing vitals (F3).
  *
@@ -95,23 +105,15 @@ export interface VitalPage {
   readonly total: number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function nullableString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
-function nullableNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+function isUsableVitalRow(
+  value: unknown,
+): value is { readonly id: string; readonly patientId: string } & Record<string, unknown> {
+  return isRecord(value) && typeof value.id === 'string' && typeof value.patientId === 'string';
 }
 
 /** Reads one serialized vital record; returns null when the row is unusable. */
 export function readVital(value: unknown): VitalRow | null {
-  if (!isRecord(value)) return null;
-  if (typeof value.id !== 'string') return null;
-  if (typeof value.patientId !== 'string') return null;
+  if (!isUsableVitalRow(value)) return null;
   return {
     id: value.id,
     patientId: value.patientId,
@@ -136,16 +138,19 @@ export function readVital(value: unknown): VitalRow | null {
   };
 }
 
-/** Reads an `{ items, meta }` vitals page. An empty array is a patient with none. */
+/**
+ * Reads a vitals page from the unwrapped envelope: `data` is the array of
+ * records and `meta` carries the total. An empty array is a patient with no
+ * observations, which is a valid state, not a broken body.
+ */
 export function extractVitalPage(
-  payload: unknown,
+  data: unknown,
+  meta?: unknown,
 ): { ok: true; page: VitalPage } | { ok: false } {
-  if (!isRecord(payload)) return { ok: false };
-  if (!Array.isArray(payload.items)) return { ok: false };
-  const items = payload.items.map(readVital);
+  if (!Array.isArray(data)) return { ok: false };
+  const items = data.map(readVital);
   if (items.some((item) => item === null)) return { ok: false };
-  const meta = isRecord(payload.meta) ? payload.meta : {};
-  const total = typeof meta.total === 'number' ? meta.total : items.length;
+  const total = pageTotal(meta, items.length);
   return { ok: true, page: { items: items as readonly VitalRow[], total } };
 }
 
@@ -197,51 +202,7 @@ export function hasVitalContent(input: Record<string, unknown>): boolean {
 }
 
 /** Shape every vitals raw call rejects with, matching the query error contract. */
-export interface VitalsCallError {
-  readonly code: string;
-  readonly status: number;
-}
-
-function callErrorCodeFrom(body: unknown): string {
-  if (!isRecord(body)) return 'INTERNAL_ERROR';
-  const envelope = isRecord(body.error) ? body.error : body;
-  return typeof envelope.code === 'string' ? envelope.code : 'INTERNAL_ERROR';
-}
-
-async function readEnvelope<T>(
-  url: string,
-  parse: (data: unknown) => { ok: true; value: T } | { ok: false },
-  signal?: AbortSignal,
-): Promise<T> {
-  const response = await fetch(url, { signal, credentials: 'same-origin' });
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    body = undefined;
-  }
-  if (!response.ok) {
-    throw { code: callErrorCodeFrom(body), status: response.status } satisfies VitalsCallError;
-  }
-  const envelope = isRecord(body) ? body : {};
-  if (envelope.success !== true || !isRecord(envelope.data)) {
-    throw { code: 'INTERNAL_ERROR', status: 200 } satisfies VitalsCallError;
-  }
-  const parsed = parse(envelope.data);
-  if (!parsed.ok) {
-    throw { code: 'INTERNAL_ERROR', status: 200 } satisfies VitalsCallError;
-  }
-  return parsed.value;
-}
-
-function queryString(params: Record<string, string | undefined>): string {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value) search.set(key, value);
-  }
-  const suffix = search.toString();
-  return suffix ? `?${suffix}` : '';
-}
+export type VitalsCallError = EnvelopeCallError;
 
 export interface VitalsQuery {
   readonly patientId: string;
@@ -260,8 +221,8 @@ export async function fetchVitals(
   })}`;
   return readEnvelope<VitalPage>(
     url,
-    (data) => {
-      const page = extractVitalPage(data);
+    (data, meta) => {
+      const page = extractVitalPage(data, meta);
       return page.ok ? { ok: true, value: page.page } : { ok: false };
     },
     signal,

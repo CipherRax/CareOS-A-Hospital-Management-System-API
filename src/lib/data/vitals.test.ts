@@ -77,21 +77,21 @@ describe('readVital', () => {
 });
 
 describe('extractVitalPage', () => {
-  it('reads the { items, meta } body', () => {
-    const parsed = extractVitalPage({ items: [record], meta: { total: 1 } });
+  it('reads the unwrapped data array with a meta total', () => {
+    const parsed = extractVitalPage([record], { total: 1 });
     expect(parsed.ok && parsed.page.items).toHaveLength(1);
     expect(parsed.ok && parsed.page.total).toBe(1);
   });
 
-  it('treats an empty items array as a patient with no observations', () => {
-    const parsed = extractVitalPage({ items: [] });
+  it('treats an empty data array as a patient with no observations', () => {
+    const parsed = extractVitalPage([]);
     expect(parsed.ok && parsed.page.items).toHaveLength(0);
     expect(parsed.ok && parsed.page.total).toBe(0);
   });
 
-  it('fails closed when items is missing or malformed', () => {
-    expect(extractVitalPage({ meta: {} })).toEqual({ ok: false });
-    expect(extractVitalPage({ items: [{}] })).toEqual({ ok: false });
+  it('fails closed when data is missing or malformed', () => {
+    expect(extractVitalPage({})).toEqual({ ok: false });
+    expect(extractVitalPage([{}])).toEqual({ ok: false });
     expect(extractVitalPage(null)).toEqual({ ok: false });
   });
 });

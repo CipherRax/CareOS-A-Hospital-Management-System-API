@@ -1,6 +1,6 @@
 import { http, HttpResponse } from 'msw';
 
-import { apiError, apiOk } from '@/mocks/handlers';
+import { apiError, apiOk, apiPage } from '@/mocks/handlers';
 import {
   FIRST_VITAL_SEQUENCE,
   VITAL_RECORDS,
@@ -183,10 +183,7 @@ export const vitalsHandlers = [
     const items = filtered.slice(start, start + limit).map(serialize);
 
     return HttpResponse.json(
-      apiOk({
-        items,
-        meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
-      }),
+      apiPage(items, total, limit),
     );
   }),
 

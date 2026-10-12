@@ -6,7 +6,7 @@ import {
   registryById,
   type RegistryPatient,
 } from '@/mocks/fixtures/patients-registry';
-import { apiError, apiOk, delay, MOCK_LATENCY_MS } from './handlers';
+import { apiError, apiOk, apiPage, delay, MOCK_LATENCY_MS } from './handlers';
 
 /**
  * F2 patient registry handlers (reception).
@@ -24,10 +24,7 @@ import { apiError, apiOk, delay, MOCK_LATENCY_MS } from './handlers';
  */
 
 function pageEnvelope(items: readonly unknown[], total: number) {
-  return apiOk({
-    items,
-    meta: { page: 1, limit: 25, total, totalPages: Math.ceil(total / 25) },
-  });
+  return apiPage(items, total, 25);
 }
 
 /** Patients created through `POST /patients` this mock session, so a freshly

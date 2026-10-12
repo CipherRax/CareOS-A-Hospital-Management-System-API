@@ -68,25 +68,25 @@ describe('readQueueEntry', () => {
 });
 
 describe('extractQueuePage', () => {
-  it('reads the { items, meta } body', () => {
-    const parsed = extractQueuePage({ items: [row], meta: { total: 1 } });
+  it('reads the unwrapped data array with a meta total', () => {
+    const parsed = extractQueuePage([row], { total: 1 });
     expect(parsed.ok && parsed.page.items).toHaveLength(1);
     expect(parsed.ok && parsed.page.total).toBe(1);
   });
 
-  it('treats an empty items array as an empty board, not a broken body', () => {
-    const parsed = extractQueuePage({ items: [], meta: { total: 0 } });
+  it('treats an empty data array as an empty board, not a broken body', () => {
+    const parsed = extractQueuePage([], { total: 0 });
     expect(parsed.ok && parsed.page.items).toHaveLength(0);
   });
 
-  it('fails closed when items is missing or malformed', () => {
-    expect(extractQueuePage({ meta: {} })).toEqual({ ok: false });
-    expect(extractQueuePage({ items: [{}] })).toEqual({ ok: false });
+  it('fails closed when data is missing or malformed', () => {
+    expect(extractQueuePage({})).toEqual({ ok: false });
+    expect(extractQueuePage([{}])).toEqual({ ok: false });
     expect(extractQueuePage(null)).toEqual({ ok: false });
   });
 
   it('falls back to the item count when meta.total is absent', () => {
-    const parsed = extractQueuePage({ items: [row] });
+    const parsed = extractQueuePage([row]);
     expect(parsed.ok && parsed.page.total).toBe(1);
   });
 });
@@ -143,25 +143,20 @@ describe('extractRegisteredWalkIn', () => {
 });
 
 describe('extractDepartmentList', () => {
-  it('reads { departments, meta } rather than { items }', () => {
-    const parsed = extractDepartmentList({
-      departments: [
-        { id: 'dep_1', name: 'Outpatient', code: 'OPD', kind: 'STANDARD', active: true },
-      ],
-      meta: { total: 1 },
-    });
+  it('reads the unwrapped departments array', () => {
+    const parsed = extractDepartmentList([
+      { id: 'dep_1', name: 'Outpatient', code: 'OPD', kind: 'STANDARD', active: true },
+    ]);
     expect(parsed.ok && parsed.departments).toHaveLength(1);
     expect(parsed.ok && parsed.departments[0]?.name).toBe('Outpatient');
   });
 
   it('drops entries that are not departments instead of inventing a blank option', () => {
-    const parsed = extractDepartmentList({
-      departments: [{ id: 'dep_1', name: 'Outpatient' }, { name: 'No id' }, 42],
-    });
+    const parsed = extractDepartmentList([{ id: 'dep_1', name: 'Outpatient' }, { name: 'No id' }, 42]);
     expect(parsed.ok && parsed.departments).toHaveLength(1);
   });
 
-  it('fails closed without a departments array', () => {
+  it('fails closed without an array', () => {
     expect(extractDepartmentList({ items: [] })).toEqual({ ok: false });
     expect(extractDepartmentList(null)).toEqual({ ok: false });
   });

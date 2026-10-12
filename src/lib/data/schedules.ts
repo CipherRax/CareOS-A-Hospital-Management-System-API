@@ -1,6 +1,14 @@
 import { publicEnv } from '@/lib/env';
 import { SCHEDULING_BRANCH_ID } from '@/lib/data/scheduling';
 
+import {
+  isRecord,
+  nullableString,
+  pageTotal,
+  readEnvelope,
+  type EnvelopeCallError,
+} from '@/lib/data/envelope';
+
 /**
  * Schedule administration (F3): weekly templates and per-date overrides.
  *
@@ -10,8 +18,9 @@ import { SCHEDULING_BRANCH_ID } from '@/lib/data/scheduling';
  * fetch and is validated structurally. Same defect as the queue and appointments
  * (GAP-017), widened here.
  *
- * `GET /schedules/templates` returns `{ items, meta }`; create/update return
- * `{ schedule }` / `{ override }`; delete answers 204 with no body.
+ * `GET /schedules/templates` reads a page envelope (`{ data: [...], meta }`);
+ * create/update return `{ schedule }` / `{ override }`; delete answers 204 with
+ * no body.
  *
  * **Overrides cannot be listed.** There is no `GET /schedules/overrides`
  * endpoint — only create, update and delete — so the admin screen can create and
@@ -62,14 +71,6 @@ export interface TemplatePage {
   readonly total: number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function nullableString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
 function intOr(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
@@ -109,16 +110,15 @@ export function extractTemplateRecord(
   return template ? { ok: true, template } : { ok: false };
 }
 
-/** Reads an `{ items, meta }` template page. Empty is a provider with no hours. */
+/** Reads a template page from the unwrapped envelope (`data` array + `meta`). */
 export function extractTemplatePage(
-  payload: unknown,
+  data: unknown,
+  meta?: unknown,
 ): { ok: true; page: TemplatePage } | { ok: false } {
-  if (!isRecord(payload)) return { ok: false };
-  if (!Array.isArray(payload.items)) return { ok: false };
-  const items = payload.items.map(readTemplate);
+  if (!Array.isArray(data)) return { ok: false };
+  const items = data.map(readTemplate);
   if (items.some((item) => item === null)) return { ok: false };
-  const meta = isRecord(payload.meta) ? payload.meta : {};
-  const total = typeof meta.total === 'number' ? meta.total : items.length;
+  const total = pageTotal(meta, items.length);
   return { ok: true, page: { items: items as readonly ScheduleTemplateRow[], total } };
 }
 
@@ -212,42 +212,7 @@ export interface CreateOverrideInput {
 }
 
 /** Shape every schedules raw call rejects with, matching the query error contract. */
-export interface SchedulesCallError {
-  readonly code: string;
-  readonly status: number;
-}
-
-function callErrorCodeFrom(body: unknown): string {
-  if (!isRecord(body)) return 'INTERNAL_ERROR';
-  const envelope = isRecord(body.error) ? body.error : body;
-  return typeof envelope.code === 'string' ? envelope.code : 'INTERNAL_ERROR';
-}
-
-async function readEnvelope<T>(
-  url: string,
-  parse: (data: unknown) => { ok: true; value: T } | { ok: false },
-  signal?: AbortSignal,
-): Promise<T> {
-  const response = await fetch(url, { signal, credentials: 'same-origin' });
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    body = undefined;
-  }
-  if (!response.ok) {
-    throw { code: callErrorCodeFrom(body), status: response.status } satisfies SchedulesCallError;
-  }
-  const envelope = isRecord(body) ? body : {};
-  if (envelope.success !== true || !isRecord(envelope.data)) {
-    throw { code: 'INTERNAL_ERROR', status: 200 } satisfies SchedulesCallError;
-  }
-  const parsed = parse(envelope.data);
-  if (!parsed.ok) {
-    throw { code: 'INTERNAL_ERROR', status: 200 } satisfies SchedulesCallError;
-  }
-  return parsed.value;
-}
+export type SchedulesCallError = EnvelopeCallError;
 
 export interface TemplateQuery {
   readonly providerId?: string;
@@ -266,8 +231,8 @@ export async function fetchTemplates(
   const url = `${publicEnv.apiBasePath}/schedules/templates?${search.toString()}`;
   return readEnvelope<TemplatePage>(
     url,
-    (data) => {
-      const page = extractTemplatePage(data);
+    (data, meta) => {
+      const page = extractTemplatePage(data, meta);
       return page.ok ? { ok: true, value: page.page } : { ok: false };
     },
     signal,
