@@ -5,6 +5,7 @@ import { REFRESH_COOKIE, SESSION_COOKIE } from '@/lib/session-cookies';
 import { patientHandlers } from './patient-handlers';
 import { queueHandlers } from './queue-handlers';
 import { schedulingHandlers } from './scheduling-handlers';
+import { vitalsHandlers } from './vitals-handlers';
 
 /**
  * API mock handlers.
@@ -120,6 +121,9 @@ export const handlers = [
   // F3 scheduling (reception desk): provider directory, slot search, booking,
   // appointment status moves, waitlist. See ./scheduling-handlers.ts.
   ...schedulingHandlers,
+  // F3 vitals (nursing): recording, append-only corrections, BMI. See
+  // ./vitals-handlers.ts.
+  ...vitalsHandlers,
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).

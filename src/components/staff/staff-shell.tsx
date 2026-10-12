@@ -33,6 +33,7 @@ const SECTIONS: readonly NavSection[] = [
       { href: '/triage', label: 'Triage queue' },
       { href: '/queue', label: 'Reception queue' },
       { href: '/appointments', label: 'Appointments' },
+      { href: '/vitals', label: 'Vitals' },
       { href: '/patients', label: 'Patients' },
     ],
   },
@@ -48,6 +49,7 @@ const SECTIONS: readonly NavSection[] = [
     id: 'admin',
     label: 'Administration',
     items: [
+      { href: '/schedules', label: 'Schedules' },
       { href: '/settings', label: 'Settings' },
       { href: '/design-system', label: 'Design system' },
     ],

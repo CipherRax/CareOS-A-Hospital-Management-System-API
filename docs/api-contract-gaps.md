@@ -262,3 +262,21 @@ The desk is therefore single-branch and posts a constant
 `QUEUE_BRANCH_ID`. A multi-branch deployment needs a branch selector fed by a
 real source (a per-user branch list, or a branch on each department) before this
 is correct.
+
+## GAP-019 — Schedule overrides can be written but not listed
+
+**Status: open (F3 schedule admin).** The schedules module exposes mutations for
+dated exceptions — `POST /schedules/overrides`, `PATCH /schedules/overrides/{id}`
+and `DELETE /schedules/overrides/{id}` — but no `GET /schedules/overrides` (nor a
+read on a single override). The admin screen can therefore create an exception
+and delete one by id, but it cannot enumerate the exceptions already set for a
+provider. It cannot show a truthful list, and it cannot offer edit/delete for an
+existing row without the operator pasting an id.
+
+Rather than invent a list, `/schedules` states the limitation inline
+(`schedules.overrideForm.gapNote`): it accepts a new exception and reports a
+`409 CONFLICT` when the provider already has one on that date, which is the only
+feedback the contract can give. Because `date` is typed `unknown` in the export,
+the request body is built structurally. A complete screen needs a read endpoint
+(`GET /schedules/overrides?providerId=&from=&to=` returning `{ items, meta }`,
+mirroring templates) plus typed `date`/`startMinutes`/`endMinutes` fields.

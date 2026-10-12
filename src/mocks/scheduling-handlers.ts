@@ -10,6 +10,7 @@ import {
   WAITLIST,
   workdayIndexFor,
   type AppointmentFixture,
+  type ScheduleTemplateFixture,
   type WaitlistFixture,
 } from '@/mocks/fixtures/scheduling-registry';
 import { apiError, apiOk, delay, MOCK_LATENCY_MS } from './handlers';
@@ -39,6 +40,7 @@ const TRANSITIONS: Record<string, readonly string[]> = {
 };
 
 const OCCUPYING = new Set(['BOOKED', 'CONFIRMED', 'CHECKED_IN', 'IN_PROGRESS']);
+const TERMINAL = new Set(['COMPLETED', 'CANCELLED', 'NO_SHOW', 'RESCHEDULED']);
 const ACTIONABLE_WAITLIST = new Set(['WAITING', 'OFFERED']);
 
 interface LiveAppointment {
@@ -172,6 +174,45 @@ const LIVE_WAITLIST: LiveWaitlist[] = WAITLIST.map(fromWaitlistFixture);
 let appointmentSequence = FIRST_APPOINTMENT_SEQUENCE;
 let waitlistSequence = FIRST_WAITLIST_SEQUENCE;
 
+interface LiveTemplate extends Mutable<ScheduleTemplateFixture> {
+  id: string;
+  branchId: string;
+  isAvailable: boolean;
+  note: string | null;
+}
+
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+interface LiveOverride {
+  id: string;
+  providerId: string;
+  branchId: string;
+  departmentId: string;
+  date: string;
+  type: string;
+  startMinutes: number | null;
+  endMinutes: number | null;
+  slotDurationMinutes: number | null;
+  capacity: number | null;
+  note: string | null;
+}
+
+/**
+ * Weekly templates are mutable for the session. There is no override seed: the
+ * API has no list endpoint for overrides (GAP-019), so the admin screen starts
+ * unknown and overrides only exist once this session creates one.
+ */
+const LIVE_TEMPLATES: LiveTemplate[] = SCHEDULES.map((template, index) => ({
+  ...template,
+  id: `sch_example_${800 + index}`,
+  branchId: SCHEDULING_BRANCH,
+  isAvailable: true,
+  note: null,
+}));
+const LIVE_OVERRIDES: LiveOverride[] = [];
+let templateSequence = 800 + SCHEDULES.length;
+let overrideSequence = 900;
+
 function pageEnvelope<T>(items: readonly T[], total: number) {
   return apiOk({
     items,
@@ -200,16 +241,41 @@ interface GeneratedSlot {
   status: string;
 }
 
-/** Mirrors `schedules/domain/slots.ts`: templates for the weekday, bookings subtracted. */
+/**
+ * Mirrors `schedules/domain/slots.ts`: per-date overrides win over the weekly
+ * template. A LEAVE/HOLIDAY/BLOCKED override closes the whole day; a WORKING
+ * override replaces the template's windows entirely. Bookings are subtracted
+ * from each slot's capacity.
+ */
 function generateSlots(providerId: string, departmentId: string, dateISO: string): GeneratedSlot[] {
   const day = utcDayStart(dateISO);
   const dayIndex = workdayIndexFor(day);
-  const templates = SCHEDULES.filter(
-    (template) =>
-      template.providerId === providerId &&
-      template.departmentId === departmentId &&
-      template.dayOfWeek === dayIndex,
+
+  const overrides = LIVE_OVERRIDES.filter(
+    (override) => override.providerId === providerId && override.date === dateISO,
   );
+  if (overrides.some((override) => override.type !== 'WORKING')) return [];
+
+  const working = overrides.filter((override) => override.type === 'WORKING');
+  const windows = working.length
+    ? working.map((override) => ({
+        startMinutes: override.startMinutes ?? 0,
+        endMinutes: override.endMinutes ?? 1440,
+        slotDurationMinutes: override.slotDurationMinutes ?? SLOT_MINUTES,
+        capacity: override.capacity ?? 1,
+      }))
+    : SCHEDULES.filter(
+        (template) =>
+          template.providerId === providerId &&
+          template.departmentId === departmentId &&
+          template.dayOfWeek === dayIndex,
+      ).map((template) => ({
+        startMinutes: template.startMinutes,
+        endMinutes: template.endMinutes,
+        slotDurationMinutes: template.slotDurationMinutes,
+        capacity: template.capacity,
+      }));
+
   const bookings = LIVE_APPOINTMENTS.filter(
     (appointment) =>
       appointment.providerId === providerId &&
@@ -218,23 +284,23 @@ function generateSlots(providerId: string, departmentId: string, dateISO: string
   );
   const now = Date.now();
   const slots: GeneratedSlot[] = [];
-  for (const template of templates) {
+  for (const window of windows) {
     for (
-      let start = template.startMinutes;
-      start + template.slotDurationMinutes <= template.endMinutes;
-      start += template.slotDurationMinutes
+      let start = window.startMinutes;
+      start + window.slotDurationMinutes <= window.endMinutes;
+      start += window.slotDurationMinutes
     ) {
       const startsAt = new Date(day.getTime() + start * 60_000);
-      const endsAt = new Date(startsAt.getTime() + template.slotDurationMinutes * 60_000);
+      const endsAt = new Date(startsAt.getTime() + window.slotDurationMinutes * 60_000);
       const booked = bookings.filter((booking) => booking.startsAt === startsAt.toISOString()).length;
-      const remaining = Math.max(0, template.capacity - booked);
+      const remaining = Math.max(0, window.capacity - booked);
       let status = 'AVAILABLE';
       if (remaining <= 0) status = 'FULL';
       else if (startsAt.getTime() <= now) status = 'PAST';
       slots.push({
         startsAt: startsAt.toISOString(),
         endsAt: endsAt.toISOString(),
-        capacity: template.capacity,
+        capacity: window.capacity,
         booked,
         remaining,
         status,
@@ -274,6 +340,152 @@ export const schedulingHandlers = [
     return HttpResponse.json(
       apiOk({ date: utcDayStart(date).toISOString(), slots: generateSlots(providerId, departmentId, date) }),
     );
+  }),
+
+  // --- schedule templates (admin) ----------------------------------------
+  http.get('*/api/v1/schedules/templates', ({ request }) => {
+    const url = new URL(request.url);
+    const providerId = url.searchParams.get('providerId');
+    const departmentId = url.searchParams.get('departmentId');
+    const dayOfWeek = url.searchParams.get('dayOfWeek');
+    let rows = [...LIVE_TEMPLATES];
+    if (providerId) rows = rows.filter((template) => template.providerId === providerId);
+    if (departmentId) rows = rows.filter((template) => template.departmentId === departmentId);
+    if (dayOfWeek !== null) {
+      const day = Number(dayOfWeek);
+      rows = rows.filter((template) => template.dayOfWeek === day);
+    }
+    rows.sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startMinutes - b.startMinutes);
+    return HttpResponse.json(pageEnvelope(rows, rows.length));
+  }),
+
+  http.post('*/api/v1/schedules/templates', async ({ request }) => {
+    const body = await readJson(request);
+    if (!body || typeof body.providerId !== 'string' || typeof body.departmentId !== 'string') {
+      return HttpResponse.json(apiError('VALIDATION_ERROR', 'providerId and departmentId required'), {
+        status: 422,
+      });
+    }
+    const template: LiveTemplate = {
+      id: `sch_example_${templateSequence}`,
+      providerId: body.providerId,
+      branchId: typeof body.branchId === 'string' ? body.branchId : SCHEDULING_BRANCH,
+      departmentId: body.departmentId,
+      dayOfWeek: typeof body.dayOfWeek === 'number' ? body.dayOfWeek : 0,
+      startMinutes: typeof body.startMinutes === 'number' ? body.startMinutes : 480,
+      endMinutes: typeof body.endMinutes === 'number' ? body.endMinutes : 780,
+      slotDurationMinutes: typeof body.slotDurationMinutes === 'number' ? body.slotDurationMinutes : 30,
+      capacity: typeof body.capacity === 'number' ? body.capacity : 1,
+      isAvailable: typeof body.isAvailable === 'boolean' ? body.isAvailable : true,
+      note: typeof body.note === 'string' && body.note.length > 0 ? body.note : null,
+    };
+    templateSequence += 1;
+    LIVE_TEMPLATES.push(template);
+    return HttpResponse.json(apiOk({ schedule: template }, 'req_mock_template_create'), {
+      status: 201,
+    });
+  }),
+
+  http.patch('*/api/v1/schedules/templates/:id', async ({ params, request }) => {
+    const template = LIVE_TEMPLATES.find((row) => row.id === String(params.id));
+    if (!template) {
+      return HttpResponse.json(apiError('RESOURCE_NOT_FOUND', 'Schedule not found.'), { status: 404 });
+    }
+    const body = await readJson(request);
+    if (body) {
+      for (const key of [
+        'dayOfWeek',
+        'startMinutes',
+        'endMinutes',
+        'slotDurationMinutes',
+        'capacity',
+      ] as const) {
+        const value = body[key];
+        if (typeof value === 'number') template[key] = value;
+      }
+      if (typeof body.isAvailable === 'boolean') template.isAvailable = body.isAvailable;
+      if (typeof body.note === 'string' && body.note.length > 0) template.note = body.note;
+    }
+    return HttpResponse.json(apiOk({ schedule: template }, 'req_mock_template_update'));
+  }),
+
+  http.delete('*/api/v1/schedules/templates/:id', ({ params }) => {
+    const index = LIVE_TEMPLATES.findIndex((row) => row.id === String(params.id));
+    if (index < 0) {
+      return HttpResponse.json(apiError('RESOURCE_NOT_FOUND', 'Schedule not found.'), { status: 404 });
+    }
+    LIVE_TEMPLATES.splice(index, 1);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // --- schedule overrides (admin) ----------------------------------------
+  http.post('*/api/v1/schedules/overrides', async ({ request }) => {
+    const body = await readJson(request);
+    if (!body || typeof body.providerId !== 'string' || typeof body.date !== 'string') {
+      return HttpResponse.json(apiError('VALIDATION_ERROR', 'providerId and date required'), {
+        status: 422,
+      });
+    }
+    const duplicate = LIVE_OVERRIDES.find(
+      (override) => override.providerId === body.providerId && override.date === body.date,
+    );
+    if (duplicate) {
+      return HttpResponse.json(
+        apiError('CONFLICT', 'An override already exists for that provider and date.'),
+        { status: 409 },
+      );
+    }
+    const override: LiveOverride = {
+      id: `ovr_example_${overrideSequence}`,
+      providerId: body.providerId,
+      branchId: typeof body.branchId === 'string' ? body.branchId : SCHEDULING_BRANCH,
+      departmentId: typeof body.departmentId === 'string' ? body.departmentId : '',
+      date: body.date,
+      type: typeof body.type === 'string' ? body.type : 'BLOCKED',
+      startMinutes: typeof body.startMinutes === 'number' ? body.startMinutes : null,
+      endMinutes: typeof body.endMinutes === 'number' ? body.endMinutes : null,
+      slotDurationMinutes:
+        typeof body.slotDurationMinutes === 'number' ? body.slotDurationMinutes : null,
+      capacity: typeof body.capacity === 'number' ? body.capacity : null,
+      note: typeof body.note === 'string' && body.note.length > 0 ? body.note : null,
+    };
+    overrideSequence += 1;
+    LIVE_OVERRIDES.push(override);
+    return HttpResponse.json(apiOk({ override }, 'req_mock_override_create'), { status: 201 });
+  }),
+
+  http.patch('*/api/v1/schedules/overrides/:id', async ({ params, request }) => {
+    const override = LIVE_OVERRIDES.find((row) => row.id === String(params.id));
+    if (!override) {
+      return HttpResponse.json(apiError('RESOURCE_NOT_FOUND', 'Override not found.'), { status: 404 });
+    }
+    const body = await readJson(request);
+    if (body) {
+      if (typeof body.type === 'string') override.type = body.type;
+      if (typeof body.startMinutes === 'number' || body.startMinutes === null) {
+        override.startMinutes = body.startMinutes as number | null;
+      }
+      if (typeof body.endMinutes === 'number' || body.endMinutes === null) {
+        override.endMinutes = body.endMinutes as number | null;
+      }
+      if (typeof body.slotDurationMinutes === 'number' || body.slotDurationMinutes === null) {
+        override.slotDurationMinutes = body.slotDurationMinutes as number | null;
+      }
+      if (typeof body.capacity === 'number' || body.capacity === null) {
+        override.capacity = body.capacity as number | null;
+      }
+      if (typeof body.note === 'string') override.note = body.note;
+    }
+    return HttpResponse.json(apiOk({ override }, 'req_mock_override_update'));
+  }),
+
+  http.delete('*/api/v1/schedules/overrides/:id', ({ params }) => {
+    const index = LIVE_OVERRIDES.findIndex((row) => row.id === String(params.id));
+    if (index < 0) {
+      return HttpResponse.json(apiError('RESOURCE_NOT_FOUND', 'Override not found.'), { status: 404 });
+    }
+    LIVE_OVERRIDES.splice(index, 1);
+    return new HttpResponse(null, { status: 204 });
   }),
 
   // --- waitlist (before the appointment :id routes) -----------------------
@@ -549,5 +761,58 @@ export const schedulingHandlers = [
     appointment.version += 1;
     appointment.updatedAt = now;
     return HttpResponse.json(apiOk({ appointment }, 'req_mock_appointment_cancel'), { status: 201 });
+  }),
+
+  http.post('*/api/v1/appointments/:id/reschedule', async ({ params, request }) => {
+    await delay(MOCK_LATENCY_MS);
+    const original = findAppointment(String(params.id));
+    if (!original) {
+      return HttpResponse.json(apiError('RESOURCE_NOT_FOUND', 'Appointment not found.'), {
+        status: 404,
+      });
+    }
+    if (TERMINAL.has(original.status)) {
+      return HttpResponse.json(
+        apiError('INVALID_WORKFLOW_TRANSITION', 'A terminal appointment cannot be rescheduled.'),
+        { status: 409 },
+      );
+    }
+    const body = await readJson(request);
+    const startsAt = body && typeof body.startsAt === 'string' ? body.startsAt : '';
+    if (!startsAt) {
+      return HttpResponse.json(apiError('VALIDATION_ERROR', 'startsAt is required.'), { status: 422 });
+    }
+    const startsAtDate = new Date(startsAt);
+    const now = new Date().toISOString();
+    const replacement: LiveAppointment = {
+      ...original,
+      id: `apt_example_${appointmentSequence}`,
+      startsAt: startsAtDate.toISOString(),
+      endsAt: new Date(startsAtDate.getTime() + SLOT_MINUTES * 60_000).toISOString(),
+      status: 'BOOKED',
+      version: 1,
+      checkedInAt: null,
+      inProgressAt: null,
+      completedAt: null,
+      noShowAt: null,
+      cancelledAt: null,
+      cancelReason: null,
+      rescheduledFromId: original.id,
+      rescheduledToId: null,
+      rescheduledAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    appointmentSequence += 1;
+    original.status = 'RESCHEDULED';
+    original.rescheduledToId = replacement.id;
+    original.rescheduledAt = now;
+    original.version += 1;
+    original.updatedAt = now;
+    LIVE_APPOINTMENTS.push(replacement);
+    return HttpResponse.json(
+      apiOk({ appointment: replacement, superseded: original }, 'req_mock_appointment_reschedule'),
+      { status: 201 },
+    );
   }),
 ];

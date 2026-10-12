@@ -21,6 +21,7 @@ import {
   usePatientName,
   usePatientSearch,
   useProviderDirectory,
+  useRescheduleAppointment,
   useSlots,
   useUpdateAppointmentStatus,
   useWaitlist,
@@ -99,6 +100,7 @@ export function AppointmentDeskScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<AppointmentRow | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+  const [rescheduleTarget, setRescheduleTarget] = useState<AppointmentRow | null>(null);
 
   const departments = useDepartmentList();
   const appointments = useAppointments({
@@ -221,6 +223,16 @@ export function AppointmentDeskScreen() {
               {t(ACTION_LABEL[next] ?? `action.${next}`)}
             </Button>
           ))}
+          {!TERMINAL_APPOINTMENT_STATUSES.has(row.status) ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={move.isPending || cancel.isPending}
+              onClick={() => setRescheduleTarget(row)}
+            >
+              {t('reschedule.action')}
+            </Button>
+          ) : null}
           {TERMINAL_APPOINTMENT_STATUSES.has(row.status) ? (
             <span className="text-meta text-tertiary">—</span>
           ) : null}
@@ -329,6 +341,14 @@ export function AppointmentDeskScreen() {
         </section>
       ) : null}
 
+      {rescheduleTarget ? (
+        <ReschedulePanel
+          appointment={rescheduleTarget}
+          formatTime={formatTime}
+          onDone={() => setRescheduleTarget(null)}
+        />
+      ) : null}
+
       {appointments.error ? (
         <DeskAlert title={t('unavailableTitle')} body={t('unavailableBody')} />
       ) : (
@@ -366,6 +386,130 @@ function DeskAlert({ title, body }: { title: string; body: string }) {
       <h2 className="text-body font-semibold text-status-critical">{title}</h2>
       <p className="text-meta text-secondary">{body}</p>
     </div>
+  );
+}
+
+function ReschedulePanel({
+  appointment,
+  formatTime,
+  onDone,
+}: {
+  appointment: AppointmentRow;
+  formatTime: (iso: string) => string;
+  onDone: () => void;
+}) {
+  const t = useTranslations('appointments.reschedule');
+  const [date, setDate] = useState(() => (appointment.startsAt ?? '').slice(0, 10));
+  const [startsAt, setStartsAt] = useState('');
+  const [alert, setAlert] = useState<{ title: string; body: string } | null>(null);
+
+  const slots = useSlots({
+    providerId: appointment.providerId,
+    departmentId: appointment.departmentId,
+    date,
+  });
+  const reschedule = useRescheduleAppointment();
+
+  const slotList = slots.data?.data.slots ?? [];
+
+  function submit() {
+    setAlert(null);
+    if (!startsAt) {
+      setAlert({ title: t('missingTitle'), body: t('missingBody') });
+      return;
+    }
+    reschedule.mutate(
+      { id: appointment.id, startsAt, version: appointment.version },
+      {
+        onSuccess: onDone,
+        onError: (error) => {
+          setAlert({
+            title: error.code === 'INVALID_WORKFLOW_TRANSITION' ? t('staleTitle') : t('failedTitle'),
+            body: error.code === 'INVALID_WORKFLOW_TRANSITION' ? t('staleBody') : t('failedBody'),
+          });
+        },
+      },
+    );
+  }
+
+  return (
+    <section
+      aria-labelledby="appt-reschedule-title"
+      className="flex flex-col gap-3 border border-status-info bg-surface px-4 py-3"
+    >
+      <div>
+        <h2 id="appt-reschedule-title" className="text-body font-semibold text-primary">
+          {t('title')}
+        </h2>
+        <p className="text-meta text-secondary">
+          {t('intro', { time: formatTime(appointment.startsAt) })}
+        </p>
+      </div>
+
+      <div className="w-full max-w-xs">
+        <Field id="reschedule-date" label={t('date')}>
+          {({ controlId, describedBy }) => (
+            <Input
+              id={controlId}
+              aria-describedby={describedBy}
+              type="date"
+              value={date}
+              onChange={(event) => {
+                setDate(event.target.value || todayISO());
+                setStartsAt('');
+              }}
+            />
+          )}
+        </Field>
+      </div>
+
+      <fieldset className="flex flex-col gap-2 border border-border px-3 py-2">
+        <legend className="px-1 text-meta font-medium text-secondary">{t('slots')}</legend>
+        {slots.isLoading ? (
+          <p className="text-meta text-tertiary">{t('slotsLoading')}</p>
+        ) : slotList.length === 0 ? (
+          <p className="text-meta text-secondary">{t('slotsNone')}</p>
+        ) : (
+          <div className="flex flex-wrap gap-2" role="group" aria-label={t('slots')}>
+            {slotList.map((slot) => {
+              const selectable = slot.status === 'AVAILABLE';
+              const selected = startsAt === slot.startsAt;
+              return (
+                <button
+                  key={slot.startsAt}
+                  type="button"
+                  aria-pressed={selected}
+                  disabled={!selectable}
+                  onClick={() => setStartsAt(slot.startsAt)}
+                  title={slot.status}
+                  className={cn(
+                    'border px-2 py-1 text-meta tabular-nums',
+                    selected
+                      ? 'border-accent bg-surface-hover text-primary'
+                      : selectable
+                        ? 'border-border bg-surface text-primary hover:bg-surface-hover'
+                        : 'border-border bg-surface-sunken text-tertiary line-through',
+                  )}
+                >
+                  {formatTime(slot.startsAt)}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </fieldset>
+
+      {alert ? <DeskAlert title={alert.title} body={alert.body} /> : null}
+
+      <div className="flex gap-2">
+        <Button variant="secondary" onClick={submit} disabled={reschedule.isPending || !startsAt}>
+          {reschedule.isPending ? t('submitting') : t('confirm')}
+        </Button>
+        <Button variant="ghost" onClick={onDone} disabled={reschedule.isPending}>
+          {t('dismiss')}
+        </Button>
+      </div>
+    </section>
   );
 }
 

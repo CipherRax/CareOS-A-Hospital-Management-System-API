@@ -38,6 +38,27 @@ import {
   type WaitlistPage,
 } from '@/lib/data/scheduling';
 import {
+  extractOverrideRecord,
+  extractTemplateRecord,
+  fetchTemplates,
+  SCHEDULES_BRANCH_ID,
+  type CreateOverrideInput,
+  type CreateTemplateInput,
+  type ScheduleOverrideRow,
+  type ScheduleTemplateRow,
+  type SchedulesCallError,
+  type TemplatePage,
+  type TemplateQuery,
+} from '@/lib/data/schedules';
+import {
+  extractVitalRecord,
+  fetchVitals,
+  type VitalMeasurementKey,
+  type VitalPage,
+  type VitalRow,
+  type VitalsCallError,
+} from '@/lib/data/vitals';
+import {
   extractDepartmentList,
   extractQueueStats,
   extractRegisteredWalkIn,
@@ -178,11 +199,28 @@ export function normaliseSessionUser(data: unknown): SessionUser {
   return { id, displayName, roleLabel };
 }
 
-/** Pulls an untyped call (raw search/queue/scheduling) onto the query error contract. */
-function toQueryError(call: PatientCallError | QueueCallError | SchedulingCallError): QueryError {
+/** Pulls an untyped call (raw search/queue/scheduling/vitals/schedules) onto the query error contract. */
+function toQueryError(
+  call: PatientCallError | QueueCallError | SchedulingCallError | VitalsCallError | SchedulesCallError,
+): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
   return { code, status, resolved: resolveApiError(code) } satisfies QueryError;
+}
+
+/**
+ * Acknowledges a call whose success carries no body (a 204 delete).
+ *
+ * `unwrap` demands a `{ success, data }` envelope and would reject a correct
+ * 204 for having none, so deletes use this instead: any 2xx is success, anything
+ * else is mapped to the catalogue like every other call.
+ */
+async function unwrapVoid(call: PromiseLike<ApiCallResult> | ApiCallResult): Promise<void> {
+  const result = await call;
+  if (!result.response.ok) {
+    const code = codeFrom(result.error) ?? codeFrom(result.data) ?? 'INTERNAL_ERROR';
+    throw { code, status: result.response.status, resolved: resolveApiError(code) } satisfies QueryError;
+  }
 }
 
 // The typed envelope read is shared by the master, timeline and access-log hooks.
@@ -951,3 +989,342 @@ export function useLeaveWaitlist(): UseMutationResult<WaitlistEntryRecord, Query
     },
   });
 }
+
+export interface RescheduleAppointmentInput {
+  id: string;
+  startsAt: string;
+  version: number;
+  reason?: string;
+}
+
+/**
+ * Reschedules an appointment (`POST /appointments/{id}/reschedule`).
+ *
+ * The API supersedes the original row (`status: RESCHEDULED`) and creates a
+ * replacement, answering `{ appointment: replacement, superseded }`. The desk
+ * reads the replacement straight back, so the moved appointment appears under its
+ * new time without a refetch race. A terminal appointment answers 409
+ * `INVALID_WORKFLOW_TRANSITION`.
+ */
+export function useRescheduleAppointment(): UseMutationResult<
+  AppointmentRow,
+  QueryError,
+  RescheduleAppointmentInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<AppointmentRow, QueryError, RescheduleAppointmentInput>({
+    mutationFn: async ({ id, startsAt, version, reason }) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/appointments/{id}/reschedule', {
+          params: { path: { id } },
+          body: { startsAt, version, ...(reason ? { reason } : {}) },
+        }),
+      );
+      const parsed = extractAppointmentRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 200, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.appointment;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['slots'] });
+    },
+  });
+}
+
+// --- vitals (F3: nursing) ----------------------------------------------------
+
+/** A patient's vitals `GET /vitals` (unmodelled query, mis-typed body — GAP-017). */
+export function useVitals(patientId: string): UseQueryResult<Fetched<VitalPage>, QueryError> {
+  return useQuery<Fetched<VitalPage>, QueryError>({
+    queryKey: ['vitals', 'list', patientId],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchVitals({ patientId }, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<VitalPage>;
+      } catch (call) {
+        throw toQueryError(call as VitalsCallError);
+      }
+    },
+    enabled: patientId.length > 0,
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/** The measurement values a record/correct body carries. */
+export type VitalValues = Partial<Record<VitalMeasurementKey, number>>;
+
+export interface RecordVitalInput {
+  patientId: string;
+  visitId?: string;
+  observedAt?: string;
+  values: VitalValues;
+  notes?: string;
+}
+
+type VitalWriteBody = { patientId: string } & VitalValues & {
+  visitId?: string;
+  observedAt?: string;
+  notes?: string;
+};
+
+/** Records a vitals observation (`POST /vitals`, 201, append-only). */
+export function useRecordVital(): UseMutationResult<VitalRow, QueryError, RecordVitalInput> {
+  const queryClient = useQueryClient();
+  return useMutation<VitalRow, QueryError, RecordVitalInput>({
+    mutationFn: async (input) => {
+      const body: VitalWriteBody = { patientId: input.patientId, ...input.values };
+      if (input.visitId) body.visitId = input.visitId;
+      if (input.observedAt) body.observedAt = input.observedAt;
+      if (input.notes?.trim()) body.notes = input.notes.trim();
+      const fetched = await unwrap<unknown>(api.POST('/vitals', { body }));
+      const parsed = extractVitalRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 201, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.record;
+    },
+    onSuccess: (_record, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['vitals', 'list', variables.patientId] });
+    },
+  });
+}
+
+export interface CorrectVitalInput {
+  id: string;
+  patientId: string;
+  correctionReason: string;
+  values: VitalValues;
+  notes?: string;
+}
+
+type VitalCorrectBody = { correctionReason: string } & VitalValues & { notes?: string };
+
+/**
+ * Corrects a vitals observation (`POST /vitals/{id}/correct`, 201).
+ *
+ * Append-only: the API writes a superseding record rather than editing, so the
+ * original stays legible in the chart. `correctionReason` is mandatory.
+ */
+export function useCorrectVital(): UseMutationResult<VitalRow, QueryError, CorrectVitalInput> {
+  const queryClient = useQueryClient();
+  return useMutation<VitalRow, QueryError, CorrectVitalInput>({
+    mutationFn: async (input) => {
+      const body: VitalCorrectBody = { correctionReason: input.correctionReason, ...input.values };
+      if (input.notes?.trim()) body.notes = input.notes.trim();
+      const fetched = await unwrap<unknown>(
+        api.POST('/vitals/{id}/correct', { params: { path: { id: input.id } }, body }),
+      );
+      const parsed = extractVitalRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 201, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.record;
+    },
+    onSuccess: (_record, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['vitals', 'list', variables.patientId] });
+    },
+  });
+}
+
+// --- schedule administration (F3) --------------------------------------------
+
+/**
+ * Weekly templates `GET /schedules/templates`. The export leaves the query
+ * unmodelled and mis-types the 200 as the request DTO (GAP-017), so this rides
+ * the raw-fetch path in `src/lib/data/schedules.ts`.
+ */
+export function useTemplates(query: TemplateQuery = {}): UseQueryResult<Fetched<TemplatePage>, QueryError> {
+  return useQuery<Fetched<TemplatePage>, QueryError>({
+    queryKey: ['schedules', 'templates', query.providerId ?? null, query.departmentId ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchTemplates(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<TemplatePage>;
+      } catch (call) {
+        throw toQueryError(call as SchedulesCallError);
+      }
+    },
+    staleTime: 30_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+function templateBody(input: CreateTemplateInput) {
+  return {
+    providerId: input.providerId,
+    branchId: input.branchId,
+    departmentId: input.departmentId,
+    dayOfWeek: input.dayOfWeek,
+    startMinutes: input.startMinutes,
+    endMinutes: input.endMinutes,
+    slotDurationMinutes: input.slotDurationMinutes,
+    capacity: input.capacity,
+    isAvailable: input.isAvailable,
+    ...(input.note ? { note: input.note } : {}),
+  };
+}
+
+/** Creates a weekly template (`POST /schedules/templates`, 201). */
+export function useCreateTemplate(): UseMutationResult<
+  ScheduleTemplateRow,
+  QueryError,
+  CreateTemplateInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<ScheduleTemplateRow, QueryError, CreateTemplateInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/schedules/templates', { body: templateBody(input) }),
+      );
+      const parsed = extractTemplateRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 201, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.template;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedules', 'templates'] });
+      queryClient.invalidateQueries({ queryKey: ['slots'] });
+    },
+  });
+}
+
+export interface UpdateTemplateInput extends CreateTemplateInput {
+  id: string;
+}
+
+/** Updates a weekly template (`PATCH /schedules/templates/{id}`). */
+export function useUpdateTemplate(): UseMutationResult<
+  ScheduleTemplateRow,
+  QueryError,
+  UpdateTemplateInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<ScheduleTemplateRow, QueryError, UpdateTemplateInput>({
+    mutationFn: async ({ id, ...input }) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/schedules/templates/{id}', { params: { path: { id } }, body: templateBody(input) }),
+      );
+      const parsed = extractTemplateRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 200, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.template;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedules', 'templates'] });
+      queryClient.invalidateQueries({ queryKey: ['slots'] });
+    },
+  });
+}
+
+/** Deletes a weekly template (`DELETE /schedules/templates/{id}`, 204). */
+export function useDeleteTemplate(): UseMutationResult<void, QueryError, { id: string }> {
+  const queryClient = useQueryClient();
+  return useMutation<void, QueryError, { id: string }>({
+    mutationFn: async ({ id }) => {
+      await unwrapVoid(api.DELETE('/schedules/templates/{id}', { params: { path: { id } } }));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedules', 'templates'] });
+      queryClient.invalidateQueries({ queryKey: ['slots'] });
+    },
+  });
+}
+
+/**
+ * Creates a date override (`POST /schedules/overrides`, 201).
+ *
+ * There is no list endpoint, so an override that already exists for the provider
+ * and date answers 409 `CONFLICT` (see GAP-019).
+ */
+export function useCreateOverride(): UseMutationResult<
+  ScheduleOverrideRow,
+  QueryError,
+  CreateOverrideInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<ScheduleOverrideRow, QueryError, CreateOverrideInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/schedules/overrides', {
+          body: {
+            providerId: input.providerId,
+            branchId: input.branchId,
+            departmentId: input.departmentId,
+            date: input.date,
+            type: input.type,
+            ...(input.startMinutes !== undefined ? { startMinutes: input.startMinutes } : {}),
+            ...(input.endMinutes !== undefined ? { endMinutes: input.endMinutes } : {}),
+            ...(input.slotDurationMinutes !== undefined
+              ? { slotDurationMinutes: input.slotDurationMinutes }
+              : {}),
+            ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),
+            ...(input.note ? { note: input.note } : {}),
+          },
+        }),
+      );
+      const parsed = extractOverrideRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 201, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.override;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['slots'] });
+    },
+  });
+}
+
+export interface UpdateOverrideInput {
+  id: string;
+  type?: 'WORKING' | 'LEAVE' | 'HOLIDAY' | 'BLOCKED';
+  startMinutes?: number | null;
+  endMinutes?: number | null;
+  slotDurationMinutes?: number | null;
+  capacity?: number | null;
+  note?: string | null;
+}
+
+/** Updates a date override (`PATCH /schedules/overrides/{id}`). */
+export function useUpdateOverride(): UseMutationResult<
+  ScheduleOverrideRow,
+  QueryError,
+  UpdateOverrideInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<ScheduleOverrideRow, QueryError, UpdateOverrideInput>({
+    mutationFn: async ({ id, ...body }) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/schedules/overrides/{id}', { params: { path: { id } }, body }),
+      );
+      const parsed = extractOverrideRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 200, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.override;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['slots'] });
+    },
+  });
+}
+
+/** Deletes a date override (`DELETE /schedules/overrides/{id}`, 204). */
+export function useDeleteOverride(): UseMutationResult<void, QueryError, { id: string }> {
+  const queryClient = useQueryClient();
+  return useMutation<void, QueryError, { id: string }>({
+    mutationFn: async ({ id }) => {
+      await unwrapVoid(api.DELETE('/schedules/overrides/{id}', { params: { path: { id } } }));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['slots'] });
+    },
+  });
+}
+
+/** The branch every schedule-admin write posts, matching the desk (GAP-018). */
+export const SCHEDULES_ADMIN_BRANCH_ID = SCHEDULES_BRANCH_ID;

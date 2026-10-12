@@ -210,9 +210,12 @@ const PROVIDER_DIRECTORY = [
 const SCHEDULE_TEMPLATES = [];
 for (const provider of PROVIDER_DIRECTORY) {
   for (const dayOfWeek of [0, 1, 2, 3, 4]) {
-    SCHEDULE_TEMPLATES.push({ providerId: provider.id, departmentId: provider.departmentIds[0], dayOfWeek, startMinutes: 480, endMinutes: 780, slotDurationMinutes: 30, capacity: 1 });
+    SCHEDULE_TEMPLATES.push({ id: `sch_example_${800 + SCHEDULE_TEMPLATES.length}`, providerId: provider.id, branchId: SCHEDULING_BRANCH_ID, departmentId: provider.departmentIds[0], dayOfWeek, startMinutes: 480, endMinutes: 780, slotDurationMinutes: 30, capacity: 1, isAvailable: true, note: null });
   }
 }
+const LIVE_OVERRIDES = [];
+let templateSeq = 800 + SCHEDULE_TEMPLATES.length;
+let overrideSeq = 900;
 const APPOINTMENT_SEED = [
   { id: 'apt_example_4001', patientId: 'pat_example_1001', providerId: 'usr_example_9101', departmentId: 'dep_example_outpatient', mode: 'IN_PERSON', appointmentType: 'Follow-up', reason: 'Blood pressure review.', status: 'CONFIRMED', startMinutes: 540 },
   { id: 'apt_example_4002', patientId: 'pat_example_1002', providerId: 'usr_example_9101', departmentId: 'dep_example_outpatient', mode: 'IN_PERSON', appointmentType: 'New patient', reason: 'Knee pain, referred by physiotherapy.', status: 'BOOKED', startMinutes: 600 },
@@ -283,23 +286,78 @@ const LIVE_WAITLIST = buildWaitlist();
 let appointmentSeq = 6;
 let waitlistSeq = 4;
 
+/** F3 vitals fixtures. Same records as the MSW handlers. */
+const VITAL_SEED = [
+  { id: 'vr_example_7001', patientId: 'pat_example_1001', visitId: 'vis_example_3001', minutesAgo: 180, temperatureC: 38.9, systolicMmHg: 132, diastolicMmHg: 84, pulseBpm: 96, respiratoryRate: 20, spo2: 94, weightKg: null, heightCm: null, painScore: 4, notes: 'Presented febrile.', correctionOfId: null, correctionReason: null },
+  { id: 'vr_example_7002', patientId: 'pat_example_1001', visitId: 'vis_example_3001', minutesAgo: 175, temperatureC: 37.2, systolicMmHg: 128, diastolicMmHg: 80, pulseBpm: 88, respiratoryRate: 18, spo2: 97, weightKg: 68.4, heightCm: 165, painScore: 2, notes: null, correctionOfId: 'vr_example_7001', correctionReason: 'Thermometer re-check after rest.' },
+  { id: 'vr_example_7003', patientId: 'pat_example_1003', visitId: 'vis_example_3003', minutesAgo: 40, temperatureC: 36.8, systolicMmHg: 118, diastolicMmHg: 76, pulseBpm: 72, respiratoryRate: 16, spo2: 98, weightKg: 72, heightCm: 170, painScore: 0, notes: null, correctionOfId: null, correctionReason: null },
+];
+const VITAL_MEASUREMENTS = ['temperatureC', 'systolicMmHg', 'diastolicMmHg', 'pulseBpm', 'respiratoryRate', 'spo2', 'weightKg', 'heightCm', 'painScore'];
+function buildVitals() {
+  const now = Date.now();
+  return VITAL_SEED.map((seed) => {
+    const observedAt = new Date(now - seed.minutesAgo * 60000).toISOString();
+    return {
+      id: seed.id, patientId: seed.patientId, visitId: seed.visitId,
+      temperatureC: seed.temperatureC, systolicMmHg: seed.systolicMmHg, diastolicMmHg: seed.diastolicMmHg,
+      pulseBpm: seed.pulseBpm, respiratoryRate: seed.respiratoryRate, spo2: seed.spo2,
+      weightKg: seed.weightKg, heightCm: seed.heightCm, painScore: seed.painScore, notes: seed.notes,
+      observedAt, correctionOfId: seed.correctionOfId, correctionReason: seed.correctionReason,
+      recordedByUserId: 'usr_example_0001', createdAt: observedAt,
+    };
+  });
+}
+const VITALS = buildVitals();
+let vitalSeq = 7004;
+function computeBmi(weightKg, heightCm) {
+  if (weightKg === null || heightCm === null || !Number.isFinite(weightKg) || !Number.isFinite(heightCm) || weightKg <= 0 || heightCm <= 0 || heightCm < 60 || heightCm > 260 || weightKg < 1 || weightKg > 500) return null;
+  const metres = heightCm / 100;
+  return Math.round((weightKg / (metres * metres)) * 10) / 10;
+}
+function bmiCategory(bmi) {
+  if (bmi === null) return null;
+  if (bmi < 18.5) return 'UNDERWEIGHT';
+  if (bmi < 25) return 'NORMAL';
+  if (bmi < 30) return 'OVERWEIGHT';
+  return 'OBESE';
+}
+function serializeVital(vital) {
+  const bmi = computeBmi(vital.weightKg, vital.heightCm);
+  return { ...vital, bmi, bmiCategory: bmiCategory(bmi) };
+}
+function measurementsOf(body) {
+  const data = {};
+  for (const field of VITAL_MEASUREMENTS) data[field] = typeof body[field] === 'number' ? body[field] : null;
+  return data;
+}
+function hasVitalContent(body) {
+  if (typeof body.notes === 'string' && body.notes.trim().length > 0) return true;
+  return VITAL_MEASUREMENTS.some((field) => typeof body[field] === 'number');
+}
+
 function generateSlots(providerId, departmentId, dateISO) {
   const day = utcDayStart(dateISO);
   const dayIndex = workdayIndexFor(day);
-  const templates = SCHEDULE_TEMPLATES.filter((t) => t.providerId === providerId && t.departmentId === departmentId && t.dayOfWeek === dayIndex);
+  const overrides = LIVE_OVERRIDES.filter((o) => o.providerId === providerId && o.date === dateISO);
+  if (overrides.some((o) => o.type !== 'WORKING')) return [];
+  const working = overrides.filter((o) => o.type === 'WORKING');
+  const windows = working.length
+    ? working.map((o) => ({ startMinutes: o.startMinutes ?? 0, endMinutes: o.endMinutes ?? 1440, slotDurationMinutes: o.slotDurationMinutes ?? 30, capacity: o.capacity ?? 1 }))
+    : SCHEDULE_TEMPLATES.filter((t) => t.providerId === providerId && t.departmentId === departmentId && t.dayOfWeek === dayIndex)
+        .map((t) => ({ startMinutes: t.startMinutes, endMinutes: t.endMinutes, slotDurationMinutes: t.slotDurationMinutes, capacity: t.capacity }));
   const bookings = APPOINTMENTS.filter((a) => a.providerId === providerId && businessDayKey(a.startsAt) === dateISO && APPOINTMENT_OCCUPYING.has(a.status));
   const now = Date.now();
   const slots = [];
-  for (const template of templates) {
-    for (let start = template.startMinutes; start + template.slotDurationMinutes <= template.endMinutes; start += template.slotDurationMinutes) {
+  for (const window of windows) {
+    for (let start = window.startMinutes; start + window.slotDurationMinutes <= window.endMinutes; start += window.slotDurationMinutes) {
       const startsAt = new Date(day.getTime() + start * 60000);
-      const endsAt = new Date(startsAt.getTime() + template.slotDurationMinutes * 60000);
+      const endsAt = new Date(startsAt.getTime() + window.slotDurationMinutes * 60000);
       const booked = bookings.filter((b) => b.startsAt === startsAt.toISOString()).length;
-      const remaining = Math.max(0, template.capacity - booked);
+      const remaining = Math.max(0, window.capacity - booked);
       let status = 'AVAILABLE';
       if (remaining <= 0) status = 'FULL';
       else if (startsAt.getTime() <= now) status = 'PAST';
-      slots.push({ startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), capacity: template.capacity, booked, remaining, status });
+      slots.push({ startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), capacity: window.capacity, booked, remaining, status });
     }
   }
   slots.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
@@ -965,6 +1023,145 @@ const server = createServer(async (request, response) => {
     appointment.status = 'CANCELLED'; appointment.cancelledAt = now; appointment.cancelReason = body.reason || null;
     appointment.version += 1; appointment.updatedAt = now;
     send(response, 201, { success: true, data: { appointment } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/appointments\/[^/]+\/reschedule$/) && request.method === 'POST') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const original = APPOINTMENTS.find((a) => a.id === id);
+    if (!original) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    if (['COMPLETED', 'CANCELLED', 'NO_SHOW', 'RESCHEDULED'].includes(original.status)) {
+      send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return;
+    }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { body = {}; }
+    if (typeof body.startsAt !== 'string') { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const startsAt = new Date(body.startsAt).toISOString();
+    const seq = appointmentSeq++;
+    const now = new Date().toISOString();
+    const replacement = { ...original, id: `apt_example_${4000 + seq}`, startsAt, endsAt: new Date(Date.parse(startsAt) + 30 * 60000).toISOString(), status: 'BOOKED', version: 1, checkedInAt: null, inProgressAt: null, completedAt: null, noShowAt: null, cancelledAt: null, cancelReason: null, rescheduledFromId: original.id, rescheduledToId: null, rescheduledAt: null, createdAt: now, updatedAt: now };
+    original.status = 'RESCHEDULED'; original.rescheduledToId = replacement.id; original.rescheduledAt = now; original.version += 1; original.updatedAt = now;
+    APPOINTMENTS.push(replacement);
+    send(response, 201, { success: true, data: { appointment: replacement, superseded: original } });
+    return;
+  }
+
+  // --- vitals (nursing) ---------------------------------------------------
+  if (url.pathname === '/vitals' && request.method === 'GET') {
+    const patientId = url.searchParams.get('patientId');
+    const visitId = url.searchParams.get('visitId');
+    let items = [...VITALS];
+    if (patientId) items = items.filter((v) => v.patientId === patientId);
+    if (visitId) items = items.filter((v) => v.visitId === visitId);
+    items.sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt) || Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    send(response, 200, { success: true, data: { items: items.map(serializeVital), meta: { page: 1, limit: 100, total: items.length, totalPages: Math.max(1, Math.ceil(items.length / 100)) } } });
+    return;
+  }
+
+  if (url.pathname === '/vitals' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.patientId !== 'string' || !hasVitalContent(body)) { send(response, 422, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const observedAt = typeof body.observedAt === 'string' && body.observedAt.length > 0 ? new Date(body.observedAt).toISOString() : new Date().toISOString();
+    const now = new Date().toISOString();
+    const record = { id: `vr_example_${vitalSeq++}`, patientId: body.patientId, visitId: typeof body.visitId === 'string' && body.visitId.length > 0 ? body.visitId : null, ...measurementsOf(body), notes: typeof body.notes === 'string' && body.notes.trim().length > 0 ? body.notes.trim() : null, observedAt, correctionOfId: null, correctionReason: null, recordedByUserId: 'usr_example_0001', createdAt: now };
+    VITALS.push(record);
+    send(response, 201, { success: true, data: { vitalRecord: serializeVital(record) } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/vitals\/[^/]+\/correct$/) && request.method === 'POST') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const original = VITALS.find((v) => v.id === id);
+    if (!original) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { body = {}; }
+    const reason = typeof body.correctionReason === 'string' ? body.correctionReason.trim() : '';
+    if (reason.length === 0 || !hasVitalContent(body)) { send(response, 422, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const now = new Date().toISOString();
+    const record = { id: `vr_example_${vitalSeq++}`, patientId: original.patientId, visitId: original.visitId, ...measurementsOf(body), notes: typeof body.notes === 'string' && body.notes.trim().length > 0 ? body.notes.trim() : null, observedAt: original.observedAt, correctionOfId: original.id, correctionReason: reason, recordedByUserId: 'usr_example_0001', createdAt: now };
+    VITALS.push(record);
+    send(response, 201, { success: true, data: { vitalRecord: serializeVital(record) } });
+    return;
+  }
+
+  // --- schedule templates (admin) ----------------------------------------
+  if (url.pathname === '/schedules/templates' && request.method === 'GET') {
+    const providerId = url.searchParams.get('providerId');
+    const departmentId = url.searchParams.get('departmentId');
+    const dayOfWeek = url.searchParams.get('dayOfWeek');
+    let items = [...SCHEDULE_TEMPLATES];
+    if (providerId) items = items.filter((t) => t.providerId === providerId);
+    if (departmentId) items = items.filter((t) => t.departmentId === departmentId);
+    if (dayOfWeek !== null) items = items.filter((t) => t.dayOfWeek === Number(dayOfWeek));
+    items.sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startMinutes - b.startMinutes);
+    send(response, 200, { success: true, data: { items, meta: { page: 1, limit: 100, total: items.length, totalPages: Math.max(1, Math.ceil(items.length / 100)) } } });
+    return;
+  }
+
+  if (url.pathname === '/schedules/templates' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.providerId !== 'string' || typeof body.departmentId !== 'string') { send(response, 422, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const schedule = { id: `sch_example_${templateSeq++}`, providerId: body.providerId, branchId: body.branchId || SCHEDULING_BRANCH_ID, departmentId: body.departmentId, dayOfWeek: typeof body.dayOfWeek === 'number' ? body.dayOfWeek : 0, startMinutes: typeof body.startMinutes === 'number' ? body.startMinutes : 480, endMinutes: typeof body.endMinutes === 'number' ? body.endMinutes : 780, slotDurationMinutes: typeof body.slotDurationMinutes === 'number' ? body.slotDurationMinutes : 30, capacity: typeof body.capacity === 'number' ? body.capacity : 1, isAvailable: typeof body.isAvailable === 'boolean' ? body.isAvailable : true, note: typeof body.note === 'string' && body.note.length > 0 ? body.note : null };
+    SCHEDULE_TEMPLATES.push(schedule);
+    send(response, 201, { success: true, data: { schedule } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/schedules\/templates\/[^/]+$/) && request.method === 'PATCH') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const template = SCHEDULE_TEMPLATES.find((t) => t.id === id);
+    if (!template) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { body = {}; }
+    for (const key of ['dayOfWeek', 'startMinutes', 'endMinutes', 'slotDurationMinutes', 'capacity']) if (typeof body[key] === 'number') template[key] = body[key];
+    if (typeof body.isAvailable === 'boolean') template.isAvailable = body.isAvailable;
+    if (typeof body.note === 'string' && body.note.length > 0) template.note = body.note;
+    send(response, 200, { success: true, data: { schedule: template } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/schedules\/templates\/[^/]+$/) && request.method === 'DELETE') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const index = SCHEDULE_TEMPLATES.findIndex((t) => t.id === id);
+    if (index < 0) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    SCHEDULE_TEMPLATES.splice(index, 1);
+    send(response, 204, undefined);
+    return;
+  }
+
+  // --- schedule overrides (admin) ----------------------------------------
+  if (url.pathname === '/schedules/overrides' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.providerId !== 'string' || typeof body.date !== 'string') { send(response, 422, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (LIVE_OVERRIDES.some((o) => o.providerId === body.providerId && o.date === body.date)) { send(response, 409, { success: false, error: { code: 'CONFLICT' } }); return; }
+    const override = { id: `ovr_example_${overrideSeq++}`, providerId: body.providerId, branchId: body.branchId || SCHEDULING_BRANCH_ID, departmentId: typeof body.departmentId === 'string' ? body.departmentId : '', date: body.date, type: typeof body.type === 'string' ? body.type : 'BLOCKED', startMinutes: typeof body.startMinutes === 'number' ? body.startMinutes : null, endMinutes: typeof body.endMinutes === 'number' ? body.endMinutes : null, slotDurationMinutes: typeof body.slotDurationMinutes === 'number' ? body.slotDurationMinutes : null, capacity: typeof body.capacity === 'number' ? body.capacity : null, note: typeof body.note === 'string' && body.note.length > 0 ? body.note : null };
+    LIVE_OVERRIDES.push(override);
+    send(response, 201, { success: true, data: { override } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/schedules\/overrides\/[^/]+$/) && request.method === 'PATCH') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const override = LIVE_OVERRIDES.find((o) => o.id === id);
+    if (!override) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { body = {}; }
+    if (typeof body.type === 'string') override.type = body.type;
+    for (const key of ['startMinutes', 'endMinutes', 'slotDurationMinutes', 'capacity']) if (typeof body[key] === 'number' || body[key] === null) override[key] = body[key];
+    if (typeof body.note === 'string') override.note = body.note;
+    send(response, 200, { success: true, data: { override } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/schedules\/overrides\/[^/]+$/) && request.method === 'DELETE') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const index = LIVE_OVERRIDES.findIndex((o) => o.id === id);
+    if (index < 0) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    LIVE_OVERRIDES.splice(index, 1);
+    send(response, 204, undefined);
     return;
   }
 
