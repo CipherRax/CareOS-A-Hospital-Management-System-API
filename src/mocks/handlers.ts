@@ -7,6 +7,7 @@ import { queueHandlers } from './queue-handlers';
 import { schedulingHandlers } from './scheduling-handlers';
 import { vitalsHandlers } from './vitals-handlers';
 import { encountersHandlers } from './encounters-handlers';
+import { clinicalNotesHandlers } from './clinical-notes-handlers';
 
 /**
  * API mock handlers.
@@ -147,6 +148,10 @@ export const handlers = [
   // F4 encounters (doctor workspace): list, single read, and the
   // OPEN → IN_PROGRESS → COMPLETED status flow. See ./encounters-handlers.ts.
   ...encountersHandlers(),
+  // F4 clinical notes (doctor workspace): note list/templates, single read with
+  // version history, and the DRAFT → FINAL → amend lifecycle. See
+  // ./clinical-notes-handlers.ts.
+  ...clinicalNotesHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).

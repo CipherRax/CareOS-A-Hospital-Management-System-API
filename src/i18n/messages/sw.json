@@ -862,5 +862,74 @@
       "failedTitle": "Haikuweza kusasishwa ziara",
       "failedBody": "Jaribu tena baadaye."
     }
+  },
+  "notes": {
+    "title": "Madokezo ya kliniki",
+    "intro": "Madokezo yenye muundo kwa ziara hii. Dokezo lililokamilishwa limefungwa; mabadiliko ya baadaye hurekodiwa kama marekebisho.",
+    "newNote": "Dokezo jipya",
+    "loading": "Inapakia…",
+    "empty": "Hakuna madokezo ya kliniki kwa ziara hii bado.",
+    "unavailableTitle": "Madokezo hayapatikani kwa sasa",
+    "unavailableBody": "Orodha ya madokezo haikuweza kupakiwa. Jaribu tena baadaye.",
+    "locked": "Ziara hii imekamilika, kwa hivyo hakuna madokezo mapya yanayoweza kuongezwa.",
+    "untitled": "Dokezo lisilo na kichwa",
+    "amendedReason": "Sababu ya marekebisho",
+    "created": "Iliundwa {date}",
+    "finalized": "Imekamilishwa {date}",
+    "edit": "Hariri rasimu",
+    "finalize": "Kamilisha",
+    "amend": "Rekebisha",
+    "history": "Historia ya matoleo",
+    "hideHistory": "Ficha historia",
+    "historyEmpty": "Hakuna matoleo yaliyorekodiwa bado.",
+    "historyUnavailable": "Historia ya matoleo haikuweza kupakiwa.",
+    "version": "Toleo {number}",
+    "status": {
+      "DRAFT": "Rasimu",
+      "FINAL": "Ya mwisho"
+    },
+    "versionKind": {
+      "ORIGINAL": "Asili",
+      "AMENDMENT": "Marekebisho",
+      "NEW_VERSION": "Toleo jipya"
+    },
+    "section": {
+      "chiefComplaint": "Malalamiko makuu",
+      "history": "Historia",
+      "subjective": "Maelezo ya mgonjwa",
+      "objective": "Matokeo ya uchunguzi",
+      "assessment": "Tathmini",
+      "plan": "Mpango",
+      "instructions": "Maelekezo",
+      "followUp": "Ufuatiliaji"
+    },
+    "composer": {
+      "createTitle": "Dokezo jipya",
+      "editTitle": "Hariri dokezo la rasimu",
+      "amendTitle": "Rekebisha dokezo",
+      "titleLabel": "Kichwa (si lazima)",
+      "templateLabel": "Anza na kiolezo",
+      "templateNone": "Hakuna kiolezo — sehemu zote",
+      "sectionsLegend": "Sehemu",
+      "reasonLabel": "Sababu ya marekebisho",
+      "reasonHint": "Inahitajika. Hurekodiwa dhidi ya toleo jipya.",
+      "save": "Hifadhi rasimu",
+      "saveEdit": "Hifadhi mabadiliko",
+      "saveAmend": "Rekodi marekebisho",
+      "cancel": "Ghairi",
+      "noContent": "Andika angalau sehemu moja kabla ya kuhifadhi.",
+      "noReason": "Sababu inahitajika ili kurekebisha dokezo lililokamilishwa."
+    },
+    "error": {
+      "validationTitle": "Angalia dokezo",
+      "validationBody": "Baadhi ya maelezo yalikataliwa. Kagua sehemu na ujaribu tena.",
+      "lockedTitle": "Dokezo hili haliwezi kubadilishwa hapa tena",
+      "lockedBody": "Lilikamilishwa, au ziara imefungwa. Pakia tena eneo-kazi.",
+      "failedTitle": "Dokezo halikuweza kuhifadhiwa",
+      "failedBody": "Jaribu tena baadaye."
+    },
+    "confirmFinalizeTitle": "Kamilisha dokezo hili?",
+    "confirmFinalizeBody": "Kukamilisha hufunga dokezo. Mabadiliko ya baadaye yanapaswa kurekodiwa kama marekebisho yenye sababu.",
+    "confirmFinalize": "Kamilisha dokezo"
   }
 }

@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/clinical/empty-state';
 import { StatusPill, type StatusTone } from '@/components/clinical/status-pill';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
+import { ClinicalNotesPanel } from '@/components/staff/clinical-notes-panel';
 import {
   useDepartmentList,
   useEncounter,
@@ -194,6 +195,8 @@ function EncounterBody({ row }: { row: EncounterRow }) {
           </Link>
         </section>
       </div>
+
+      <ClinicalNotesPanel encounterId={row.id} encounterStatus={row.status} />
 
       <ConfirmDialog
         open={confirmComplete}

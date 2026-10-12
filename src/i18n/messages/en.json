@@ -843,5 +843,74 @@
       "failedTitle": "Could not update the encounter",
       "failedBody": "Try again shortly."
     }
+  },
+  "notes": {
+    "title": "Clinical notes",
+    "intro": "Structured notes for this visit. A finalized note is locked; later changes are recorded as amendments.",
+    "newNote": "New note",
+    "loading": "Loading…",
+    "empty": "No clinical notes for this visit yet.",
+    "unavailableTitle": "Notes are temporarily unavailable",
+    "unavailableBody": "The note list could not be loaded. Try again shortly.",
+    "locked": "This encounter is complete, so no new notes can be added.",
+    "untitled": "Untitled note",
+    "amendedReason": "Amendment reason",
+    "created": "Created {date}",
+    "finalized": "Finalized {date}",
+    "edit": "Edit draft",
+    "finalize": "Finalize",
+    "amend": "Amend",
+    "history": "Version history",
+    "hideHistory": "Hide history",
+    "historyEmpty": "No versions recorded yet.",
+    "historyUnavailable": "Version history could not be loaded.",
+    "version": "v{number}",
+    "status": {
+      "DRAFT": "Draft",
+      "FINAL": "Final"
+    },
+    "versionKind": {
+      "ORIGINAL": "Original",
+      "AMENDMENT": "Amendment",
+      "NEW_VERSION": "New version"
+    },
+    "section": {
+      "chiefComplaint": "Chief complaint",
+      "history": "History",
+      "subjective": "Subjective",
+      "objective": "Objective",
+      "assessment": "Assessment",
+      "plan": "Plan",
+      "instructions": "Instructions",
+      "followUp": "Follow-up"
+    },
+    "composer": {
+      "createTitle": "New note",
+      "editTitle": "Edit draft note",
+      "amendTitle": "Amend note",
+      "titleLabel": "Title (optional)",
+      "templateLabel": "Start from a template",
+      "templateNone": "No template — all sections",
+      "sectionsLegend": "Sections",
+      "reasonLabel": "Reason for amendment",
+      "reasonHint": "Required. Recorded against the new version.",
+      "save": "Save draft",
+      "saveEdit": "Save changes",
+      "saveAmend": "Record amendment",
+      "cancel": "Cancel",
+      "noContent": "Write at least one section before saving.",
+      "noReason": "A reason is required to amend a finalized note."
+    },
+    "error": {
+      "validationTitle": "Check the note",
+      "validationBody": "Some details were rejected. Review the sections and try again.",
+      "lockedTitle": "This note can no longer be changed here",
+      "lockedBody": "It was finalized, or the encounter is closed. Reload the workspace.",
+      "failedTitle": "The note could not be saved",
+      "failedBody": "Try again shortly."
+    },
+    "confirmFinalizeTitle": "Finalize this note?",
+    "confirmFinalizeBody": "Finalizing locks the note. Later changes must be recorded as amendments with a reason.",
+    "confirmFinalize": "Finalize note"
   }
 }

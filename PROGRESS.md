@@ -16,7 +16,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F1 Auth, session, shell        | **complete** — login/logout, proxy session bridge, gate, shell, nav rail                   | live round-trip awaiting a bootable API                |
 | F2 Patients & reception        | **complete** — patient search, walk-in registration with duplicate guard, master record (banner + sections + timeline + access log), MSW fixtures, structural validators | shipped (`a185d69`, `8b6ce44`); live API round-trip Docker-gated; GAP-012–GAP-016 documented |
 | F3 Scheduling, queue, nursing  | **complete** — reception queue slice (live queue board, walk-in ticket issuance, status/priority moves), appointment desk slice (day book, booking with slot search, appointment status moves, department waitlist), nursing vitals slice (patient chart, record/correct with BMI), schedule admin slice (weekly template CRUD + dated exceptions), and reschedule from the day book | live API round-trip Docker-gated; GAP-017–GAP-019 documented |
-| F4 Doctor workspace            | encounters slice 1 **complete** — encounter list (`/encounters`) with status/department filters, and the encounter workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place); MSW fixtures + stub + e2e swept | notes, orders, results (slices 2–4) |
+| F4 Doctor workspace            | encounters + clinical notes **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), and the clinical-notes panel (structured DRAFT → Finalize → Amend with version history); MSW fixtures + stub + e2e swept | orders, results (slices 3–4) |
 | F5 Laboratory & radiology      | not started                                                                                | lab orders, samples, results                           |
 | F6 Pharmacy & inventory        | not started                                                                                | dispensing, stock, batches, POs                        |
 | F7 Billing & insurance         | not started                                                                                | invoices, payments, M-PESA, claims                     |
@@ -519,3 +519,31 @@ answer `{ encounter }` while typed as the bare entity (unwrap + structural
 read). Records are EXAMPLE-prefixed and duplicated deliberately between the
 MSW registry and `e2e/stub-api.mjs`. Gate: lint, typecheck, 341 unit tests,
 `build:prod`, 111 a11y/e2e — all green.
+
+## F4 — Doctor workspace, slice 2: clinical notes
+
+**Status:** complete. The clinical-notes panel is embedded in the encounter
+workspace and follows the contract verified from the API source
+(`src/modules/clinical-notes`):
+
+- Notes are structured against `NOTE_SECTION_KEYS` (chief complaint, history,
+  subjective, objective, assessment, plan, instructions, follow-up). A note is
+  created as a DRAFT tied to an open encounter, edited in place while DRAFT,
+  finalized into the ORIGINAL version, and afterwards only **amended** — a
+  superseding version with a mandatory reason, never an in-place edit.
+- The panel mirrors those edges exactly: DRAFT offers Edit + Finalize (with a
+  confirmation), FINAL offers Amend, and a COMPLETED encounter offers neither
+  creation nor edits. Create is offered only while the encounter is OPEN or
+  IN_PROGRESS; a stale 409 `INVALID_WORKFLOW_TRANSITION` (finalized elsewhere,
+  closed encounter) surfaces as a status-specific alert.
+- A draft can start from a template (`GET /clinical-notes/templates`), which
+  pre-fills the section set. Version history is loaded on demand from the one
+  read that carries it (`GET /clinical-notes/{id}`) and shown when a card is
+  expanded; the list read carries only the working snapshot.
+
+The contract carries the same mis-typing as encounters (GAP-020, appended):
+every list handler is `query: never` with the 200 typed as a request DTO, and
+the single/write reads answer `{ note }` / `{ template }` while typed as the
+bare entity. Records are EXAMPLE-prefixed and duplicated deliberately between
+the MSW registry and `e2e/stub-api.mjs`. Data layer: 15 unit tests
+(`src/lib/data/clinical-notes.test.ts`).

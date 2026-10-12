@@ -81,6 +81,18 @@ import {
   type EncounterStatus,
   type EncountersCallError,
 } from '@/lib/data/encounters';
+import {
+  extractNoteRecord,
+  fetchClinicalNotes,
+  fetchNoteTemplates,
+  type ClinicalNotesCallError,
+  type NotePage,
+  type NoteQuery,
+  type NoteRow,
+  type NoteSections,
+  type TemplatePage as NoteTemplatePage,
+  type TemplateQuery as NoteTemplateQuery,
+} from '@/lib/data/clinical-notes';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
@@ -1426,6 +1438,215 @@ export function useTransitionEncounter(): UseMutationResult<
     onSuccess: (_encounter, variables) => {
       queryClient.invalidateQueries({ queryKey: ['encounters', variables.id] });
       queryClient.invalidateQueries({ queryKey: ['encounters', 'list'] });
+    },
+  });
+}
+
+// --- clinical notes (F4) --------------------------------------------------
+
+/**
+ * Note list `GET /clinical-notes?{filters}`. The export leaves the query
+ * unmodelled and mis-types the 200 as the request DTO (GAP-020), so this rides
+ * the raw-fetch path in `src/lib/data/clinical-notes.ts`.
+ */
+export function useClinicalNotes(
+  query: NoteQuery = {},
+): UseQueryResult<Fetched<NotePage>, QueryError> {
+  return useQuery<Fetched<NotePage>, QueryError>({
+    queryKey: [
+      'clinical-notes',
+      'list',
+      query.patientId ?? null,
+      query.encounterId ?? null,
+      query.status ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchClinicalNotes(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<NotePage>;
+      } catch (call) {
+        throw toQueryError(call as ClinicalNotesCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Note template list `GET /clinical-notes/templates` (same GAP-020 drift).
+ * Templates seed a new note's section headings, so the author writes to a
+ * structure the department recognises instead of a blank page.
+ */
+export function useNoteTemplates(
+  query: NoteTemplateQuery = {},
+): UseQueryResult<Fetched<NoteTemplatePage>, QueryError> {
+  return useQuery<Fetched<NoteTemplatePage>, QueryError>({
+    queryKey: ['clinical-notes', 'templates', query.departmentId ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchNoteTemplates(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<NoteTemplatePage>;
+      } catch (call) {
+        throw toQueryError(call as ClinicalNotesCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Single note `GET /clinical-notes/{id}` with its full version history. The
+ * export types the 200 as the bare entity, but the service answers `{ note }`,
+ * so the unwrapped body is validated structurally.
+ */
+export function useClinicalNote(id: string): UseQueryResult<Fetched<NoteRow>, QueryError> {
+  return useQuery<Fetched<NoteRow>, QueryError>({
+    queryKey: ['clinical-notes', id],
+    queryFn: () =>
+      fetchPatientEnvelope<NoteRow>(
+        api.GET('/clinical-notes/{id}', { params: { path: { id } } }),
+        (body) => {
+          const parsed = extractNoteRecord(body);
+          return parsed.ok ? { ok: true as const, data: parsed.note } : { ok: false as const };
+        },
+      ),
+    enabled: id.length > 0,
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+export interface CreateNoteInput {
+  encounterId: string;
+  title?: string;
+  sections?: NoteSections;
+  templateId?: string;
+}
+
+/**
+ * Creates a DRAFT note `POST /clinical-notes`. The service answers `{ note }`
+ * while the export types the bare entity, so the unwrapped body is validated
+ * structurally. The encounter must be OPEN or IN_PROGRESS; a completed one
+ * answers 409 INVALID_WORKFLOW_TRANSITION, which the panel treats as locked.
+ */
+export function useCreateNote(): UseMutationResult<NoteRow, QueryError, CreateNoteInput> {
+  const queryClient = useQueryClient();
+  return useMutation<NoteRow, QueryError, CreateNoteInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/clinical-notes', {
+          body: {
+            encounterId: input.encounterId,
+            title: input.title,
+            sections: input.sections,
+            templateId: input.templateId,
+          },
+        }),
+      );
+      const parsed = extractNoteRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 201, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.note;
+    },
+    onSuccess: (_note) => {
+      queryClient.invalidateQueries({ queryKey: ['clinical-notes', 'list'] });
+      queryClient.invalidateQueries({ queryKey: ['clinical-notes', 'templates'] });
+    },
+  });
+}
+
+export interface UpdateNoteInput {
+  id: string;
+  title?: string;
+  sections?: NoteSections;
+}
+
+/** Edits a DRAFT note in place `PATCH /clinical-notes/{id}`. */
+export function useUpdateNote(): UseMutationResult<NoteRow, QueryError, UpdateNoteInput> {
+  const queryClient = useQueryClient();
+  return useMutation<NoteRow, QueryError, UpdateNoteInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/clinical-notes/{id}', {
+          params: { path: { id: input.id } },
+          body: { title: input.title, sections: input.sections },
+        }),
+      );
+      const parsed = extractNoteRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 200, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.note;
+    },
+    onSuccess: (_note, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['clinical-notes', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['clinical-notes', 'list'] });
+    },
+  });
+}
+
+export interface FinalizeNoteInput {
+  id: string;
+}
+
+/** Finalizes a DRAFT note `POST /clinical-notes/{id}/finalize` (writes the ORIGINAL version). */
+export function useFinalizeNote(): UseMutationResult<NoteRow, QueryError, FinalizeNoteInput> {
+  const queryClient = useQueryClient();
+  return useMutation<NoteRow, QueryError, FinalizeNoteInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/clinical-notes/{id}/finalize', {
+          params: { path: { id: input.id } },
+          body: {},
+        }),
+      );
+      const parsed = extractNoteRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 201, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.note;
+    },
+    onSuccess: (_note, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['clinical-notes', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['clinical-notes', 'list'] });
+    },
+  });
+}
+
+export interface AmendNoteInput {
+  id: string;
+  title?: string;
+  sections: NoteSections;
+  reason: string;
+}
+
+/**
+ * Amends a FINAL note `POST /clinical-notes/{id}/amend`. The reason is
+ * mandatory; the service appends a superseding version and never edits the
+ * finalized snapshot in place.
+ */
+export function useAmendNote(): UseMutationResult<NoteRow, QueryError, AmendNoteInput> {
+  const queryClient = useQueryClient();
+  return useMutation<NoteRow, QueryError, AmendNoteInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/clinical-notes/{id}/amend', {
+          params: { path: { id: input.id } },
+          body: { title: input.title, sections: input.sections, reason: input.reason },
+        }),
+      );
+      const parsed = extractNoteRecord(fetched.data);
+      if (!parsed.ok) {
+        throw { code: 'INTERNAL_ERROR', status: 201, resolved: resolveApiError('INTERNAL_ERROR') } satisfies QueryError;
+      }
+      return parsed.note;
+    },
+    onSuccess: (_note, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['clinical-notes', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['clinical-notes', 'list'] });
     },
   });
 }

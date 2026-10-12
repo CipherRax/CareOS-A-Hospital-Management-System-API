@@ -281,7 +281,7 @@ the request body is built structurally. A complete screen needs a read endpoint
 (`GET /schedules/overrides?providerId=&from=&to=` returning `{ items, meta }`,
 mirroring templates) plus typed `date`/`startMinutes`/`endMinutes` fields.
 
-## GAP-020 — Encounters reads are mis-typed against what the service returns
+## GAP-020 — Encounters and clinical-notes reads are mis-typed against what the service returns
 
 **Status: open (F4 encounters).** Verified against `src/modules/encounters` and
 the exported `schema.d.ts`:
@@ -304,3 +304,21 @@ are enforced server-side (COMPLETED is terminal, illegal moves answer 409
 contract fixes is the typed read shape and a query model (filters
 patient/branch/department/provider/type/status/date range/page/limit are
 already implemented server-side).
+
+**Same drift under clinical notes (F4 slice 2).** Verified against
+`src/modules/clinical-notes`:
+
+- `GET /clinical-notes` and `GET /clinical-notes/templates` both carry
+  `query: never` with the 200 typed as a request DTO. Both are genuine
+  `PageResult`s, so `fetchClinicalNotes` / `fetchNoteTemplates` in
+  `src/lib/data/clinical-notes.ts` use the raw-fetch path with structural row
+  validation.
+- `GET /clinical-notes/{id}` (which additionally carries `versions` from the
+  service layer) plus the create/patch/finalize/amend writes are typed as the
+  bare `ClinicalNoteResponseDto` / `NoteTemplateResponseDto`, but the service
+  answers `{ note }` / `{ template }`. Those go through `extractNoteRecord` /
+  `extractTemplateRecord` on the unwrapped body.
+- The versioning surface is not in doubt: DRAFT → FINAL writes the ORIGINAL
+  version and later changes are amendments (kind `AMENDMENT`) requiring a
+  reason, all enforced server-side. What the contract fixes is the typed read
+  shape and a query model.

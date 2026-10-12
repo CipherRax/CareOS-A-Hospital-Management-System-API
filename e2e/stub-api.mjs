@@ -341,6 +341,49 @@ function buildEncounters() {
 }
 const ENCOUNTERS = buildEncounters();
 
+// --- clinical notes (F4 doctor workspace) -------------------------------
+// Same contract and records as the MSW handlers.
+const NOTE_SECTION_KEYS = ['chiefComplaint', 'history', 'subjective', 'objective', 'assessment', 'plan', 'instructions', 'followUp'];
+const NOTE_TEMPLATE_SEED = [
+  { id: 'cnt_example_8201', name: 'EXAMPLE outpatient note', description: 'Standard outpatient consultation.', departmentId: 'dep_example_outpatient', sections: ['chiefComplaint', 'history', 'assessment', 'plan'], isActive: true },
+  { id: 'cnt_example_8202', name: 'EXAMPLE emergency note', description: 'A&E resuscitation and clerking.', departmentId: 'dep_example_emergency', sections: ['history', 'objective', 'assessment', 'plan'], isActive: true },
+];
+const LIVE_NOTE_TEMPLATES = NOTE_TEMPLATE_SEED.map((t) => ({ ...t, organizationId: 'org_example_0001', createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' }));
+let noteVersionSeq = 9100;
+function buildNotes() {
+  const seeds = [
+    { id: 'cn_example_8001', encounterId: 'enc_example_6001', patientId: 'pat_example_1001', authorId: 'usr_example_9001', status: 'FINAL', title: 'Initial assessment', sections: { chiefComplaint: 'Cough with yellow sputum for three days.', history: 'No fever reported at home; otherwise well.', assessment: 'Suspect acute bronchitis.', plan: 'Chest X-ray and symptomatic treatment.' }, reason: null, templateId: 'cnt_example_8201', createdMinutesAgo: 22, updatedMinutesAgo: 12, finalizedMinutesAgo: 12, versions: [{ versionNumber: 1, kind: 'ORIGINAL', title: 'Initial assessment', sections: { chiefComplaint: 'Cough with yellow sputum for three days.', history: 'No fever reported at home; otherwise well.', assessment: 'Suspect acute bronchitis.', plan: 'Chest X-ray and symptomatic treatment.' }, reason: null, authorId: 'usr_example_9001', minutesAgo: 12 }] },
+    { id: 'cn_example_8002', encounterId: 'enc_example_6001', patientId: 'pat_example_1001', authorId: 'usr_example_9001', status: 'DRAFT', title: null, sections: { objective: 'BP 124/78, HR 88, SpO2 97% on room air.', plan: 'Oral antibiotics pending sputum culture.' }, reason: null, templateId: null, createdMinutesAgo: 8, updatedMinutesAgo: 3, finalizedMinutesAgo: null, versions: [] },
+    { id: 'cn_example_8003', encounterId: 'enc_example_6002', patientId: 'pat_example_1002', authorId: 'usr_example_9002', status: 'FINAL', title: 'Resuscitation note', sections: { history: 'Chest pain radiating to the left arm, onset 45 minutes ago.', objective: 'ECG shows anterior ST elevation. Troponin raised.', assessment: 'STEMI.', plan: 'Thrombolysed; transfer to the cath lab confirmed. Aspirin and heparin given.' }, reason: 'Laboratory results returned after finalization.', templateId: 'cnt_example_8202', createdMinutesAgo: 70, updatedMinutesAgo: 40, finalizedMinutesAgo: 60, versions: [{ versionNumber: 1, kind: 'ORIGINAL', title: 'Resuscitation note', sections: { history: 'Chest pain radiating to the left arm, onset 45 minutes ago.', objective: 'ECG shows anterior ST elevation.', assessment: 'STEMI.', plan: 'Thrombolysis and transfer to the cath lab.' }, reason: null, authorId: 'usr_example_9002', minutesAgo: 60 }, { versionNumber: 2, kind: 'AMENDMENT', title: 'Resuscitation note', sections: { history: 'Chest pain radiating to the left arm, onset 45 minutes ago.', objective: 'ECG shows anterior ST elevation. Troponin raised.', assessment: 'STEMI.', plan: 'Thrombolysed; transfer to the cath lab confirmed. Aspirin and heparin given.' }, reason: 'Laboratory results returned after finalization.', authorId: 'usr_example_9002', minutesAgo: 40 }] },
+  ];
+  return seeds.map((seed) => ({
+    id: seed.id, organizationId: 'org_example_0001', patientId: seed.patientId, encounterId: seed.encounterId,
+    authorId: seed.authorId, status: seed.status, title: seed.title, sections: { ...seed.sections }, reason: seed.reason,
+    templateId: seed.templateId, finalizedAt: seed.finalizedMinutesAgo === null ? null : minutesAgo(seed.finalizedMinutesAgo),
+    createdAt: minutesAgo(seed.createdMinutesAgo), updatedAt: minutesAgo(seed.updatedMinutesAgo),
+    _versions: seed.versions.map((v) => ({ id: `cnv_example_${noteVersionSeq++}`, versionNumber: v.versionNumber, kind: v.kind, title: v.title, sections: { ...v.sections }, reason: v.reason, authorId: v.authorId, createdAt: minutesAgo(v.minutesAgo) })),
+  }));
+}
+const LIVE_NOTES = buildNotes();
+function serializeNote(note) {
+  const body = { ...note };
+  delete body._versions;
+  return body;
+}
+function serializeNoteWithVersions(note) {
+  const { _versions, ...body } = note;
+  return { ...body, versions: _versions.map(({ id, versionNumber, kind, title, sections, reason, authorId, createdAt }) => ({ id, versionNumber, kind, title, sections, reason, authorId, createdAt })) };
+}
+function validateNoteSections(value) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const sections = {};
+  for (const [key, text] of Object.entries(value)) {
+    if (typeof text !== 'string' || !NOTE_SECTION_KEYS.includes(key)) return null;
+    sections[key] = text;
+  }
+  return sections;
+}
+
 function computeBmi(weightKg, heightCm) {
   if (weightKg === null || heightCm === null || !Number.isFinite(weightKg) || !Number.isFinite(heightCm) || weightKg <= 0 || heightCm <= 0 || heightCm < 60 || heightCm > 260 || weightKg < 1 || weightKg > 500) return null;
   const metres = heightCm / 100;
@@ -1243,6 +1286,108 @@ const server = createServer(async (request, response) => {
     if (next === 'COMPLETED') encounter.completedAt = now;
     else encounter.inProgressAt = now;
     send(response, 200, { success: true, data: { encounter: { ...encounter } } });
+    return;
+  }
+
+  // --- clinical notes (F4 doctor workspace) -----------------------------
+  // The templates route is registered before the {id} route: both are one
+  // segment under /clinical-notes, so ordering is what disambiguates them.
+  if (url.pathname === '/clinical-notes/templates' && request.method === 'GET') {
+    const departmentId = url.searchParams.get('departmentId');
+    let items = LIVE_NOTE_TEMPLATES;
+    if (departmentId) items = items.filter((t) => t.departmentId === departmentId);
+    send(response, 200, listEnvelope(items, 100));
+    return;
+  }
+
+  if (url.pathname === '/clinical-notes' && request.method === 'GET') {
+    const patientId = url.searchParams.get('patientId');
+    const encounterId = url.searchParams.get('encounterId');
+    const status = url.searchParams.get('status');
+    let items = [...LIVE_NOTES];
+    if (patientId) items = items.filter((n) => n.patientId === patientId);
+    if (encounterId) items = items.filter((n) => n.encounterId === encounterId);
+    if (status) items = items.filter((n) => n.status === status);
+    items.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    send(response, 200, listEnvelope(items.map(serializeNote), 50));
+    return;
+  }
+
+  if (url.pathname === '/clinical-notes' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.encounterId !== 'string') { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const encounter = ENCOUNTERS.find((e) => e.id === body.encounterId);
+    if (!encounter) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    if (encounter.status === 'COMPLETED') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    let sections = null;
+    if (body.sections !== undefined) sections = validateNoteSections(body.sections);
+    else if (typeof body.templateId === 'string') {
+      const template = LIVE_NOTE_TEMPLATES.find((t) => t.id === body.templateId);
+      if (template) { sections = {}; for (const key of template.sections) sections[key] = ''; }
+    }
+    if (!sections || Object.keys(sections).length === 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const now = new Date().toISOString();
+    const note = { id: `cn_example_${8000 + LIVE_NOTES.length + 1}`, organizationId: 'org_example_0001', patientId: encounter.patientId, encounterId: body.encounterId, authorId: 'usr_example_9001', status: 'DRAFT', title: typeof body.title === 'string' && body.title.trim().length > 0 ? body.title.trim() : null, sections, reason: null, templateId: typeof body.templateId === 'string' ? body.templateId : null, finalizedAt: null, createdAt: now, updatedAt: now, _versions: [] };
+    LIVE_NOTES.push(note);
+    send(response, 201, { success: true, data: { note: serializeNote(note) } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/clinical-notes\/[^/]+\/finalize$/) && request.method === 'POST') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const note = LIVE_NOTES.find((n) => n.id === id);
+    if (!note) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    if (note.status !== 'DRAFT') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    const now = new Date().toISOString();
+    note.status = 'FINAL'; note.finalizedAt = now; note.updatedAt = now;
+    note._versions.push({ id: `cnv_example_${noteVersionSeq++}`, versionNumber: 1, kind: 'ORIGINAL', title: note.title, sections: { ...note.sections }, reason: null, authorId: note.authorId, createdAt: now });
+    send(response, 201, { success: true, data: { note: serializeNote(note) } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/clinical-notes\/[^/]+\/amend$/) && request.method === 'POST') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const note = LIVE_NOTES.find((n) => n.id === id);
+    if (!note) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    if (note.status !== 'FINAL') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.reason !== 'string' || body.reason.trim().length === 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const sections = validateNoteSections(body.sections);
+    if (!sections) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const lastVersion = note._versions[note._versions.length - 1];
+    const versionNumber = lastVersion ? lastVersion.versionNumber + 1 : 1;
+    const now = new Date().toISOString();
+    note.sections = sections; note.title = typeof body.title === 'string' && body.title.trim().length > 0 ? body.title.trim() : note.title; note.reason = body.reason.trim(); note.updatedAt = now;
+    note._versions.push({ id: `cnv_example_${noteVersionSeq++}`, versionNumber, kind: 'AMENDMENT', title: note.title, sections: { ...sections }, reason: body.reason.trim(), authorId: note.authorId, createdAt: now });
+    send(response, 201, { success: true, data: { note: serializeNote(note) } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/clinical-notes\/[^/]+$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const note = LIVE_NOTES.find((n) => n.id === id);
+    if (!note) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { note: serializeNoteWithVersions(note) } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/clinical-notes\/[^/]+$/) && request.method === 'PATCH') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const note = LIVE_NOTES.find((n) => n.id === id);
+    if (!note) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    if (note.status !== 'DRAFT') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (body.title !== undefined) note.title = typeof body.title === 'string' && body.title.trim().length > 0 ? body.title.trim() : null;
+    if (body.sections !== undefined) {
+      const sections = validateNoteSections(body.sections);
+      if (!sections) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+      note.sections = sections;
+    }
+    note.updatedAt = new Date().toISOString();
+    send(response, 200, { success: true, data: { note: serializeNote(note) } });
     return;
   }
 
