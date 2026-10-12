@@ -365,6 +365,68 @@ function buildNotes() {
   }));
 }
 const LIVE_NOTES = buildNotes();
+
+// --- medications + prescriptions (F4 doctor workspace) --------------------
+// Same contract and records as the MSW handlers.
+const MEDICATION_SEED = [
+  { id: 'med_example_7101', category: 'MEDICATION', name: 'EXAMPLE Amoxicillin', genericName: 'Amoxicillin', strength: '500mg', form: 'capsule', unit: 'capsule', isControlled: false },
+  { id: 'med_example_7102', category: 'MEDICATION', name: 'EXAMPLE Paracetamol', genericName: 'Paracetamol', strength: '500mg', form: 'tablet', unit: 'tablet', isControlled: false },
+  { id: 'med_example_7103', category: 'MEDICATION', name: 'EXAMPLE Salbutamol inhaler', genericName: 'Salbutamol', strength: '100mcg/dose', form: 'inhaler', unit: 'dose', isControlled: false },
+  { id: 'med_example_7104', category: 'MEDICATION', name: 'EXAMPLE Metformin', genericName: 'Metformin', strength: '500mg', form: 'tablet', unit: 'tablet', isControlled: false },
+  { id: 'med_example_7105', category: 'MEDICATION', name: 'EXAMPLE Morphine (controlled)', genericName: 'Morphine', strength: '10mg/mL', form: 'ampoule', unit: 'ampoule', isControlled: true },
+  { id: 'med_example_7106', category: 'SUPPLY', name: 'EXAMPLE Gauze roll', genericName: null, strength: null, form: 'roll', unit: 'roll', isControlled: false },
+];
+const LIVE_MEDICATIONS = MEDICATION_SEED.map((m) => ({ ...m, organizationId: 'org_example_0001', sku: null, barcode: null, isActive: true, version: 1, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' }));
+let prxItemSeq = 7100;
+function buildPrescriptions() {
+  const seeds = [
+    { id: 'prx_example_7001', patientId: 'pat_example_1001', providerId: 'usr_example_9001', status: 'DRAFT', notes: null, createdMinutesAgo: 9, issuedMinutesAgo: null, dispensedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, items: [{ medicationId: 'med_example_7101', quantity: 21, dispensedQuantity: 0, dosage: '500mg', frequency: '8 hourly', durationDays: 7, instructions: 'Take after food.' }] },
+    { id: 'prx_example_7002', patientId: 'pat_example_1001', providerId: 'usr_example_9001', status: 'ISSUED', notes: 'For headache not controlled by rest.', createdMinutesAgo: 40, issuedMinutesAgo: 33, dispensedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, items: [{ medicationId: 'med_example_7102', quantity: 12, dispensedQuantity: 0, dosage: '1g', frequency: 'when required, max 4 times daily', durationDays: null, instructions: 'Do not exceed four doses a day.' }] },
+    { id: 'prx_example_7003', patientId: 'pat_example_1002', providerId: 'usr_example_9002', status: 'DISPENSED', notes: null, createdMinutesAgo: 65, issuedMinutesAgo: 62, dispensedMinutesAgo: 50, cancelledMinutesAgo: null, cancelReason: null, items: [{ medicationId: 'med_example_7103', quantity: 200, dispensedQuantity: 200, dosage: '200mcg (2 puffs)', frequency: 'when required', durationDays: 30, instructions: 'Use spacer in the emergency bay.' }] },
+    { id: 'prx_example_7004', patientId: 'pat_example_1003', providerId: 'usr_example_9003', status: 'CANCELLED', notes: null, createdMinutesAgo: 210, issuedMinutesAgo: null, dispensedMinutesAgo: null, cancelledMinutesAgo: 195, cancelReason: 'EXAMPLE changed the plan to amoxicillin–clavulanate.', items: [{ medicationId: 'med_example_7101', quantity: 10, dispensedQuantity: 0, dosage: '250mg', frequency: '12 hourly', durationDays: 5, instructions: null }] },
+  ];
+  return seeds.map((seed) => ({
+    id: seed.id, organizationId: 'org_example_0001', branchId: 'br_example_0001',
+    patientId: seed.patientId, providerId: seed.providerId, status: seed.status, notes: seed.notes,
+    issuedById: seed.issuedMinutesAgo === null ? null : seed.providerId,
+    issuedAt: seed.issuedMinutesAgo === null ? null : minutesAgo(seed.issuedMinutesAgo),
+    dispensedAt: seed.dispensedMinutesAgo === null ? null : minutesAgo(seed.dispensedMinutesAgo),
+    cancelledById: seed.cancelledMinutesAgo === null ? null : 'usr_example_9004',
+    cancelledAt: seed.cancelledMinutesAgo === null ? null : minutesAgo(seed.cancelledMinutesAgo),
+    cancelReason: seed.cancelReason, version: 1, createdAt: minutesAgo(seed.createdMinutesAgo),
+    _items: seed.items.map((item) => ({ id: `pri_example_${prxItemSeq++}`, medicationId: item.medicationId, quantity: item.quantity, dispensedQuantity: item.dispensedQuantity, dosage: item.dosage, frequency: item.frequency, durationDays: item.durationDays, instructions: item.instructions })),
+  }));
+}
+const LIVE_PRESCRIPTIONS = buildPrescriptions();
+const PRESCRIPTION_ACTIONS_BY_STATUS = {
+  DRAFT: ['issue', 'cancel'],
+  ISSUED: ['cancel'],
+  PARTIALLY_DISPENSED: ['cancel'],
+  DISPENSED: [],
+  CANCELLED: [],
+};
+function serializePrescription(prescription) {
+  // The live DTO omits createdAt; the rest of the row goes out exactly as typed.
+  const body = { ...prescription };
+  delete body._items;
+  delete body.createdAt;
+  return { ...body, items: prescription._items.map((item) => ({ ...item })) };
+}
+function validatePrescriptionItems(value) {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const items = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) return null;
+    if (typeof entry.medicationId !== 'string') return null;
+    const medication = LIVE_MEDICATIONS.find((m) => m.id === entry.medicationId);
+    if (!medication) return null;
+    const quantity = Number(entry.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) return null;
+    items.push({ id: `pri_example_${prxItemSeq++}`, medicationId: entry.medicationId, quantity, dispensedQuantity: 0, dosage: typeof entry.dosage === 'string' && entry.dosage.trim().length > 0 ? entry.dosage.trim() : null, frequency: typeof entry.frequency === 'string' && entry.frequency.trim().length > 0 ? entry.frequency.trim() : null, durationDays: Number.isInteger(Number(entry.durationDays)) ? Number(entry.durationDays) : null, instructions: typeof entry.instructions === 'string' && entry.instructions.trim().length > 0 ? entry.instructions.trim() : null });
+  }
+  return items;
+}
+
 function serializeNote(note) {
   const body = { ...note };
   delete body._versions;
@@ -1388,6 +1450,96 @@ const server = createServer(async (request, response) => {
     }
     note.updatedAt = new Date().toISOString();
     send(response, 200, { success: true, data: { note: serializeNote(note) } });
+    return;
+  }
+
+  // --- medications (F4 doctor workspace) ----------------------------------
+  if (url.pathname === '/medications' && request.method === 'GET') {
+    const category = url.searchParams.get('category');
+    const isActive = url.searchParams.get('isActive');
+    const isControlled = url.searchParams.get('isControlled');
+    const search = (url.searchParams.get('search') ?? '').trim().toLowerCase();
+    let items = [...LIVE_MEDICATIONS];
+    if (category) items = items.filter((m) => m.category === category);
+    if (isActive) items = items.filter((m) => m.isActive === (isActive === 'true'));
+    if (isControlled) items = items.filter((m) => m.isControlled === (isControlled === 'true'));
+    if (search) items = items.filter((m) => `${m.name} ${m.genericName ?? ''}`.toLowerCase().includes(search));
+    send(response, 200, listEnvelope(items, 100));
+    return;
+  }
+
+  if (url.pathname.match(/^\/medications\/[^/]+$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const medication = LIVE_MEDICATIONS.find((m) => m.id === id);
+    if (!medication) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { medication: { ...medication } } });
+    return;
+  }
+
+  // --- prescriptions (F4 doctor workspace) --------------------------------
+  if (url.pathname === '/prescriptions' && request.method === 'GET') {
+    const patientId = url.searchParams.get('patientId');
+    const branchId = url.searchParams.get('branchId');
+    const providerId = url.searchParams.get('providerId');
+    const status = url.searchParams.get('status');
+    let items = [...LIVE_PRESCRIPTIONS];
+    if (patientId) items = items.filter((p) => p.patientId === patientId);
+    if (branchId) items = items.filter((p) => p.branchId === branchId);
+    if (providerId) items = items.filter((p) => p.providerId === providerId);
+    if (status) items = items.filter((p) => p.status === status);
+    items.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    send(response, 200, listEnvelope(items.map(serializePrescription), 50));
+    return;
+  }
+
+  if (url.pathname === '/prescriptions' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.patientId !== 'string' || !PATIENT_REGISTRY[body.patientId]) {
+      send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return;
+    }
+    const items = validatePrescriptionItems(body.items);
+    if (!items) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const now = new Date().toISOString();
+    const prescription = { id: `prx_example_${7000 + LIVE_PRESCRIPTIONS.length + 1}`, organizationId: 'org_example_0001', branchId: 'br_example_0001', patientId: body.patientId, providerId: 'usr_example_9001', status: 'DRAFT', notes: typeof body.notes === 'string' && body.notes.trim().length > 0 ? body.notes.trim() : null, issuedById: null, issuedAt: null, dispensedAt: null, cancelledById: null, cancelledAt: null, cancelReason: null, version: 1, createdAt: now, _items: items };
+    LIVE_PRESCRIPTIONS.push(prescription);
+    send(response, 201, { success: true, data: { prescription: serializePrescription(prescription) } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/prescriptions\/[^/]+\/action$/) && request.method === 'POST') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const prescription = LIVE_PRESCRIPTIONS.find((p) => p.id === id);
+    if (!prescription) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const action = body.action;
+    if (action !== 'issue' && action !== 'cancel') { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const allowed = PRESCRIPTION_ACTIONS_BY_STATUS[prescription.status];
+    if (!allowed.includes(action)) {
+      send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return;
+    }
+    const now = new Date().toISOString();
+    prescription.version += 1;
+    if (action === 'issue') {
+      prescription.status = 'ISSUED';
+      prescription.issuedById = 'usr_example_9001';
+      prescription.issuedAt = now;
+    } else {
+      prescription.status = 'CANCELLED';
+      prescription.cancelledById = 'usr_example_9001';
+      prescription.cancelledAt = now;
+      prescription.cancelReason = typeof body.cancelReason === 'string' && body.cancelReason.trim().length > 0 ? body.cancelReason.trim() : null;
+    }
+    send(response, 201, { success: true, data: { prescription: serializePrescription(prescription) } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/prescriptions\/[^/]+$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const prescription = LIVE_PRESCRIPTIONS.find((p) => p.id === id);
+    if (!prescription) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { prescription: serializePrescription(prescription) } });
     return;
   }
 

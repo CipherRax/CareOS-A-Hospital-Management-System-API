@@ -912,5 +912,66 @@
     "confirmFinalizeTitle": "Finalize this note?",
     "confirmFinalizeBody": "Finalizing locks the note. Later changes must be recorded as amendments with a reason.",
     "confirmFinalize": "Finalize note"
+  },
+  "prescriptions": {
+    "title": "Prescriptions",
+    "intro": "Medication orders for this patient. A prescription starts as a draft, is issued, and is then dispensed by pharmacy.",
+    "newPrescription": "New prescription",
+    "loading": "Loading…",
+    "empty": "No prescriptions for this patient yet.",
+    "unavailableTitle": "Prescriptions are temporarily unavailable",
+    "unavailableBody": "The prescription history could not be loaded. Try again shortly.",
+    "working": "Working…",
+    "issue": "Issue",
+    "cancel": "Cancel",
+    "lineCount": "{count, plural, one {# medication} other {# medications}}",
+    "remaining": "{count} remaining to dispense",
+    "issued": "Issued {date}",
+    "dispensed": "Dispensed {date}",
+    "cancelled": "Cancelled {date}",
+    "cancelledReason": "Cancellation reason",
+    "status": {
+      "DRAFT": "Draft",
+      "ISSUED": "Issued",
+      "PARTIALLY_DISPENSED": "Partially dispensed",
+      "DISPENSED": "Dispensed",
+      "CANCELLED": "Cancelled"
+    },
+    "line": {
+      "quantity": "Quantity",
+      "dosage": "Dosage",
+      "frequency": "Frequency",
+      "durationDays": "Duration (days)",
+      "instructions": "Instructions",
+      "dispensed": "Dispensed"
+    },
+    "composer": {
+      "createTitle": "New prescription",
+      "lineHeading": "Medication {number}",
+      "addLine": "Add a medication",
+      "removeLine": "Remove",
+      "medicationLabel": "Medication",
+      "medicationPlaceholder": "Choose a medication…",
+      "quantityLabel": "Quantity",
+      "dosageLabel": "Dosage",
+      "frequencyLabel": "Frequency",
+      "durationLabel": "Duration (days)",
+      "instructionsLabel": "Instructions",
+      "notesLabel": "Notes (optional)",
+      "save": "Save draft",
+      "cancel": "Cancel",
+      "noLines": "Add at least one medication with a valid quantity before saving."
+    },
+    "error": {
+      "validationTitle": "Check the prescription",
+      "validationBody": "Some details were rejected. Review the medication lines and try again.",
+      "staleTitle": "This prescription changed elsewhere",
+      "staleBody": "The action is no longer available — the prescription may have been dispensed or cancelled. Reload the workspace.",
+      "failedTitle": "The prescription could not be saved",
+      "failedBody": "Try again shortly."
+    },
+    "confirmCancelTitle": "Cancel this prescription?",
+    "confirmCancelBody": "Cancelling stops it reaching the pharmacy. This cannot be undone.",
+    "confirmCancel": "Cancel prescription"
   }
 }

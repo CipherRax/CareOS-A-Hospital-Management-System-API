@@ -93,6 +93,20 @@ import {
   type TemplatePage as NoteTemplatePage,
   type TemplateQuery as NoteTemplateQuery,
 } from '@/lib/data/clinical-notes';
+import {
+  extractPrescriptionRecord,
+  fetchPrescriptions,
+  type PrescriptionRow,
+  type PrescriptionStatus,
+  type PrescriptionsCallError,
+} from '@/lib/data/prescriptions';
+import {
+  extractMedicationRecord,
+  fetchMedications,
+  type MedicationQuery,
+  type MedicationRow,
+  type MedicationsCallError,
+} from '@/lib/data/medications';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
@@ -1635,8 +1649,8 @@ export function useAmendNote(): UseMutationResult<NoteRow, QueryError, AmendNote
       const fetched = await unwrap<unknown>(
         api.POST('/clinical-notes/{id}/amend', {
           params: { path: { id: input.id } },
-          body: { title: input.title, sections: input.sections, reason: input.reason },
-        }),
+body: { title: input.title, sections: input.sections, reason: input.reason },
+      }),
       );
       const parsed = extractNoteRecord(fetched.data);
       if (!parsed.ok) {
@@ -1648,5 +1662,200 @@ export function useAmendNote(): UseMutationResult<NoteRow, QueryError, AmendNote
       queryClient.invalidateQueries({ queryKey: ['clinical-notes', variables.id] });
       queryClient.invalidateQueries({ queryKey: ['clinical-notes', 'list'] });
     },
+  });
+}
+
+// --- prescriptions (F4) ---------------------------------------------------
+
+/**
+ * Prescription list `GET /prescriptions?{filters}`. The export leaves the query
+ * unmodelled and mis-types the 200 as the request DTO (GAP-020), so this rides
+ * the raw-fetch path in `src/lib/data/prescriptions.ts`.
+ */
+export function usePrescriptions(
+  query: { patientId?: string; branchId?: string; providerId?: string; status?: PrescriptionStatus } = {},
+): UseQueryResult<Fetched<{ items: readonly PrescriptionRow[]; total: number }>, QueryError> {
+  return useQuery<Fetched<{ items: readonly PrescriptionRow[]; total: number }>, QueryError>({
+    queryKey: [
+      'prescriptions',
+      'list',
+      query.patientId ?? null,
+      query.branchId ?? null,
+      query.providerId ?? null,
+      query.status ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchPrescriptions(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<{
+          items: readonly PrescriptionRow[];
+          total: number;
+        }>;
+      } catch (call) {
+        throw toQueryError(call as PrescriptionsCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+export interface PrescriptionLineInput {
+  medicationId: string;
+  quantity: number;
+  dosage?: string;
+  frequency?: string;
+  durationDays?: number;
+  instructions?: string;
+}
+
+export interface CreatePrescriptionInput {
+  patientId: string;
+  notes?: string;
+  items: PrescriptionLineInput[];
+}
+
+/**
+ * Creates a DRAFT prescription `POST /prescriptions`. The service answers
+ * `{ prescription }` while the export types the bare entity, so the unwrapped
+ * body is validated structurally.
+ */
+export function useCreatePrescription(): UseMutationResult<
+  PrescriptionRow,
+  QueryError,
+  CreatePrescriptionInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<PrescriptionRow, QueryError, CreatePrescriptionInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/prescriptions', {
+          body: {
+            patientId: input.patientId,
+            notes: input.notes,
+            items: input.items.map((item) => ({
+              medicationId: item.medicationId,
+              quantity: item.quantity,
+              dosage: item.dosage,
+              frequency: item.frequency,
+              durationDays: item.durationDays,
+              instructions: item.instructions,
+            })),
+          },
+        }),
+      );
+      const parsed = extractPrescriptionRecord(fetched.data);
+      if (!parsed.ok) {
+        throw {
+          code: 'INTERNAL_ERROR',
+          status: 201,
+          resolved: resolveApiError('INTERNAL_ERROR'),
+        } satisfies QueryError;
+      }
+      return parsed.prescription;
+    },
+    onSuccess: (_prescription) => {
+      queryClient.invalidateQueries({ queryKey: ['prescriptions', 'list'] });
+    },
+  });
+}
+
+export interface PrescriptionActionInput {
+  id: string;
+  action: 'issue' | 'cancel';
+  cancelReason?: string;
+}
+
+/**
+ * Issues (DRAFT → ISSUED) or cancels a prescription
+ * `POST /prescriptions/{id}/action`. Dispensing is a pharmacy step and is not
+ * offered to the doctor. A stale action answers 409
+ * INVALID_WORKFLOW_TRANSITION, surfaced in place.
+ */
+export function usePrescriptionAction(): UseMutationResult<
+  PrescriptionRow,
+  QueryError,
+  PrescriptionActionInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<PrescriptionRow, QueryError, PrescriptionActionInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/prescriptions/{id}/action', {
+          params: { path: { id: input.id } },
+          body: {
+            action: input.action,
+            cancelReason: input.action === 'cancel' ? input.cancelReason : undefined,
+          },
+        }),
+      );
+      const parsed = extractPrescriptionRecord(fetched.data);
+      if (!parsed.ok) {
+        throw {
+          code: 'INTERNAL_ERROR',
+          status: 201,
+          resolved: resolveApiError('INTERNAL_ERROR'),
+        } satisfies QueryError;
+      }
+      return parsed.prescription;
+    },
+    onSuccess: (_prescription, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['prescriptions', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['prescriptions', 'list'] });
+    },
+  });
+}
+
+// --- medication catalog (F4) -----------------------------------------------
+
+/**
+ * Medication catalog `GET /medications?{filters}` (same GAP-020 drift as the
+ * prescription list). The composer picks medications from here.
+ */
+export function useMedications(
+  query: MedicationQuery = {},
+): UseQueryResult<Fetched<{ items: readonly MedicationRow[]; total: number }>, QueryError> {
+  return useQuery<Fetched<{ items: readonly MedicationRow[]; total: number }>, QueryError>({
+    queryKey: [
+      'medications',
+      'list',
+      query.category ?? null,
+      query.isActive ?? null,
+      query.search ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchMedications(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<{
+          items: readonly MedicationRow[];
+          total: number;
+        }>;
+      } catch (call) {
+        throw toQueryError(call as MedicationsCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Resolves a medication display name from `GET /medications/{id}`.
+ *
+ * Prescription lines carry only `medicationId` (GAP-018-style), so cards name
+ * each line with this lookup, cached by React Query and deduped by id.
+ */
+export function useMedicationName(id: string): UseQueryResult<Fetched<string>, QueryError> {
+  return useQuery<Fetched<string>, QueryError>({
+    queryKey: ['medications', id, 'name'],
+    queryFn: () =>
+      fetchPatientEnvelope<string>(api.GET('/medications/{id}', { params: { path: { id } } }), (body) => {
+        const parsed = extractMedicationRecord(body);
+        if (!parsed.ok) return { ok: false as const };
+        return { ok: true as const, data: parsed.medication.name };
+      }),
+    enabled: id.length > 0,
+    staleTime: 5 * 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
   });
 }

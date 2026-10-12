@@ -16,7 +16,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F1 Auth, session, shell        | **complete** — login/logout, proxy session bridge, gate, shell, nav rail                   | live round-trip awaiting a bootable API                |
 | F2 Patients & reception        | **complete** — patient search, walk-in registration with duplicate guard, master record (banner + sections + timeline + access log), MSW fixtures, structural validators | shipped (`a185d69`, `8b6ce44`); live API round-trip Docker-gated; GAP-012–GAP-016 documented |
 | F3 Scheduling, queue, nursing  | **complete** — reception queue slice (live queue board, walk-in ticket issuance, status/priority moves), appointment desk slice (day book, booking with slot search, appointment status moves, department waitlist), nursing vitals slice (patient chart, record/correct with BMI), schedule admin slice (weekly template CRUD + dated exceptions), and reschedule from the day book | live API round-trip Docker-gated; GAP-017–GAP-019 documented |
-| F4 Doctor workspace            | encounters + clinical notes **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), and the clinical-notes panel (structured DRAFT → Finalize → Amend with version history); MSW fixtures + stub + e2e swept | orders, results (slices 3–4) |
+| F4 Doctor workspace            | encounters + clinical notes + prescriptions **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), the clinical-notes panel (structured DRAFT → Finalize → Amend with version history), and the prescriptions panel (medication orders: DRAFT → issue → pharmacy dispense, cancel while un-/partially-dispensed); MSW fixtures + stub + e2e swept | results (slice 4) |
 | F5 Laboratory & radiology      | not started                                                                                | lab orders, samples, results                           |
 | F6 Pharmacy & inventory        | not started                                                                                | dispensing, stock, batches, POs                        |
 | F7 Billing & insurance         | not started                                                                                | invoices, payments, M-PESA, claims                     |
@@ -547,3 +547,37 @@ the single/write reads answer `{ note }` / `{ template }` while typed as the
 bare entity. Records are EXAMPLE-prefixed and duplicated deliberately between
 the MSW registry and `e2e/stub-api.mjs`. Data layer: 15 unit tests
 (`src/lib/data/clinical-notes.test.ts`).
+
+## F4 — Doctor workspace, slice 3: prescriptions (medication orders)
+
+**Status:** complete. The prescriptions panel is embedded in the encounter
+workspace and follows the contract verified from the API source
+(`src/modules/prescriptions`):
+
+- A prescription pins the patient, the issuing provider and the dispensing
+  branch — **not** an encounter — so the panel shows the encounter patient's
+  medication-order history (all prescriptions filter by `patientId`) and the
+  doctor writes to it with the visit's patient. Creating is not gated on the
+  encounter's status, because the API does not gate it.
+- The lifecycle mirrors the API domain (`domain/prescription-flow.ts`): a
+  prescription starts DRAFT, is **issued** (DRAFT → ISSUED; the issue answers
+  201 and creates the pharmacy task), is dispensed by pharmacy (read-only here),
+  and can be **cancelled** while the drug is un- or partially-dispensed.
+  DISPENSED is terminal. Issue is offered only from DRAFT; cancel from DRAFT /
+  ISSUED / PARTIALLY_DISPENSED, via a confirmation. A stale action answers 409
+  `INVALID_WORKFLOW_TRANSITION` and surfaces as a status-specific alert.
+- The composer picks medications from `GET /medications` (the catalog), with
+  quantity, dosage, frequency, duration, and per-line instructions; lines
+  carry only `medicationId`, named on demand via a `useMedicationName` lookup
+  (GAP-018-style, exactly as patients). List rows resolve names the same way.
+
+Contract notes recorded against the source (GAP-020, appended): the
+prescription list 200 is typed as `ListPrescriptionsQueryDto` and the
+medication list as `ListMedicationsQueryDto`, both with `query: never`
+(raw-fetched and validated structurally); the single/write reads answer
+`{ prescription }` / `{ medication }` while typed as the bare entity (unwrap +
+structural read). The live `PrescriptionResponseSchema` also omits `createdAt`
+entirely, so rows are ordered server-side and the UI never charts a created
+stamp. Records are EXAMPLE-prefixed and duplicated deliberately between the MSW
+registry and `e2e/stub-api.mjs`. Data layers: 14 unit tests
+(`prescriptions.test.ts` + `medications.test.ts`).

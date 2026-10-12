@@ -931,5 +931,66 @@
     "confirmFinalizeTitle": "Kamilisha dokezo hili?",
     "confirmFinalizeBody": "Kukamilisha hufunga dokezo. Mabadiliko ya baadaye yanapaswa kurekodiwa kama marekebisho yenye sababu.",
     "confirmFinalize": "Kamilisha dokezo"
+  },
+  "prescriptions": {
+    "title": "Michango ya dawa",
+    "intro": "Maagizo ya dawa kwa mgonjwa huyu. Dawa huanza kama rasimu, inatolewa, kisha inagawiwa na maduka ya dawa.",
+    "newPrescription": "Dawa mpya",
+    "loading": "Inapakia…",
+    "empty": "Hakuna michango ya dawa kwa mgonjwa huyu bado.",
+    "unavailableTitle": "Michango ya dawa haipatikani kwa sasa",
+    "unavailableBody": "Historia ya michango ya dawa haikuweza kupakiwa. Jaribu tena baadaye.",
+    "working": "Inafanya kazi…",
+    "issue": "Toa",
+    "cancel": "Ghairi",
+    "lineCount": "{count, plural, one {Dawa #} other {Dawa #}}",
+    "remaining": "{count} zimesalia kugawiwa",
+    "issued": "Imetolewa {date}",
+    "dispensed": "Imegawiwa {date}",
+    "cancelled": "Imefutwa {date}",
+    "cancelledReason": "Sababu ya kufuta",
+    "status": {
+      "DRAFT": "Rasimu",
+      "ISSUED": "Imetolewa",
+      "PARTIALLY_DISPENSED": "Imegawiwa kwa sehemu",
+      "DISPENSED": "Imegawiwa",
+      "CANCELLED": "Imefutwa"
+    },
+    "line": {
+      "quantity": "Idadi",
+      "dosage": "Kipimo",
+      "frequency": "Mara",
+      "durationDays": "Muda (siku)",
+      "instructions": "Maelekezo",
+      "dispensed": "Imegawiwa"
+    },
+    "composer": {
+      "createTitle": "Dawa mpya",
+      "lineHeading": "Dawa {number}",
+      "addLine": "Ongeza dawa",
+      "removeLine": "Ondoa",
+      "medicationLabel": "Dawa",
+      "medicationPlaceholder": "Chagua dawa…",
+      "quantityLabel": "Idadi",
+      "dosageLabel": "Kipimo",
+      "frequencyLabel": "Mara",
+      "durationLabel": "Muda (siku)",
+      "instructionsLabel": "Maelekezo",
+      "notesLabel": "Maelezo (si lazima)",
+      "save": "Hifadhi rasimu",
+      "cancel": "Ghairi",
+      "noLines": "Ongeza angalau dawa moja yenye idadi sahihi kabla ya kuhifadhi."
+    },
+    "error": {
+      "validationTitle": "Angalia michango ya dawa",
+      "validationBody": "Baadhi ya maelezo yalikataliwa. Kagua mistari ya dawa na ujaribu tena.",
+      "staleTitle": "Michango ya dawa hii ilibadilishwa mahali pengine",
+      "staleBody": "Kitendo hakipatikani tena — dawa inaweza kuwa imegawiwa au kufutwa. Pakia tena eneo-kazi.",
+      "failedTitle": "Michango ya dawa haikuweza kuhifadhiwa",
+      "failedBody": "Jaribu tena baadaye."
+    },
+    "confirmCancelTitle": "Ghairi dawa hii?",
+    "confirmCancelBody": "Kughairi kunazuia kufikia maduka ya dawa. Hili haliwezi kutenduliwa.",
+    "confirmCancel": "Ghairi dawa"
   }
 }

@@ -8,6 +8,8 @@ import { schedulingHandlers } from './scheduling-handlers';
 import { vitalsHandlers } from './vitals-handlers';
 import { encountersHandlers } from './encounters-handlers';
 import { clinicalNotesHandlers } from './clinical-notes-handlers';
+import { medicationsHandlers } from './medications-handlers';
+import { prescriptionsHandlers } from './prescriptions-handlers';
 
 /**
  * API mock handlers.
@@ -152,6 +154,13 @@ export const handlers = [
   // version history, and the DRAFT → FINAL → amend lifecycle. See
   // ./clinical-notes-handlers.ts.
   ...clinicalNotesHandlers(),
+  // F4 medication catalog (doctor workspace): the pick list the prescription
+  // composer reads. See ./medications-handlers.ts.
+  ...medicationsHandlers(),
+  // F4 prescriptions (doctor workspace): list, single read, create (DRAFT), and
+  // the issue/cancel lifecycle. Dispensing is a pharmacy step. See
+  // ./prescriptions-handlers.ts.
+  ...prescriptionsHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).

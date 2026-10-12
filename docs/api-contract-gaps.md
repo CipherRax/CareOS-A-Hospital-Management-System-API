@@ -322,3 +322,24 @@ already implemented server-side).
   version and later changes are amendments (kind `AMENDMENT`) requiring a
   reason, all enforced server-side. What the contract fixes is the typed read
   shape and a query model.
+
+**Same drift under prescriptions and the medication catalog (F4 slice 3).**
+Verified against `src/modules/prescriptions` and `src/modules/medications`:
+
+- `GET /prescriptions` and `GET /medications` both carry `query: never` with
+  the 200 typed as their own request DTOs (`ListPrescriptionsQueryDto`,
+  `ListMedicationsQueryDto`). Both are genuine `PageResult`s, so
+  `fetchPrescriptions` / `fetchMedications` in `src/lib/data/prescriptions.ts` /
+  `medications.ts` use the raw-fetch path with structural row validation.
+- The create/action endpoints (`POST /prescriptions`,
+  `POST /prescriptions/{id}/action`) and `GET /medications/{id}` are typed as
+  the bare `PrescriptionResponseDto` / `MedicationResponseDto` but answer
+  `{ prescription }` / `{ medication }`; those go through
+  `extractPrescriptionRecord` / `extractMedicationRecord` on the unwrapped body.
+- `PrescriptionResponseSchema` also carries **no `createdAt`/`updatedAt`**, so
+  a prescription row has no created stamp to chart — rows are ordered
+  server-side (createdAt desc) and the UI only shows issued/dispensed/cancelled
+  stamps, which the DTO does expose.
+- The workflow surface is not in doubt: DRAFT → ISSUED, cancel while un- or
+  partially-dispensed, DISPENSED terminal — all enforced server-side. What the
+  contract fixes is the typed read shape and a query model.
