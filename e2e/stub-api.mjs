@@ -435,12 +435,12 @@ const LAB_TEST_SEED = [
   { id: 'lbt_example_5001', code: 'CBC', name: 'EXAMPLE Full blood count', sampleType: 'BLOOD', isActive: true, fields: [
     { id: 'lbf_example_5101', name: 'Haemoglobin', fieldType: 'NUMERIC', unit: 'g/dL', referenceMin: '12', referenceMax: '16', criticalMin: '7', criticalMax: '20', allowsValues: null, displayOrder: 1, isActive: true },
     { id: 'lbf_example_5102', name: 'White cell count', fieldType: 'NUMERIC', unit: '10^9/L', referenceMin: '4', referenceMax: '11', criticalMin: '1', criticalMax: '30', allowsValues: null, displayOrder: 2, isActive: true },
-    { id: 'lbf_example_5103', name: 'Platelet count', fieldType: 'NUMERIC', unit: '10^9/L', referenceMin: '150', referenceMax: '400', criticalMin: '50', criticalMax: '1000', allowsValues: null, displayOrder: 3, isActive: true },
+    { id: 'lbf_example_5103', name: 'Platelets', fieldType: 'NUMERIC', unit: '10^9/L', referenceMin: '150', referenceMax: '400', criticalMin: '20', criticalMax: '1000', allowsValues: null, displayOrder: 3, isActive: true },
   ] },
   { id: 'lbt_example_5002', code: 'U&E', name: 'EXAMPLE Urea and electrolytes', sampleType: 'BLOOD', isActive: true, fields: [
     { id: 'lbf_example_5201', name: 'Sodium', fieldType: 'NUMERIC', unit: 'mmol/L', referenceMin: '135', referenceMax: '145', criticalMin: '120', criticalMax: '155', allowsValues: null, displayOrder: 1, isActive: true },
     { id: 'lbf_example_5202', name: 'Potassium', fieldType: 'NUMERIC', unit: 'mmol/L', referenceMin: '3.5', referenceMax: '5.3', criticalMin: '2.5', criticalMax: '6.5', allowsValues: null, displayOrder: 2, isActive: true },
-    { id: 'lbf_example_5203', name: 'Creatinine', fieldType: 'NUMERIC', unit: 'umol/L', referenceMin: '60', referenceMax: '110', criticalMin: null, criticalMax: '500', allowsValues: null, displayOrder: 3, isActive: true },
+    { id: 'lbf_example_5203', name: 'Creatinine', fieldType: 'NUMERIC', unit: 'mg/dL', referenceMin: '0.6', referenceMax: '1.3', criticalMin: '0.2', criticalMax: '4', allowsValues: null, displayOrder: 3, isActive: true },
   ] },
 ];
 const LIVE_LAB_TESTS = LAB_TEST_SEED.map((test) => ({
@@ -449,49 +449,125 @@ const LIVE_LAB_TESTS = LAB_TEST_SEED.map((test) => ({
 }));
 let labItemSeq = 6200;
 let labResultSeq = 6300;
+let labCriticalSeq = 6400;
 const LAB_ORDER_SEED = [
-  { id: 'lab_example_5001', orderNumber: 'LAB-2026-000001', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'RELEASED', priority: 'ROUTINE', orderedMinutesAgo: 35, releasedMinutesAgo: 10, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, items: [
+  { id: 'lab_example_5001', orderNumber: 'LAB-2026-000001', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'RELEASED', priority: 'ROUTINE', orderedMinutesAgo: 35, releasedMinutesAgo: 10, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, clinicalNotes: null, sampleNumber: 'S-2026-000001', items: [
     { testId: 'lbt_example_5001', notes: null, results: [
       { testFieldId: 'lbf_example_5101', value: '13.4', isAbnormal: false, isCritical: false },
       { testFieldId: 'lbf_example_5102', value: '12.8', isAbnormal: true, isCritical: false },
       { testFieldId: 'lbf_example_5103', value: '245', isAbnormal: false, isCritical: false },
     ] },
   ] },
-  { id: 'lab_example_5002', orderNumber: 'LAB-2026-000002', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'RELEASED', priority: 'URGENT', orderedMinutesAgo: 30, releasedMinutesAgo: 5, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, items: [
-    { testId: 'lbt_example_5002', notes: 'Repeat potassium in two hours.', results: [
+  { id: 'lab_example_5002', orderNumber: 'LAB-2026-000002', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'RELEASED', priority: 'URGENT', orderedMinutesAgo: 30, releasedMinutesAgo: 4, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, clinicalNotes: 'Repeat in 24 hours.', sampleNumber: 'S-2026-000002', items: [
+    { testId: 'lbt_example_5002', notes: 'Repeat in 24 hours.', results: [
       { testFieldId: 'lbf_example_5201', value: '138', isAbnormal: false, isCritical: false },
-      { testFieldId: 'lbf_example_5202', value: '6.2', isAbnormal: true, isCritical: true },
-      { testFieldId: 'lbf_example_5203', value: '132', isAbnormal: true, isCritical: false },
+      { testFieldId: 'lbf_example_5202', value: '6.2', isAbnormal: true, isCritical: true, acknowledged: true },
+      { testFieldId: 'lbf_example_5203', value: '1.1', isAbnormal: false, isCritical: false },
     ] },
   ] },
-  { id: 'lab_example_5003', orderNumber: 'LAB-2026-000003', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'PROCESSING', priority: 'ROUTINE', orderedMinutesAgo: 12, releasedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, items: [
+  { id: 'lab_example_5003', orderNumber: 'LAB-2026-000003', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'PROCESSING', priority: 'ROUTINE', orderedMinutesAgo: 20, releasedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, clinicalNotes: null, sampleNumber: 'S-2026-000003', items: [
     { testId: 'lbt_example_5001', notes: null, results: [] },
   ] },
-  { id: 'lab_example_5004', orderNumber: 'LAB-2026-000004', patientId: 'pat_example_1002', encounterId: 'enc_example_6002', status: 'RELEASED', priority: 'STAT', orderedMinutesAgo: 55, releasedMinutesAgo: 12, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, items: [
+  { id: 'lab_example_5004', orderNumber: 'LAB-2026-000004', patientId: 'pat_example_1002', encounterId: 'enc_example_6002', status: 'RELEASED', priority: 'STAT', orderedMinutesAgo: 55, releasedMinutesAgo: 12, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, clinicalNotes: null, sampleNumber: 'S-2026-000004', items: [
     { testId: 'lbt_example_5001', notes: null, results: [{ testFieldId: 'lbf_example_5101', value: '9.4', isAbnormal: true, isCritical: false }] },
   ] },
+  { id: 'lab_example_5005', orderNumber: 'LAB-2026-000005', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'ORDERED', priority: 'ROUTINE', orderedMinutesAgo: 8, releasedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, clinicalNotes: null, sampleNumber: 'S-2026-000005', items: [
+    { testId: 'lbt_example_5002', notes: null, results: [] },
+  ] },
+  { id: 'lab_example_5006', orderNumber: 'LAB-2026-000006', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'COLLECTED', priority: 'ROUTINE', orderedMinutesAgo: 15, releasedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, clinicalNotes: null, sampleNumber: 'S-2026-000006', items: [
+    { testId: 'lbt_example_5001', notes: null, results: [] },
+  ] },
+  { id: 'lab_example_5007', orderNumber: 'LAB-2026-000007', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'RECEIVED', priority: 'URGENT', orderedMinutesAgo: 45, releasedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, clinicalNotes: null, sampleNumber: 'S-2026-000007', items: [
+    { testId: 'lbt_example_5002', notes: null, results: [] },
+  ] },
+  { id: 'lab_example_5008', orderNumber: 'LAB-2026-000010', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'RESULT_READY', priority: 'STAT', orderedMinutesAgo: 50, releasedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, clinicalNotes: 'Fever and confusion.', sampleNumber: 'S-2026-000008', items: [
+    { testId: 'lbt_example_5002', notes: null, results: [
+      { testFieldId: 'lbf_example_5201', value: '134', isAbnormal: false, isCritical: false },
+      { testFieldId: 'lbf_example_5202', value: '6.8', isAbnormal: true, isCritical: true },
+      { testFieldId: 'lbf_example_5203', value: '1.4', isAbnormal: true, isCritical: false },
+    ] },
+  ] },
+  { id: 'lab_example_5009', orderNumber: 'LAB-2026-000011', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'REJECTED', priority: 'ROUTINE', orderedMinutesAgo: 90, releasedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: 'EXAMPLE Haemolysed sample — recollection requested.', clinicalNotes: null, sampleNumber: 'S-2026-000009', items: [
+    { testId: 'lbt_example_5001', notes: null, results: [] },
+  ] },
+  { id: 'lab_example_5010', orderNumber: 'LAB-2026-000012', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'CANCELLED', priority: 'ROUTINE', orderedMinutesAgo: 60, releasedMinutesAgo: null, cancelledMinutesAgo: 50, cancelReason: 'Duplicate of an earlier request.', rejectionReason: null, clinicalNotes: null, sampleNumber: 'S-2026-000010', items: [
+    { testId: 'lbt_example_5001', notes: null, results: [] },
+  ] },
 ];
-const LIVE_LAB_ORDERS = LAB_ORDER_SEED.map((seed) => ({
-  id: seed.id, organizationId: 'org_example_0001', orderNumber: seed.orderNumber, patientId: seed.patientId,
-  branchId: 'br_example_0001', encounterId: seed.encounterId, status: seed.status, priority: seed.priority,
-  clinicalNotes: seed.status === 'RELEASED' ? 'Requested during this visit.' : null, orderedById: 'usr_example_9001',
-  orderedAt: minutesAgo(seed.orderedMinutesAgo), releasedById: seed.releasedMinutesAgo === null ? null : 'usr_example_9002',
-  releasedAt: seed.releasedMinutesAgo === null ? null : minutesAgo(seed.releasedMinutesAgo), cancelledById: null,
-  cancelledAt: seed.cancelledMinutesAgo === null ? null : minutesAgo(seed.cancelledMinutesAgo), cancelledReason: seed.cancelReason,
-  rejectionReason: seed.rejectionReason, version: 1,
-  sample: seed.status === 'ORDERED' ? null : { id: `lbs_example_${6000 + labItemSeq++}`, sampleNumber: `SMP-2026-000${seed.orderNumber.slice(-1)}`, status: seed.status === 'PROCESSING' ? 'RECEIVED' : 'PROCESSED' },
-  _items: seed.items.map((item) => {
+function labSampleStatusFor(status) {
+  switch (status) {
+    case 'ORDERED': return 'ORDERED';
+    case 'COLLECTED': return 'COLLECTED';
+    case 'RECEIVED': return 'RECEIVED';
+    case 'PROCESSING': return 'PROCESSING';
+    case 'REJECTED': return 'REJECTED';
+    case 'CANCELLED': return 'ORDERED';
+    default: return 'COMPLETED';
+  }
+}
+function buildLabOrder(seed) {
+  const criticalResults = [];
+  const sampleStatus = labSampleStatusFor(seed.status);
+  const sample = {
+    id: `lbs_example_${6000 + LAB_ORDER_SEED.indexOf(seed) + 1}`,
+    organizationId: 'org_example_0001', sampleNumber: seed.sampleNumber, orderId: seed.id,
+    patientId: seed.patientId, branchId: 'br_example_0001', sampleType: 'BLOOD', status: sampleStatus,
+    collectedAt: sampleStatus === 'ORDERED' ? null : minutesAgo(Math.max(seed.orderedMinutesAgo - 2, 0)),
+    receivedAt: ['RECEIVED', 'PROCESSING', 'COMPLETED'].includes(sampleStatus) ? minutesAgo(Math.max(seed.orderedMinutesAgo - 4, 0)) : null,
+    processingAt: ['PROCESSING', 'COMPLETED'].includes(sampleStatus) ? minutesAgo(Math.max(seed.orderedMinutesAgo - 6, 0)) : null,
+    completedAt: sampleStatus === 'COMPLETED' ? minutesAgo(Math.max(seed.orderedMinutesAgo - 8, 0)) : null,
+    rejectedAt: sampleStatus === 'REJECTED' ? minutesAgo(Math.max(seed.orderedMinutesAgo - 10, 0)) : null,
+    rejectedReason: sampleStatus === 'REJECTED' ? seed.rejectionReason : null,
+    recollectsFromOrderId: null,
+  };
+  const _items = seed.items.map((item) => {
     const test = LIVE_LAB_TESTS.find((t) => t.id === item.testId);
-    return { id: `loi_example_${labItemSeq++}`, testId: item.testId, testCode: test?.code ?? '', testName: test?.name ?? '', notes: item.notes, results: item.results.map((result) => ({ id: `lbr_example_${labResultSeq++}`, testFieldId: result.testFieldId, value: result.value, isAbnormal: result.isAbnormal, isCritical: result.isCritical, currentVersion: 1, amendments: 0 })) };
-  }),
-}));
+    const itemId = `loi_example_${labItemSeq++}`;
+    return { id: itemId, testId: item.testId, testCode: test?.code ?? '', testName: test?.name ?? '', notes: item.notes, results: item.results.map((result) => {
+      const resultId = `lbr_example_${labResultSeq++}`;
+      if (result.isCritical) {
+        const acknowledged = result.acknowledged === true;
+        criticalResults.push({ id: `lcr_example_${labCriticalSeq++}`, organizationId: 'org_example_0001', resultId, notifiedToId: 'usr_example_9001', notifiedAt: minutesAgo(Math.max(seed.orderedMinutesAgo - 1, 0)), acknowledgedById: acknowledged ? 'usr_example_9002' : null, acknowledgedAt: acknowledged ? minutesAgo(Math.max((seed.releasedMinutesAgo ?? 1) - 1, 0)) : null, escalationAt: null });
+      }
+      return { id: resultId, organizationId: 'org_example_0001', orderItemId: itemId, testFieldId: result.testFieldId, value: result.value, isAbnormal: result.isAbnormal, isCritical: result.isCritical, currentVersion: 1, amendments: 0 };
+    }) };
+  });
+  return {
+    id: seed.id, organizationId: 'org_example_0001', orderNumber: seed.orderNumber, patientId: seed.patientId,
+    branchId: 'br_example_0001', encounterId: seed.encounterId, status: seed.status, priority: seed.priority,
+    clinicalNotes: seed.clinicalNotes, orderedById: 'usr_example_9001', orderedAt: minutesAgo(seed.orderedMinutesAgo),
+    releasedById: seed.releasedMinutesAgo === null ? null : 'usr_example_9002',
+    releasedAt: seed.releasedMinutesAgo === null ? null : minutesAgo(seed.releasedMinutesAgo), cancelledById: null,
+    cancelledAt: seed.cancelledMinutesAgo === null ? null : minutesAgo(seed.cancelledMinutesAgo), cancelledReason: seed.cancelReason,
+    rejectionReason: seed.rejectionReason, version: 1, sample, _items, criticalResults,
+  };
+}
+const LIVE_LAB_ORDERS = LAB_ORDER_SEED.map(buildLabOrder);
 function serializeLabOrderSummary(order) {
-  const { _items, ...header } = order;
+  const { _items, criticalResults, ...header } = order;
+  void criticalResults;
   return { ...header, items: _items.map((item) => ({ id: item.id, testId: item.testId })) };
 }
 function serializeLabOrderDetail(order) {
   const { _items, ...header } = order;
   return { ...header, items: _items };
+}
+function labFieldIndex() {
+  const index = new Map();
+  for (const test of LIVE_LAB_TESTS) {
+    for (const field of test.fields) index.set(field.id, field);
+  }
+  return index;
+}
+function classifyLabValue(field, value) {
+  if (!field || field.fieldType !== 'NUMERIC') return { isAbnormal: false, isCritical: false };
+  const num = Number(value);
+  if (!Number.isFinite(num)) return { isAbnormal: false, isCritical: false };
+  const above = (bound) => bound !== null && bound !== undefined && num > Number(bound);
+  const below = (bound) => bound !== null && bound !== undefined && num < Number(bound);
+  const isCritical = below(field.criticalMin) || above(field.criticalMax);
+  const isAbnormal = isCritical || below(field.referenceMin) || above(field.referenceMax);
+  return { isAbnormal, isCritical };
 }
 const RADIOLOGY_ORDER_SEED = [
   { id: 'rad_example_4001', orderNumber: 'RAD-2026-000001', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', modality: 'XRAY', region: 'Chest', status: 'RELEASED', clinicalNotes: 'Persistent productive cough, query pneumonia.', orderedMinutesAgo: 38, performedMinutesAgo: 20, releasedMinutesAgo: 6, report: { id: 'imr_example_4001', findings: 'No focal consolidation or effusion. Cardiothoracic ratio within normal limits.', summary: 'Normal chest radiograph.', impression: 'No acute cardiopulmonary abnormality.', enteredMinutesAgo: 14, verifiedMinutesAgo: 8 } },
@@ -1654,6 +1730,116 @@ const server = createServer(async (request, response) => {
     const order = LIVE_LAB_ORDERS.find((o) => o.id === id);
     if (!order) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
     send(response, 200, { success: true, data: { order: serializeLabOrderDetail(order) } });
+    return;
+  }
+
+  // --- laboratory worklist writes (F5) ----------------------------------
+  // Mirror the MSW handlers and the server's state machine against the same
+  // in-memory order list, so a transition taken in the UI is reflected on the
+  // next read (and a stale move answers 409).
+  const labWrite = url.pathname.match(/^\/lab\/orders\/([^/]+)\/(collect|receive|process|reject|cancel|verify|release|results)$/);
+  if (labWrite && request.method === 'POST') {
+    const order = LIVE_LAB_ORDERS.find((o) => o.id === labWrite[1]);
+    const action = labWrite[2];
+    if (!order) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Lab order not found' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const conflict = (message, code = 'INVALID_WORKFLOW_TRANSITION') => send(response, 409, { success: false, error: { code, message } });
+    const now = new Date().toISOString();
+    if (action === 'collect') {
+      if (order.status !== 'ORDERED') { conflict('Only an ordered sample can be collected.'); return; }
+      order.status = 'COLLECTED';
+      if (order.sample) { order.sample.status = 'COLLECTED'; order.sample.collectedAt = now; }
+    } else if (action === 'receive') {
+      if (order.status !== 'COLLECTED') { conflict('Only a collected sample can be received.'); return; }
+      order.status = 'RECEIVED';
+      if (order.sample) { order.sample.status = 'RECEIVED'; order.sample.receivedAt = now; }
+    } else if (action === 'process') {
+      if (order.status !== 'RECEIVED') { conflict('Only a received sample can be processed.'); return; }
+      order.status = 'PROCESSING';
+      if (order.sample) { order.sample.status = 'PROCESSING'; order.sample.processingAt = now; }
+    } else if (action === 'reject') {
+      if (order.status !== 'COLLECTED' && order.status !== 'RECEIVED') { conflict('Only a collected or received sample can be rejected.'); return; }
+      order.status = 'REJECTED';
+      order.rejectionReason = typeof body.reason === 'string' ? body.reason : '';
+      if (order.sample) { order.sample.status = 'REJECTED'; order.sample.rejectedAt = now; order.sample.rejectedReason = order.rejectionReason; }
+    } else if (action === 'cancel') {
+      if (order.status !== 'ORDERED' && order.status !== 'COLLECTED') { conflict('This order can no longer be cancelled.'); return; }
+      order.status = 'CANCELLED';
+      order.cancelledAt = now;
+      order.cancelledById = 'usr_example_9001';
+      order.cancelledReason = typeof body.reason === 'string' ? body.reason : '';
+      if (order.sample) order.sample.status = 'ORDERED';
+    } else if (action === 'results') {
+      if (order.status !== 'PROCESSING') { conflict('Results can only be entered for an order in progress.'); return; }
+      const index = labFieldIndex();
+      for (const submitted of Array.isArray(body.results) ? body.results : []) {
+        const field = index.get(submitted && submitted.testFieldId);
+        if (!field) { conflict('A result points at a field this order does not carry.'); return; }
+        const item = order._items.find((row) => (LIVE_LAB_TESTS.find((t) => t.id === row.testId)?.fields ?? []).some((f) => f.id === field.id));
+        if (!item) continue;
+        const value = typeof submitted.value === 'string' ? submitted.value : '';
+        const flags = classifyLabValue(field, value);
+        const resultId = `lbr_example_${labResultSeq++}`;
+        item.results.push({ id: resultId, organizationId: 'org_example_0001', orderItemId: item.id, testFieldId: field.id, currentVersion: 1, value, isAbnormal: flags.isAbnormal, isCritical: flags.isCritical, amendments: 0 });
+        if (flags.isCritical) {
+          order.criticalResults.push({ id: `lcr_example_${labCriticalSeq++}`, organizationId: 'org_example_0001', resultId, notifiedToId: order.orderedById ?? 'usr_example_9001', notifiedAt: now, acknowledgedById: null, acknowledgedAt: null, escalationAt: null });
+        }
+      }
+      order.status = 'RESULT_READY';
+      if (order.sample) { order.sample.status = 'COMPLETED'; order.sample.completedAt = now; }
+    } else if (action === 'verify') {
+      if (order.status !== 'RESULT_READY') { conflict('Only a result-ready order can be verified.'); return; }
+      order.status = 'VERIFIED';
+    } else if (action === 'release') {
+      if (order.status !== 'VERIFIED') { conflict('Only a verified order can be released.'); return; }
+      if (order.criticalResults.some((row) => row.acknowledgedAt === null)) { conflict('Acknowledge every critical result before releasing.', 'LAB_RESULT_NOT_ACKNOWLEDGED'); return; }
+      order.status = 'RELEASED';
+      order.releasedById = 'usr_example_9002';
+      order.releasedAt = now;
+    }
+    send(response, 201, { success: true, data: { order: serializeLabOrderDetail(order) } });
+    return;
+  }
+
+  const labAmend = url.pathname.match(/^\/lab\/results\/([^/]+)$/);
+  if (labAmend && request.method === 'PATCH') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    for (const order of LIVE_LAB_ORDERS) {
+      for (const item of order._items) {
+        const result = item.results.find((row) => row.id === labAmend[1]);
+        if (result) {
+          const field = labFieldIndex().get(result.testFieldId);
+          const flags = classifyLabValue(field, typeof body.value === 'string' ? body.value : result.value);
+          if (typeof body.value === 'string') result.value = body.value;
+          result.isAbnormal = flags.isAbnormal;
+          result.isCritical = flags.isCritical;
+          result.currentVersion += 1;
+          result.amendments += 1;
+          send(response, 200, { success: true, data: { result } });
+          return;
+        }
+      }
+    }
+    send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Result not found' } });
+    return;
+  }
+
+  const labAcknowledge = url.pathname.match(/^\/lab\/critical\/([^/]+)\/acknowledge$/);
+  if (labAcknowledge && request.method === 'POST') {
+    for (const order of LIVE_LAB_ORDERS) {
+      const critical = order.criticalResults.find((row) => row.id === labAcknowledge[1]);
+      if (critical) {
+        if (!critical.acknowledgedAt) {
+          critical.acknowledgedById = 'usr_example_9002';
+          critical.acknowledgedAt = new Date().toISOString();
+        }
+        send(response, 201, { success: true, data: { criticalResult: critical } });
+        return;
+      }
+    }
+    send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Critical result not found' } });
     return;
   }
 

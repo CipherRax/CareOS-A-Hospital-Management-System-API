@@ -70,12 +70,87 @@ export const LAB_SAMPLE_TYPES = [
 ] as const;
 export type LabSampleType = (typeof LAB_SAMPLE_TYPES)[number];
 
+/** The physical sample mirrors the order through the lifecycle. */
+export const LAB_SAMPLE_STATUSES = [
+  'ORDERED',
+  'COLLECTED',
+  'RECEIVED',
+  'PROCESSING',
+  'COMPLETED',
+  'REJECTED',
+] as const;
+export type LabSampleStatus = (typeof LAB_SAMPLE_STATUSES)[number];
+
+/**
+ * The laboratory lifecycle actions, in workflow order. `enter_results` is the
+ * one move that carries a body (the values) and lives on its own endpoint; the
+ * rest are the plain status moves documented in `domain/lab-flow.ts`.
+ */
+export const LAB_ORDER_ACTIONS = [
+  'collect',
+  'receive',
+  'process',
+  'enter_results',
+  'reject',
+  'cancel',
+  'verify',
+  'release',
+] as const;
+export type LabOrderAction = (typeof LAB_ORDER_ACTIONS)[number];
+export type LabOrderTransition = Exclude<LabOrderAction, 'enter_results'>;
+
+/**
+ * Which moves the workflow allows from each status — the same edge set the
+ * server enforces (`LAB_ALLOWED_FROM`), mirrored so the UI only offers moves the
+ * server will accept. A stale tab that offers a move the server no longer allows
+ * still gets a 409 in place.
+ */
+export const LAB_ORDER_ACTIONS_BY_STATUS: Record<LabOrderStatus, readonly LabOrderAction[]> = {
+  ORDERED: ['collect', 'cancel'],
+  COLLECTED: ['receive', 'reject', 'cancel'],
+  RECEIVED: ['process', 'reject'],
+  PROCESSING: ['enter_results'],
+  RESULT_READY: ['verify'],
+  VERIFIED: ['release'],
+  RELEASED: [],
+  REJECTED: [],
+  CANCELLED: [],
+};
+
 export const LAB_FIELD_TYPES = ['NUMERIC', 'TEXT', 'CATEGORICAL'] as const;
 
 export interface LabSampleRow {
   readonly id: string;
   readonly sampleNumber: string;
-  readonly status: string;
+  readonly sampleType: LabSampleType;
+  readonly status: LabSampleStatus;
+  readonly collectedAt: string | null;
+  readonly receivedAt: string | null;
+  readonly processingAt: string | null;
+  readonly completedAt: string | null;
+  readonly rejectedAt: string | null;
+  readonly rejectedReason: string | null;
+  readonly recollectsFromOrderId: string | null;
+}
+
+/**
+ * A result that crossed its critical threshold. The notification carries who was
+ * told and who acknowledged; release is blocked until every critical has an
+ * `acknowledgedAt` (server code `LAB_RESULT_NOT_ACKNOWLEDGED`), so the worklist
+ * reads it directly rather than inferring from `isCritical` on the result.
+ *
+ * The notification points at its result by `resultId`; the field and value live
+ * on that result, so callers join back through `items[].results`.
+ */
+export interface CriticalResultRow {
+  readonly id: string;
+  readonly organizationId: string;
+  readonly resultId: string;
+  readonly notifiedToId: string;
+  readonly notifiedAt: string | null;
+  readonly acknowledgedById: string | null;
+  readonly acknowledgedAt: string | null;
+  readonly escalationAt: string | null;
 }
 
 /**
@@ -141,6 +216,7 @@ export interface LabOrderDetail {
   readonly version: number;
   readonly sample: LabSampleRow | null;
   readonly items: readonly LabOrderItemRow[];
+  readonly criticalResults: readonly CriticalResultRow[];
 }
 
 export interface LabOrderPage {
@@ -184,7 +260,36 @@ export function readLabSample(value: unknown): LabSampleRow | null {
   return {
     id: value.id,
     sampleNumber: typeof value.sampleNumber === 'string' ? value.sampleNumber : '',
-    status: typeof value.status === 'string' ? value.status : 'ORDERED',
+    sampleType: LAB_SAMPLE_TYPES.includes(value.sampleType as LabSampleType)
+      ? (value.sampleType as LabSampleType)
+      : 'OTHER',
+    status: LAB_SAMPLE_STATUSES.includes(value.status as LabSampleStatus)
+      ? (value.status as LabSampleStatus)
+      : 'ORDERED',
+    collectedAt: nullableString(value.collectedAt),
+    receivedAt: nullableString(value.receivedAt),
+    processingAt: nullableString(value.processingAt),
+    completedAt: nullableString(value.completedAt),
+    rejectedAt: nullableString(value.rejectedAt),
+    rejectedReason: nullableString(value.rejectedReason),
+    recollectsFromOrderId: nullableString(value.recollectsFromOrderId),
+  };
+}
+
+/** Reads one critical-result notification; returns null when the row is unusable. */
+export function readCriticalResult(value: unknown): CriticalResultRow | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== 'string') return null;
+  if (typeof value.resultId !== 'string') return null;
+  return {
+    id: value.id,
+    organizationId: typeof value.organizationId === 'string' ? value.organizationId : '',
+    resultId: value.resultId,
+    notifiedToId: typeof value.notifiedToId === 'string' ? value.notifiedToId : '',
+    notifiedAt: nullableString(value.notifiedAt),
+    acknowledgedById: nullableString(value.acknowledgedById),
+    acknowledgedAt: nullableString(value.acknowledgedAt),
+    escalationAt: nullableString(value.escalationAt),
   };
 }
 
@@ -279,6 +384,10 @@ export function readLabOrderDetail(value: unknown): LabOrderDetail | null {
   if (!Array.isArray(value.items)) return null;
   const items = value.items.map(readLabOrderItem);
   if (items.some((item) => item === null)) return null;
+  const rawCritical = value.criticalResults ?? [];
+  if (!Array.isArray(rawCritical)) return null;
+  const criticalResults = rawCritical.map(readCriticalResult);
+  if (criticalResults.some((critical) => critical === null)) return null;
   return {
     id: value.id,
     organizationId: typeof value.organizationId === 'string' ? value.organizationId : '',
@@ -301,6 +410,7 @@ export function readLabOrderDetail(value: unknown): LabOrderDetail | null {
     version: typeof value.version === 'number' ? value.version : 0,
     sample: value.sample === undefined || value.sample === null ? null : readLabSample(value.sample),
     items: items as readonly LabOrderItemRow[],
+    criticalResults: criticalResults as readonly CriticalResultRow[],
   };
 }
 

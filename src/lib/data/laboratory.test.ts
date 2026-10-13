@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  LAB_ORDER_ACTIONS_BY_STATUS,
   LAB_ORDER_STATUSES,
   LAB_RESULT_STATUSES,
   extractLabOrderPage,
   extractLabOrderRecord,
   extractLabTestPage,
+  readCriticalResult,
   readLabOrderDetail,
   readLabOrderSummary,
   readLabResult,
+  readLabSample,
   readLabTest,
   readLabTestField,
 } from '@/lib/data/laboratory';
@@ -194,5 +197,91 @@ describe('LAB_RESULT_STATUSES', () => {
   it('is the result-bearing subset of the order statuses', () => {
     expect(LAB_RESULT_STATUSES).toEqual(['RESULT_READY', 'VERIFIED', 'RELEASED']);
     expect(LAB_RESULT_STATUSES.every((status) => LAB_ORDER_STATUSES.includes(status))).toBe(true);
+  });
+});
+
+describe('readLabSample', () => {
+  it('reads the sample workflow timestamps and defaults the type', () => {
+    const row = readLabSample({
+      id: 'lbs_1',
+      sampleNumber: 'S-2026-000001',
+      status: 'RECEIVED',
+      receivedAt: '2026-10-11T09:15:00.000Z',
+    });
+    expect(row?.status).toBe('RECEIVED');
+    expect(row?.sampleType).toBe('OTHER');
+    expect(row?.receivedAt).toBe('2026-10-11T09:15:00.000Z');
+    expect(row?.collectedAt).toBeNull();
+    expect(row?.rejectedReason).toBeNull();
+  });
+
+  it('falls back to ORDERED for an unknown status', () => {
+    expect(readLabSample({ id: 'lbs_1', sampleNumber: 'S-1', status: 'NOPE' })?.status).toBe(
+      'ORDERED',
+    );
+    expect(readLabSample(null)).toBeNull();
+  });
+});
+
+describe('readCriticalResult', () => {
+  it('reads a notification and its acknowledgement', () => {
+    const row = readCriticalResult({
+      id: 'lcr_1',
+      organizationId: 'org_1',
+      resultId: 'lbr_1',
+      notifiedToId: 'usr_1',
+      notifiedAt: '2026-10-11T09:20:00.000Z',
+      acknowledgedById: null,
+      acknowledgedAt: null,
+      escalationAt: null,
+    });
+    expect(row?.resultId).toBe('lbr_1');
+    expect(row?.notifiedAt).toBe('2026-10-11T09:20:00.000Z');
+    expect(row?.acknowledgedAt).toBeNull();
+  });
+
+  it('rejects a notification without a result to point at', () => {
+    expect(readCriticalResult({ id: 'lcr_1' })).toBeNull();
+    expect(readCriticalResult(null)).toBeNull();
+  });
+
+  it('surfaces unacknowledged criticals on the order detail', () => {
+    const order = readLabOrderDetail({
+      ...detailRow,
+      criticalResults: [
+        {
+          id: 'lcr_1',
+          organizationId: 'org_1',
+          resultId: 'lbr_example_1',
+          notifiedToId: 'usr_1',
+          notifiedAt: '2026-10-11T09:20:00.000Z',
+          acknowledgedById: null,
+          acknowledgedAt: null,
+          escalationAt: null,
+        },
+      ],
+    });
+    expect(order?.criticalResults).toHaveLength(1);
+    expect(order?.criticalResults[0]?.acknowledgedAt).toBeNull();
+  });
+});
+
+describe('LAB_ORDER_ACTIONS_BY_STATUS', () => {
+  it('mirrors the server transition graph', () => {
+    expect(LAB_ORDER_ACTIONS_BY_STATUS.ORDERED).toEqual(['collect', 'cancel']);
+    expect(LAB_ORDER_ACTIONS_BY_STATUS.COLLECTED).toEqual(['receive', 'reject', 'cancel']);
+    expect(LAB_ORDER_ACTIONS_BY_STATUS.RECEIVED).toEqual(['process', 'reject']);
+    expect(LAB_ORDER_ACTIONS_BY_STATUS.PROCESSING).toEqual(['enter_results']);
+    expect(LAB_ORDER_ACTIONS_BY_STATUS.RESULT_READY).toEqual(['verify']);
+    expect(LAB_ORDER_ACTIONS_BY_STATUS.VERIFIED).toEqual(['release']);
+    expect(LAB_ORDER_ACTIONS_BY_STATUS.RELEASED).toEqual([]);
+    expect(LAB_ORDER_ACTIONS_BY_STATUS.REJECTED).toEqual([]);
+    expect(LAB_ORDER_ACTIONS_BY_STATUS.CANCELLED).toEqual([]);
+  });
+
+  it('only offers a move from the statuses that allow it', () => {
+    for (const status of LAB_ORDER_STATUSES) {
+      expect(Array.isArray(LAB_ORDER_ACTIONS_BY_STATUS[status])).toBe(true);
+    }
   });
 });

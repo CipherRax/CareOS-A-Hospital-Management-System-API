@@ -974,6 +974,157 @@
     "confirmCancelBody": "Cancelling stops it reaching the pharmacy. This cannot be undone.",
     "confirmCancel": "Cancel prescription"
   },
+  "laboratory": {
+    "pageTitle": "Laboratory",
+    "pageIntro": "Specimen collection, processing and results release for every order.",
+    "filterStatus": "Filter by status",
+    "allStatuses": "All statuses",
+    "tableCaption": "Laboratory orders, newest first",
+    "columnOrder": "Order",
+    "columnPatient": "Patient",
+    "columnPriority": "Priority",
+    "columnOrdered": "Ordered",
+    "columnStatus": "Status",
+    "openOrder": "Open order {number}",
+    "empty": "No laboratory orders match this filter.",
+    "unavailableTitle": "Laboratory orders are temporarily unavailable",
+    "unavailableBody": "The worklist could not be loaded. Try again shortly.",
+    "unknownPatient": "Unknown patient",
+    "unknownDate": "—",
+    "status": {
+      "ORDERED": "Ordered",
+      "COLLECTED": "Collected",
+      "RECEIVED": "Received",
+      "PROCESSING": "Processing",
+      "RESULT_READY": "Result ready",
+      "VERIFIED": "Verified",
+      "RELEASED": "Released",
+      "REJECTED": "Rejected",
+      "CANCELLED": "Cancelled"
+    },
+    "priority": {
+      "ROUTINE": "Routine",
+      "URGENT": "Urgent",
+      "STAT": "STAT"
+    },
+    "sampleStatus": {
+      "ORDERED": "Ordered",
+      "COLLECTED": "Collected",
+      "RECEIVED": "Received",
+      "PROCESSING": "Processing",
+      "COMPLETED": "Completed",
+      "REJECTED": "Rejected"
+    },
+    "sampleType": {
+      "BLOOD": "Blood",
+      "URINE": "Urine",
+      "STOOL": "Stool",
+      "SWAB": "Swab",
+      "SPUTUM": "Sputum",
+      "TISSUE": "Tissue",
+      "FLUID": "Fluid",
+      "OTHER": "Other"
+    },
+    "workspace": {
+      "back": "Back to laboratory worklist",
+      "loading": "Loading order…",
+      "unavailableTitle": "This order is temporarily unavailable",
+      "unavailableBody": "The laboratory order could not be loaded. Try again shortly.",
+      "notFoundTitle": "Order not found",
+      "notFoundBody": "This laboratory order does not exist or you do not have access to it.",
+      "orderHeading": "Order",
+      "priority": "Priority",
+      "ordered": "Ordered",
+      "released": "Released",
+      "clinicalNotes": "Clinical notes",
+      "noNotes": "None recorded",
+      "cancelReason": "Cancellation reason",
+      "rejectReason": "Rejection reason",
+      "notYet": "Not yet",
+      "version": "Version {version}",
+      "sample": "Sample",
+      "sampleNumber": "Sample number",
+      "sampleType": "Specimen",
+      "sampleStatus": "Sample status",
+      "collected": "Collected",
+      "received": "Received",
+      "completed": "Completed",
+      "noSample": "No sample has been collected for this order yet.",
+      "actions": "Actions",
+      "noActions": "No actions are available at this stage.",
+      "tests": "Tests and results",
+      "noValues": "No values recorded yet.",
+      "unknownField": "Unknown analyte",
+      "reference": "Ref {range}",
+      "flagCritical": "Critical",
+      "flagAbnormal": "Abnormal",
+      "amend": "Amend",
+      "critical": "Critical results",
+      "openPatient": "Open patient record"
+    },
+    "action": {
+      "collect": "Mark collected",
+      "receive": "Receive sample",
+      "process": "Start processing",
+      "verify": "Verify results",
+      "release": "Release results",
+      "reject": "Reject sample",
+      "cancel": "Cancel order",
+      "enter_results": "Enter results"
+    },
+    "confirm": {
+      "verifyTitle": "Verify these results?",
+      "verifyBody": "Verification confirms the results are correct and ready for release.",
+      "releaseTitle": "Release these results?",
+      "releaseBody": "Releasing publishes the results to the patient record. This cannot be undone."
+    },
+    "reason": {
+      "label": "Reason",
+      "hint": "At least 10 characters.",
+      "placeholder": "Explain the reason…",
+      "rejectTitle": "Reject this sample?",
+      "rejectBody": "Rejecting records the specimen as unsuitable and stops processing.",
+      "cancelTitle": "Cancel this order?",
+      "cancelBody": "Cancelling stops the order from being processed. This cannot be undone."
+    },
+    "results": {
+      "intro": "Enter a value for every analyte before submitting.",
+      "loading": "Loading test fields…",
+      "nothing": "No analysable fields are configured for these tests.",
+      "required": "Enter a value for every analyte.",
+      "unitHint": "Unit: {unit}",
+      "submit": "Submit results"
+    },
+    "amend": {
+      "title": "Amend result",
+      "body": "Provide a corrected value for {field}.",
+      "bodyPlain": "Provide a corrected value.",
+      "value": "Corrected value",
+      "valueRequired": "Enter a corrected value.",
+      "submit": "Save amendment"
+    },
+    "critical": {
+      "dialogTitle": "Acknowledge critical result",
+      "dialogBody": "Confirm you have seen the critical result for {field}.",
+      "dialogBodyPlain": "Confirm you have seen this critical result.",
+      "note": "Note (optional)",
+      "noteHint": "Record the action taken, if any.",
+      "acknowledge": "Acknowledge",
+      "acknowledged": "Acknowledged",
+      "unacknowledged": "Not acknowledged"
+    },
+    "dialog": {
+      "cancel": "Cancel"
+    },
+    "errors": {
+      "staleTitle": "This order changed elsewhere",
+      "staleBody": "The action is no longer available — the order may have moved on. Reload the workspace.",
+      "criticalTitle": "Acknowledge critical results first",
+      "criticalBody": "Results cannot be released until every critical result is acknowledged.",
+      "failedTitle": "The action could not be completed",
+      "failedBody": "Try again shortly."
+    }
+  },
   "results": {
     "title": "Results",
     "intro": "Released laboratory and imaging results for this patient. Ordering and processing happen in the laboratory and radiology modules.",

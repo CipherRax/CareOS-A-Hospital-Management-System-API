@@ -618,3 +618,42 @@ bare entity while answering `{ order }`, and `GET /radiology/orders` is typed as
 `ListRadiologyOrdersQueryDto` (raw-fetched). Records are EXAMPLE-prefixed and
 duplicated deliberately between the MSW registry and `e2e/stub-api.mjs`. Data
 layers: 21 unit tests (`laboratory.test.ts` + `radiology.test.ts`).
+
+## F5 — Laboratory, slice 1: worklist and order workspace
+
+**Status:** complete. `/lab` lists every laboratory order and `/lab/[id]` is the
+lab bench's workspace for one order, at whatever point of the pipeline it sits.
+Ordering and processing live here (the doctor's view of F4 slice 4 is read-only).
+
+- **Worklist.** `GET /lab/orders` is the thin projection (no results, no test
+  names, no criticals) and the export mis-types its 200 as the request DTO, so
+  rows are validated structurally in `src/lib/data/laboratory.ts`. A status
+  filter issues the server-side `status` query; rows carry only `patientId`, so
+  names resolve on demand (GAP-018), the same as the day book.
+- **Order workspace.** The single read answers `{ order }` with the item/result
+  tree and the critical notifications; the reader joins `GET /lab/tests` to map
+  each result's `testFieldId` to a name, unit and reference range.
+- **Transitions.** The action bar is the server's transition graph
+  (`LAB_ORDER_ACTIONS_BY_STATUS`): a move the server would refuse is never
+  offered. `collect` / `receive` / `process` are one-click; `verify` and
+  `release` confirm; `reject` and `cancel` require a reason (min 10 characters,
+  `ReasonField`). Entering results is the in-section form shown while the order
+  is PROCESSING (one field per active analyte across the ordered tests). A stale
+  tab answers 409 `INVALID_WORKFLOW_TRANSITION` and surfaces as a status-specific
+  alert; releasing before every critical result is acknowledged answers 409
+  `LAB_RESULT_NOT_ACKNOWLEDGED` and says so. Critical results are acknowledged
+  inline from the critical section, with an optional note.
+- **Mutations** (`src/lib/data/queries.ts`): `useLabOrderTransition`,
+  `useEnterLabResults`, `useAmendLabResult` (`PATCH /lab/results/{id}`) and
+  `useAcknowledgeCritical` (`POST /lab/critical/{id}/acknowledge`), all
+  invalidating `['lab-orders']`. Every response body is validated in the data
+  layer, because the writes answer `{ order }` / `{ result }` / `{ criticalResult }`
+  while the export types the bare entity (GAP-020).
+
+Contract notes recorded against the source (GAP-020, appended): the transition
+POSTs (`collect`/`receive`/`process`/`reject`/`cancel`/`verify`/`release`/
+`results`), the amend `PATCH` and the acknowledge `POST` all type the bare
+entity while answering an envelope; the transition POSTs answer 201. Records are
+EXAMPLE-prefixed and duplicated deliberately between the MSW registry and
+`e2e/stub-api.mjs`, with an order at every status so each transition can be
+exercised. Data layers: 19 unit tests (`laboratory.test.ts`).

@@ -111,9 +111,14 @@ import {
   extractLabOrderRecord,
   fetchLabOrders,
   fetchLabTests,
+  readCriticalResult,
+  readLabResult,
+  type CriticalResultRow,
   type LabOrderDetail,
   type LabOrderPage,
   type LabOrderQuery,
+  type LabOrderTransition,
+  type LabResultRow,
   type LabTestPage,
   type LabTestsQuery,
   type LaboratoryCallError,
@@ -1950,6 +1955,185 @@ export function useLabTests(
     },
     staleTime: 5 * 60_000,
     retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+// --- laboratory worklist actions (F5) --------------------------------------
+
+/** A record body that fails structural validation is an internal contract break. */
+function labWriteError(status = 201): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+export interface LabOrderTransitionInput {
+  id: string;
+  action: LabOrderTransition;
+  /** `reject` and `cancel` capture a reason; every other move takes none. */
+  reason?: string;
+}
+
+export interface EnterLabResultsInput {
+  id: string;
+  comments?: string;
+  results: readonly { testFieldId: string; value: string }[];
+}
+
+export interface AmendLabResultInput {
+  id: string;
+  value: string;
+  reason: string;
+}
+
+export interface AcknowledgeCriticalInput {
+  id: string;
+  note?: string;
+}
+
+/**
+ * Advances an order along the sample/verification pipeline
+ * (`POST /lab/orders/{id}/{collect|receive|process|reject|cancel|verify|release}`).
+ *
+ * The transition set is the server's (`LAB_ORDER_ACTIONS_BY_STATUS`), and the
+ * export types the 201 body as the bare entity while the service answers
+ * `{ order }` — so the unwrapped body is validated structurally (GAP-020). A
+ * move the server refuses (stale status, unacknowledged criticals) rejects with
+ * the mapped code in place, never a thrown string.
+ */
+export function useLabOrderTransition(): UseMutationResult<
+  LabOrderDetail,
+  QueryError,
+  LabOrderTransitionInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<LabOrderDetail, QueryError, LabOrderTransitionInput>({
+    mutationFn: async (input) => {
+      const params = { path: { id: input.id } };
+      const call =
+        input.action === 'collect'
+          ? api.POST('/lab/orders/{id}/collect', { params })
+          : input.action === 'receive'
+            ? api.POST('/lab/orders/{id}/receive', { params })
+            : input.action === 'process'
+              ? api.POST('/lab/orders/{id}/process', { params })
+              : input.action === 'reject'
+                ? api.POST('/lab/orders/{id}/reject', {
+                    params,
+                    body: { reason: input.reason ?? '' },
+                  })
+                : input.action === 'cancel'
+                  ? api.POST('/lab/orders/{id}/cancel', {
+                      params,
+                      body: { reason: input.reason ?? '' },
+                    })
+                  : input.action === 'verify'
+                    ? api.POST('/lab/orders/{id}/verify', { params })
+                    : api.POST('/lab/orders/{id}/release', { params });
+      const fetched = await unwrap<unknown>(call);
+      const parsed = extractLabOrderRecord(fetched.data);
+      if (!parsed.ok) throw labWriteError();
+      return parsed.order;
+    },
+    onSuccess: (_order, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['lab-orders', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['lab-orders', 'list'] });
+    },
+  });
+}
+
+/**
+ * Enters the first set of results for a PROCESSING order
+ * (`POST /lab/orders/{id}/results`). The server classifies each value against
+ * the field's configured thresholds and raises a critical notification where one
+ * applies; the caller submits values verbatim and never decides abnormality.
+ */
+export function useEnterLabResults(): UseMutationResult<
+  LabOrderDetail,
+  QueryError,
+  EnterLabResultsInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<LabOrderDetail, QueryError, EnterLabResultsInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/lab/orders/{id}/results', {
+          params: { path: { id: input.id } },
+          body: {
+            comments: input.comments,
+            results: input.results.map((result) => ({
+              testFieldId: result.testFieldId,
+              value: result.value,
+            })),
+          },
+        }),
+      );
+      const parsed = extractLabOrderRecord(fetched.data);
+      if (!parsed.ok) throw labWriteError();
+      return parsed.order;
+    },
+    onSuccess: (_order, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['lab-orders', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['lab-orders', 'list'] });
+    },
+  });
+}
+
+/**
+ * Amends one result (`PATCH /lab/results/{id}`). Pre-release this fixes the
+ * single revision; post-release it appends a new one. The reason is stored on
+ * the version either way, which is why it is required rather than optional.
+ */
+export function useAmendLabResult(): UseMutationResult<
+  LabResultRow,
+  QueryError,
+  AmendLabResultInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<LabResultRow, QueryError, AmendLabResultInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/lab/results/{id}', {
+          params: { path: { id: input.id } },
+          body: { value: input.value, reason: input.reason },
+        }),
+      );
+      const body = fetched.data as { result?: unknown } | null;
+      const result = readLabResult(body?.result);
+      if (!result) throw labWriteError(200);
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lab-orders'] });
+    },
+  });
+}
+
+/**
+ * Acknowledges a critical result (`POST /lab/critical/{id}/acknowledge`).
+ * Idempotent server-side, so the button is safe to re-submit; release stays
+ * blocked until every critical on the order carries an acknowledgement.
+ */
+export function useAcknowledgeCritical(): UseMutationResult<
+  CriticalResultRow,
+  QueryError,
+  AcknowledgeCriticalInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<CriticalResultRow, QueryError, AcknowledgeCriticalInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/lab/critical/{id}/acknowledge', {
+          params: { path: { id: input.id } },
+          body: { note: input.note },
+        }),
+      );
+      const body = fetched.data as { criticalResult?: unknown } | null;
+      const critical = readCriticalResult(body?.criticalResult);
+      if (!critical) throw labWriteError(201);
+      return critical;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lab-orders'] });
+    },
   });
 }
 

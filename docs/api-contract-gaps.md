@@ -369,3 +369,23 @@ against `src/modules/laboratory` and `src/modules/radiology`:
   needed; the write surface (schedule/perform/report/verify/release) is a
   radiology-department responsibility and stays out of the doctor's read-only
   view.
+
+**Same drift under the laboratory write surface (F5 slice 1).** Verified against
+`src/modules/laboratory`:
+
+- Every transition POST — `collect`, `receive`, `process`, `reject`, `cancel`,
+  `verify`, `release`, `results` under `/lab/orders/{id}` — is typed as the bare
+  `LabOrderResponseDto` but answers `{ order }`, and answers **201**. `collect` /
+  `receive` / `process` / `verify` / `release` carry `requestBody?: never`;
+  `reject` / `cancel` take a `{ reason }` body; `results` takes
+  `{ comments?, results: [{ testFieldId, value }] }`.
+- `PATCH /lab/results/{id}` (amend) is typed as the bare `LabResultResponseDto`
+  but answers `{ result }` (200); `POST /lab/critical/{id}/acknowledge` is typed
+  as the bare `CriticalResultResponseDto` but answers `{ criticalResult }` (201).
+- The reads keep their earlier shape: the list is a thin projection and the
+  detail answers `{ order }`; the service, not the DTO, is authority. The
+  client validates every body in `src/lib/data/laboratory.ts` regardless.
+- The workflow itself is not in doubt: the transition guards mirror
+  `domain/lab-flow.ts`, and releasing before every critical result is
+  acknowledged is refused with 409 `LAB_RESULT_NOT_ACKNOWLEDGED`, a wrong-state
+  move with 409 `INVALID_WORKFLOW_TRANSITION`.

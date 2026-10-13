@@ -993,6 +993,157 @@
     "confirmCancelBody": "Kughairi kunazuia kufikia maduka ya dawa. Hili haliwezi kutenduliwa.",
     "confirmCancel": "Ghairi dawa"
   },
+  "laboratory": {
+    "pageTitle": "Maabara",
+    "pageIntro": "Ukusanyaji wa sampuli, uchakataji na utoaji wa matokeo kwa kila oda.",
+    "filterStatus": "Chuja kwa hali",
+    "allStatuses": "Hali zote",
+    "tableCaption": "Oda za maabara, mpya kwanza",
+    "columnOrder": "Oda",
+    "columnPatient": "Mgonjwa",
+    "columnPriority": "Kipaumbele",
+    "columnOrdered": "Iliagizwa",
+    "columnStatus": "Hali",
+    "openOrder": "Fungua oda {number}",
+    "empty": "Hakuna oda za maabara zinazolingana na kichujio hiki.",
+    "unavailableTitle": "Oda za maabara hazipatikani kwa sasa",
+    "unavailableBody": "Orodha ya kazi haikuweza kupakiwa. Jaribu tena baadaye.",
+    "unknownPatient": "Mgonjwa asiyejulikana",
+    "unknownDate": "—",
+    "status": {
+      "ORDERED": "Imeagizwa",
+      "COLLECTED": "Imekusanywa",
+      "RECEIVED": "Imepokelewa",
+      "PROCESSING": "Inachakatwa",
+      "RESULT_READY": "Matokeo tayari",
+      "VERIFIED": "Imethibitishwa",
+      "RELEASED": "Imetolewa",
+      "REJECTED": "Imekataliwa",
+      "CANCELLED": "Imefutwa"
+    },
+    "priority": {
+      "ROUTINE": "Kawaida",
+      "URGENT": "Haraka",
+      "STAT": "Dharura"
+    },
+    "sampleStatus": {
+      "ORDERED": "Imeagizwa",
+      "COLLECTED": "Imekusanywa",
+      "RECEIVED": "Imepokelewa",
+      "PROCESSING": "Inachakatwa",
+      "COMPLETED": "Imekamilika",
+      "REJECTED": "Imekataliwa"
+    },
+    "sampleType": {
+      "BLOOD": "Damu",
+      "URINE": "Mkojo",
+      "STOOL": "Kinyesi",
+      "SWAB": "Sumpa",
+      "SPUTUM": "Kohozi",
+      "TISSUE": "Tishu",
+      "FLUID": "Majimaji",
+      "OTHER": "Nyingine"
+    },
+    "workspace": {
+      "back": "Rudi kwenye orodha ya maabara",
+      "loading": "Inapakia oda…",
+      "unavailableTitle": "Oda hii haipatikani kwa sasa",
+      "unavailableBody": "Oda ya maabara haikuweza kupakiwa. Jaribu tena baadaye.",
+      "notFoundTitle": "Oda haipatikani",
+      "notFoundBody": "Oda hii ya maabara haipo au huna ruhusa ya kuifikia.",
+      "orderHeading": "Oda",
+      "priority": "Kipaumbele",
+      "ordered": "Iliagizwa",
+      "released": "Iliyotolewa",
+      "clinicalNotes": "Maelezo ya kliniki",
+      "noNotes": "Hakuna yaliyorekodiwa",
+      "cancelReason": "Sababu ya kufuta",
+      "rejectReason": "Sababu ya kukataa",
+      "notYet": "Bado",
+      "version": "Toleo {version}",
+      "sample": "Sampuli",
+      "sampleNumber": "Namba ya sampuli",
+      "sampleType": "Aina ya sampuli",
+      "sampleStatus": "Hali ya sampuli",
+      "collected": "Imekusanywa",
+      "received": "Imepokelewa",
+      "completed": "Imekamilika",
+      "noSample": "Hakuna sampuli iliyokusanywa kwa oda hii bado.",
+      "actions": "Vitendo",
+      "noActions": "Hakuna vitendo vinavyopatikana katika hatua hii.",
+      "tests": "Vipimo na matokeo",
+      "noValues": "Hakuna thamani zilizorekodiwa bado.",
+      "unknownField": "Kipimo kisichojulikana",
+      "reference": "Kawaida {range}",
+      "flagCritical": "Hatari",
+      "flagAbnormal": "Isiyo ya kawaida",
+      "amend": "Rekebisha",
+      "critical": "Matokeo hatari",
+      "openPatient": "Fungua rekodi ya mgonjwa"
+    },
+    "action": {
+      "collect": "Weka kama imekusanywa",
+      "receive": "Pokea sampuli",
+      "process": "Anza uchakataji",
+      "verify": "Thibitisha matokeo",
+      "release": "Toa matokeo",
+      "reject": "Kataa sampuli",
+      "cancel": "Futa oda",
+      "enter_results": "Weka matokeo"
+    },
+    "confirm": {
+      "verifyTitle": "Thibitisha matokeo haya?",
+      "verifyBody": "Uthibitisho unahakikisha matokeo ni sahihi na tayari kutolewa.",
+      "releaseTitle": "Toa matokeo haya?",
+      "releaseBody": "Kutoa kunachapisha matokeo kwenye rekodi ya mgonjwa. Hili haliwezi kutenduliwa."
+    },
+    "reason": {
+      "label": "Sababu",
+      "hint": "Angalau herufi 10.",
+      "placeholder": "Eleza sababu…",
+      "rejectTitle": "Kataa sampuli hii?",
+      "rejectBody": "Kukataa kunarekodi sampuli kama isiyofaa na kunasimamisha uchakataji.",
+      "cancelTitle": "Futa oda hii?",
+      "cancelBody": "Kufuta kunasimamisha oda kuchakatwa. Hili haliwezi kutenduliwa."
+    },
+    "results": {
+      "intro": "Weka thamani kwa kila kipimo kabla ya kuwasilisha.",
+      "loading": "Inapakia sehemu za kipimo…",
+      "nothing": "Hakuna sehemu za kuchambua zilizowekwa kwa vipimo hivi.",
+      "required": "Weka thamani kwa kila kipimo.",
+      "unitHint": "Kipimo: {unit}",
+      "submit": "Wasilisha matokeo"
+    },
+    "amend": {
+      "title": "Rekebisha matokeo",
+      "body": "Toa thamani iliyosahihishwa kwa {field}.",
+      "bodyPlain": "Toa thamani iliyosahihishwa.",
+      "value": "Thamani iliyosahihishwa",
+      "valueRequired": "Weka thamani iliyosahihishwa.",
+      "submit": "Hifadhi marekebisho"
+    },
+    "critical": {
+      "dialogTitle": "Thibitisha matokeo hatari",
+      "dialogBody": "Thibitisha kuwa umeona matokeo hatari ya {field}.",
+      "dialogBodyPlain": "Thibitisha kuwa umeona matokeo haya hatari.",
+      "note": "Maelezo (hiari)",
+      "noteHint": "Rekodi hatua iliyochukuliwa, ikiwa ipo.",
+      "acknowledge": "Thibitisha",
+      "acknowledged": "Imethibitishwa",
+      "unacknowledged": "Haijathibitishwa"
+    },
+    "dialog": {
+      "cancel": "Ghairi"
+    },
+    "errors": {
+      "staleTitle": "Oda hii ilibadilika mahali pengine",
+      "staleBody": "Kitendo hakipatikani tena — huenda oda iliendelea. Pakia upya eneo la kazi.",
+      "criticalTitle": "Thibitisha matokeo hatari kwanza",
+      "criticalBody": "Matokeo hayawezi kutolewa hadi kila matokeo hatari yathibitishwe.",
+      "failedTitle": "Kitendo hakikuweza kukamilika",
+      "failedBody": "Jaribu tena baadaye."
+    }
+  },
   "results": {
     "title": "Matokeo",
     "intro": "Matokeo ya maabara na picha zilizotolewa kwa mgonjwa huyu. Kuagiza na kuchakata hufanywa na moduli za maabara na radiolojia.",
