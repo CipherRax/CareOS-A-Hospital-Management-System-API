@@ -18,7 +18,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F3 Scheduling, queue, nursing  | **complete** — reception queue slice (live queue board, walk-in ticket issuance, status/priority moves), appointment desk slice (day book, booking with slot search, appointment status moves, department waitlist), nursing vitals slice (patient chart, record/correct with BMI), schedule admin slice (weekly template CRUD + dated exceptions), and reschedule from the day book | live API round-trip Docker-gated; GAP-017–GAP-019 documented |
 | F4 Doctor workspace            | encounters + clinical notes + prescriptions + results **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), the clinical-notes panel (structured DRAFT → Finalize → Amend with version history), the prescriptions panel (medication orders: DRAFT → issue → pharmacy dispense, cancel while un-/partially-dispensed), and the read-only results panel (released laboratory results + imaging reports); MSW fixtures + stub + e2e swept | live API round-trip Docker-gated; GAP-020 documented |
 | F5 Laboratory & radiology      | **complete** — laboratory worklist + order workspace, radiology worklist + imaging workspace, and order entry from the encounter | billing |
-| F6 Pharmacy & inventory        | in progress — pharmacy dispense worklist (`/pharmacy`) and stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) | transfers, write-offs, counts, batch expiry, POs      |
+| F6 Pharmacy & inventory        | in progress — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) and wastage write-offs | transfers, counts, batch expiry, POs                |
 | F7 Billing & insurance         | not started                                                                                | invoices, payments, M-PESA, claims                     |
 | F8 Inpatient & emergency       | not started                                                                                | wards, beds, admissions                                |
 | F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                     |
@@ -820,4 +820,35 @@ books new batches.
   namespace were added to `en.json` and `sw.json`.
 
 Gate: lint clean, `tsc --noEmit` 0, unit 415 (`inventory.test.ts` grown to 10),
+`build:prod` OK, e2e/a11y 135. Contract note appended to GAP-020.
+
+## F6 — Pharmacy, slice 3: wastage write-offs
+
+**Status:** complete. The stock screen now offers a second movement alongside
+receiving: a write-off composer that removes expired, damaged or unusable stock
+from the branch.
+
+- **Screen** (`src/components/staff/pharmacy-stock.tsx`). The header's single
+  action became a pair (`Receive stock` / `Record write-off`) toggling the
+  composer in place; `WriteOffComposer` takes one reason for the whole movement
+  (`Textarea`, required, ≤500) and one or more lines of medication + quantity,
+  showing the branch's on-hand quantity as each line's hint and refusing a line
+  above it before the request goes out. It posts `POST /pharmacy/stock/write-off`
+  and invalidates both reads on success.
+- **Data layer** (`src/lib/data/inventory.ts`). The write-off endpoint is the
+  most under-modelled of the family: the export declares **no response type** for
+  the 201, yet the service answers a bare `{ writeOffId, branchId, quantity }`,
+  so `readWriteOffResult` validates it structurally (GAP-020).
+- **Mutation** (`src/lib/data/queries.ts`). `useWriteOffStock`
+  (`POST /pharmacy/stock/write-off`), invalidating `['inventory','on-hand']` and
+  `['inventory','alerts']` on success.
+- **Mocks/stub.** `src/mocks/inventory-handlers.ts` validates the reason and each
+  line, refuses a line above the branch's stock (`INSUFFICIENT_STOCK`), decrements
+  the shared stock map and answers the bare write-off body; mirrored in
+  `e2e/stub-api.mjs`.
+- **i18n.** The `pharmacyStock` namespace gained a `writeOffStock` label and a
+  `writeOff` block (title, intro, reason label/required, an ICU-plural `available`
+  hint, exceeds/insufficient/failed bodies, save) in `en.json` and `sw.json`.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 417 (`inventory.test.ts` now 12),
 `build:prod` OK, e2e/a11y 135. Contract note appended to GAP-020.

@@ -40,6 +40,7 @@ const expiryDays = new Map<string, number>(
 );
 const batchIds = new Map<string, string>();
 let receivedBatchSeq = 7300;
+let writeOffSeq = 7400;
 
 const LOW_STOCK_AT_OR_BELOW = 5;
 const REORDER_AT_OR_BELOW = 15;
@@ -202,6 +203,49 @@ export function inventoryHandlers() {
         };
       });
       return HttpResponse.json(apiOk({ batches }, 'req_mock_receive'), { status: 201 });
+    }),
+
+    http.post('*/api/v1/pharmacy/stock/write-off', async ({ request }) => {
+      await delay(MOCK_LATENCY_MS);
+      let body: Record<string, unknown>;
+      try {
+        body = (await request.json()) as Record<string, unknown>;
+      } catch {
+        return HttpResponse.json(apiError('VALIDATION_ERROR', 'bad json'), { status: 400 });
+      }
+      const lines = readDispenseLines(body.lines);
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+      if (typeof body.branchId !== 'string' || reason.length === 0 || reason.length > 500 || lines === null) {
+        return HttpResponse.json(
+          apiError('VALIDATION_ERROR', 'branchId, a reason and at least one valid line are required'),
+          { status: 400 },
+        );
+      }
+      for (const line of lines) {
+        if (!MEDICATIONS.find((medication) => medication.id === line.medicationId)) {
+          return HttpResponse.json(apiError('RESOURCE_NOT_FOUND', 'Medication not found'), {
+            status: 404,
+          });
+        }
+        if ((stock.get(line.medicationId) ?? 0) < line.quantity) {
+          return HttpResponse.json(
+            apiError('INSUFFICIENT_STOCK', `Insufficient stock of ${line.medicationId}.`),
+            { status: 409 },
+          );
+        }
+      }
+      let totalQuantity = 0;
+      for (const line of lines) {
+        stock.set(line.medicationId, (stock.get(line.medicationId) ?? 0) - line.quantity);
+        totalQuantity += line.quantity;
+      }
+      return HttpResponse.json(
+        apiOk(
+          { writeOffId: `wro_example_${writeOffSeq++}`, branchId: body.branchId, quantity: totalQuantity },
+          'req_mock_writeoff',
+        ),
+        { status: 201 },
+      );
     }),
 
     http.post('*/api/v1/pharmacy/stock/dispense', async ({ request }) => {

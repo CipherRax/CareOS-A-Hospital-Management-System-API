@@ -1299,6 +1299,7 @@
     "pageTitle": "Pharmacy stock",
     "pageIntro": "Stock on hand for this branch and the advisories the ledger raises. Receiving stock creates or tops up a batch and records the movement.",
     "receiveStock": "Receive stock",
+    "writeOffStock": "Record write-off",
     "working": "Saving…",
     "alertsTitle": "Stock advisories",
     "alertsIntro": "Low stock, reorder risk and expiry warnings derived from the branch ledger.",
@@ -1333,6 +1334,17 @@
       "removeLine": "Remove",
       "save": "Receive stock",
       "cancel": "Cancel"
+    },
+    "writeOff": {
+      "title": "Record a write-off",
+      "intro": "Remove stock that is expired, damaged or unusable. Wastage is drawn from the branch's batches oldest-first and recorded against the ledger.",
+      "reasonLabel": "Reason",
+      "reasonRequired": "Give a reason for the write-off.",
+      "available": "{count, plural, =0 {none on hand} one {# unit on hand} other {# units on hand}}",
+      "exceedsOnHand": "A write-off line is more than the branch holds.",
+      "insufficient": "There is not enough stock to write off.",
+      "failedBody": "The stock could not be written off. Try again shortly.",
+      "save": "Record write-off"
     }
   },
   "results": {

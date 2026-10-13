@@ -139,6 +139,7 @@ import {
   fetchStockOnHand,
   readDispenseResult,
   readReceiveResult,
+  readWriteOffResult,
   type DispenseInput,
   type DispenseResult,
   type InventoryCallError,
@@ -146,6 +147,8 @@ import {
   type ReceivedBatch,
   type StockAlertRow,
   type StockOnHandRow,
+  type WriteOffInput,
+  type WriteOffResult,
 } from '@/lib/data/inventory';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
@@ -2532,6 +2535,45 @@ export function useReceiveStock(): UseMutationResult<
       const parsed = readReceiveResult(fetched.data);
       if (!parsed.ok) throw inventoryWriteError();
       return parsed.batches;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory', 'on-hand'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory', 'alerts'] });
+    },
+  });
+}
+
+/**
+ * Records wastage `POST /pharmacy/stock/write-off`: FEFO-allocates each line
+ * across the branch's batches and writes a WASTAGE ledger entry per allocation.
+ * The export declares no response type for the 201, but the service answers a
+ * bare `{ writeOffId, branchId, quantity }`, validated through
+ * `readWriteOffResult`. The on-hand and alerts reads are invalidated because the
+ * write shrinks the ledger both are derived from.
+ */
+export function useWriteOffStock(): UseMutationResult<
+  WriteOffResult,
+  QueryError,
+  WriteOffInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<WriteOffResult, QueryError, WriteOffInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/pharmacy/stock/write-off', {
+          body: {
+            branchId: input.branchId,
+            reason: input.reason,
+            lines: input.lines.map((line) => ({
+              medicationId: line.medicationId,
+              quantity: line.quantity,
+            })),
+          },
+        }),
+      );
+      const parsed = readWriteOffResult(fetched.data);
+      if (!parsed.ok) throw inventoryWriteError();
+      return parsed.result;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory', 'on-hand'] });

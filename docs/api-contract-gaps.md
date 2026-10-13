@@ -468,3 +468,16 @@ though the module is `inventory`:
   Body is `ReceiveStockDto` (`{ branchId, lines: [{ medicationId, quantity,
   batchNumber, expiryDate?, unitCost? }] }`, 1–100 lines, `batchNumber` 1–200).
   The client validates the unwrapped body through `readReceiveResult`.
+- `POST /pharmacy/stock/write-off` declares **no** `responseType` at all, yet the
+  service answers a **bare** `{ writeOffId, branchId, quantity }` (201). Body is
+  `WriteOffDto` (`{ branchId, reason (1–500), lines: [{ medicationId, quantity }]
+  }`, 1–100 lines). The client validates the unwrapped body through
+  `readWriteOffResult`.
+
+Two more F6 endpoints have **no read counterpart**, so they are not yet wired:
+`POST /pharmacy/transfers` (+ `/:id/action`, `/:id/receive`) and
+`POST /pharmacy/stock/counts` (+ `/:countId/items/:itemId`, `/:id/apply`) expose
+only writes — there is no `GET /pharmacy/transfers` or `GET /pharmacy/stock/counts`
+to list what exists, and the app has no branch picker to choose a transfer
+destination. A client cannot render a durable transfers or counts desk without
+one of those.

@@ -7,6 +7,7 @@ import {
   readReceiveResult,
   readStockAlertRow,
   readStockOnHandRow,
+  readWriteOffResult,
 } from '@/lib/data/inventory';
 
 /**
@@ -116,5 +117,22 @@ describe('readReceiveResult', () => {
     expect(readReceiveResult({ batches: [{}] })).toEqual({ ok: false });
     expect(readReceiveResult({})).toEqual({ ok: false });
     expect(readReceiveResult(null)).toEqual({ ok: false });
+  });
+});
+
+describe('readWriteOffResult', () => {
+  it('reads the write-off body', () => {
+    const parsed = readWriteOffResult({
+      writeOffId: 'wro_example_7300',
+      branchId: 'br_example_0001',
+      quantity: 12,
+    });
+    expect(parsed.ok && parsed.result.quantity).toBe(12);
+  });
+
+  it('fails closed when a field drifts', () => {
+    expect(readWriteOffResult({ writeOffId: 'w', branchId: 'b' })).toEqual({ ok: false });
+    expect(readWriteOffResult({})).toEqual({ ok: false });
+    expect(readWriteOffResult(null)).toEqual({ ok: false });
   });
 });

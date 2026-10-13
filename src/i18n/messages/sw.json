@@ -1315,6 +1315,7 @@
     "pageTitle": "Akiba ya duka la dawa",
     "pageIntro": "Akiba iliyopo kwa tawi hili na taarifa za tahadhari zinazotokana na leja. Kupokea akiba huunda au kuongeza kundi na kurekodi mwendo.",
     "receiveStock": "Pokea akiba",
+    "writeOffStock": "Rekodi uharibifu",
     "working": "Inahifadhi…",
     "alertsTitle": "Taarifa za akiba",
     "alertsIntro": "Tahadhari za akiba ndogo, uwezekano wa kuagiza upya na ukiukaji wa muda wa kuharibika.",
@@ -1349,6 +1350,17 @@
       "removeLine": "Ondoa",
       "save": "Pokea akiba",
       "cancel": "Ghairi"
+    },
+    "writeOff": {
+      "title": "Rekodi uharibifu",
+      "intro": "Ondoa akiba iliyoharibika, iliyoharibika au isiyoweza kutumika. Upotevu hutolewa kutoka kwa makundi ya tawi ya zamani kwanza na kurekodiwa kwenye leja.",
+      "reasonLabel": "Sababu",
+      "reasonRequired": "Toa sababu ya kuharibu akiba.",
+      "available": "{count, plural, =0 {hakuna iliyopo} one {kiwango # kimoja} other {vipimo #}}",
+      "exceedsOnHand": "Mstari wa kuharibu unazidi kiasi kilichopo tawini.",
+      "insufficient": "Hakuna akiba ya kutosha ya kuharibu.",
+      "failedBody": "Akiba haingeweza kuharibiwa. Jaribu tena baadaye.",
+      "save": "Haribu akiba"
     }
   },
   "results": {

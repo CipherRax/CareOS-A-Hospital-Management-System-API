@@ -22,8 +22,11 @@ import {
  * request DTO (`OnHandQueryDto`) while the service answers `{ onHand: [...] }`,
  * so it rides the raw-fetch path like the other list reads. `GET
  * /pharmacy/stock/alerts` has the same drift (`{ alerts: [...] }`), and
- * `POST /pharmacy/stock/receive` answers a bare `{ batches: [...] }` while the
- * export types the 201 as `InventoryResponseDto`.
+ * `POST /pharmacy/stock/receive` answers a bare `{ batches }` while the export
+ * types the 201 as `InventoryResponseDto` (GAP-020). `POST
+ * /pharmacy/stock/write-off` goes further: the export declares no response type
+ * at all, yet the service answers a bare `{ writeOffId, branchId, quantity }`,
+ * validated by `readWriteOffResult`.
  */
 
 /** Stock on hand for one medication at one branch, reconstructed from the ledger. */
@@ -228,4 +231,43 @@ export function readReceiveResult(
     });
   }
   return { ok: true, batches };
+}
+
+export interface WriteOffLine {
+  readonly medicationId: string;
+  readonly quantity: number;
+}
+
+export interface WriteOffInput {
+  readonly branchId: string;
+  readonly reason: string;
+  readonly lines: readonly WriteOffLine[];
+}
+
+/** What the write-off service returns: the ledger reference and the total removed. */
+export interface WriteOffResult {
+  readonly writeOffId: string;
+  readonly branchId: string;
+  readonly quantity: number;
+}
+
+/**
+ * Reads the write-off body: the export declares no response type for the 201,
+ * but the service answers a bare `{ writeOffId, branchId, quantity }`.
+ */
+export function readWriteOffResult(
+  payload: unknown,
+): { ok: true; result: WriteOffResult } | { ok: false } {
+  if (!isRecord(payload)) return { ok: false };
+  if (typeof payload.writeOffId !== 'string') return { ok: false };
+  if (typeof payload.branchId !== 'string') return { ok: false };
+  if (typeof payload.quantity !== 'number') return { ok: false };
+  return {
+    ok: true,
+    result: {
+      writeOffId: payload.writeOffId,
+      branchId: payload.branchId,
+      quantity: payload.quantity,
+    },
+  };
 }

@@ -418,6 +418,7 @@ const LIVE_EXPIRY_DAYS = new Map(
 );
 const INVENTORY_BATCH_IDS = new Map();
 let inventoryBatchSeq = 7300;
+let inventoryWriteOffSeq = 7300;
 const LOW_STOCK_AT_OR_BELOW = 5;
 const REORDER_AT_OR_BELOW = 15;
 function inventoryMedicationName(medicationId) {
@@ -1808,6 +1809,32 @@ const server = createServer(async (request, response) => {
       return { id: inventoryBatchIdFor(body.branchId, line.medicationId, batchNumber), batchNumber, medicationId: line.medicationId, quantity };
     });
     send(response, 201, { success: true, data: { batches } });
+    return;
+  }
+
+  if (url.pathname === '/pharmacy/stock/write-off' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const lines = Array.isArray(body.lines) ? body.lines : null;
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (typeof body.branchId !== 'string' || reason.length === 0 || reason.length > 500 || !lines || lines.length === 0) {
+      send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return;
+    }
+    for (const line of lines) {
+      const quantity = Number(line.quantity);
+      if (typeof line.medicationId !== 'string' || !Number.isInteger(quantity) || quantity <= 0) {
+        send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return;
+      }
+      if (!LIVE_MEDICATIONS.find((m) => m.id === line.medicationId)) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+      if ((LIVE_STOCK.get(line.medicationId) || 0) < quantity) { send(response, 409, { success: false, error: { code: 'INSUFFICIENT_STOCK' } }); return; }
+    }
+    let totalQuantity = 0;
+    for (const line of lines) {
+      const quantity = Number(line.quantity);
+      LIVE_STOCK.set(line.medicationId, (LIVE_STOCK.get(line.medicationId) || 0) - quantity);
+      totalQuantity += quantity;
+    }
+    send(response, 201, { success: true, data: { writeOffId: `wro_example_${inventoryWriteOffSeq++}`, branchId: body.branchId, quantity: totalQuantity } });
     return;
   }
 
