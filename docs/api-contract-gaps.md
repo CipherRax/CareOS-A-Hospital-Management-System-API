@@ -343,3 +343,29 @@ Verified against `src/modules/prescriptions` and `src/modules/medications`:
 - The workflow surface is not in doubt: DRAFT → ISSUED, cancel while un- or
   partially-dispensed, DISPENSED terminal — all enforced server-side. What the
   contract fixes is the typed read shape and a query model.
+
+**Same drift under laboratory and radiology results (F4 slice 4).** Verified
+against `src/modules/laboratory` and `src/modules/radiology`:
+
+- `GET /lab/orders` and `GET /lab/tests` both carry `query: never` with the 200
+  typed as their own request DTOs (`ListLabOrdersQueryDto`,
+  `ListLabTestsQueryDto`), and `GET /radiology/orders` is typed as
+  `ListRadiologyOrdersQueryDto`. All three are genuine `PageResult`s, so
+  `fetchLabOrders` / `fetchLabTests` / `fetchRadiologyOrders` use the raw-fetch
+  path with structural row validation.
+- `GET /lab/orders/{id}` and `GET /radiology/orders/{id}` are typed as the bare
+  `LabOrderResponseDto` / `RadiologyOrderResponseDto` but answer `{ order }`;
+  those go through `extractLabOrderRecord` / `extractRadiologyOrderRecord` on the
+  unwrapped body.
+- `GET /lab/orders` is not just thin about the page envelope — it is a **projection**
+  of the order: the service serializes the header, the sample stub and each
+  item's `testId`, and **omits the results and test names** that the detail read
+  carries. So a result-bearing order needs a second read (`GET /lab/orders/{id}`),
+  and there is no field metadata on a result at all — only `testFieldId` — so the
+  field name/unit/reference come from `GET /lab/tests` (the same on-demand-naming
+  pattern as patients and medications). This is a modelling gap, not just a
+  typing one.
+- Radologically the list already serializes the report, so no follow-up read is
+  needed; the write surface (schedule/perform/report/verify/release) is a
+  radiology-department responsibility and stays out of the doctor's read-only
+  view.

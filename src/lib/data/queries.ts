@@ -107,6 +107,23 @@ import {
   type MedicationRow,
   type MedicationsCallError,
 } from '@/lib/data/medications';
+import {
+  extractLabOrderRecord,
+  fetchLabOrders,
+  fetchLabTests,
+  type LabOrderDetail,
+  type LabOrderPage,
+  type LabOrderQuery,
+  type LabTestPage,
+  type LabTestsQuery,
+  type LaboratoryCallError,
+} from '@/lib/data/laboratory';
+import {
+  fetchRadiologyOrders,
+  type RadiologyCallError,
+  type RadiologyOrderPage,
+  type RadiologyOrderQuery,
+} from '@/lib/data/radiology';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
@@ -236,7 +253,14 @@ export function normaliseSessionUser(data: unknown): SessionUser {
 
 /** Pulls an untyped call (raw search/queue/scheduling/vitals/schedules) onto the query error contract. */
 function toQueryError(
-  call: PatientCallError | QueueCallError | SchedulingCallError | VitalsCallError | SchedulesCallError,
+  call:
+    | PatientCallError
+    | QueueCallError
+    | SchedulingCallError
+    | VitalsCallError
+    | SchedulesCallError
+    | LaboratoryCallError
+    | RadiologyCallError,
 ): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
@@ -1856,6 +1880,106 @@ export function useMedicationName(id: string): UseQueryResult<Fetched<string>, Q
       }),
     enabled: id.length > 0,
     staleTime: 5 * 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+// --- laboratory results (F4) -----------------------------------------------
+
+/**
+ * Lab order list `GET /lab/orders?{filters}` for the results view. The list is a
+ * thin projection — no results, no test names — so result-bearing orders are
+ * fetched by id with `useLabOrder`. The export leaves the query unmodelled and
+ * mis-types the 200 (GAP-020), so this rides the raw-fetch path.
+ */
+export function useLabOrders(
+  query: LabOrderQuery = {},
+): UseQueryResult<Fetched<LabOrderPage>, QueryError> {
+  return useQuery<Fetched<LabOrderPage>, QueryError>({
+    queryKey: ['lab-orders', 'list', query.patientId ?? null, query.branchId ?? null, query.status ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchLabOrders(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<LabOrderPage>;
+      } catch (call) {
+        throw toQueryError(call as LaboratoryCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Full lab order `GET /lab/orders/{id}` — the one read that carries test names,
+ * results and critical flags. The service answers `{ order }` while the export
+ * types the bare entity, so the unwrapped body is validated structurally.
+ */
+export function useLabOrder(id: string): UseQueryResult<Fetched<LabOrderDetail>, QueryError> {
+  return useQuery<Fetched<LabOrderDetail>, QueryError>({
+    queryKey: ['lab-orders', id],
+    queryFn: () =>
+      fetchPatientEnvelope<LabOrderDetail>(api.GET('/lab/orders/{id}', { params: { path: { id } } }), (body) => {
+        const parsed = extractLabOrderRecord(body);
+        if (!parsed.ok) return { ok: false as const };
+        return { ok: true as const, data: parsed.order };
+      }),
+    enabled: id.length > 0,
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Lab test catalog `GET /lab/tests?{filters}` — the source of the field metadata
+ * (analyte name, unit, reference range) that a result omits. Shared and cached,
+ * so every result card names its fields from one fetch.
+ */
+export function useLabTests(
+  query: LabTestsQuery = {},
+): UseQueryResult<Fetched<LabTestPage>, QueryError> {
+  return useQuery<Fetched<LabTestPage>, QueryError>({
+    queryKey: ['lab-tests', 'list', query.active ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchLabTests(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<LabTestPage>;
+      } catch (call) {
+        throw toQueryError(call as LaboratoryCallError);
+      }
+    },
+    staleTime: 5 * 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+// --- radiology results (F4) ------------------------------------------------
+
+/**
+ * Radiology order list `GET /radiology/orders?{filters}`. Unlike the lab list,
+ * each row serializes its imaging report, so this list alone backs the imaging
+ * results section. Same GAP-020 drift, so it rides the raw-fetch path.
+ */
+export function useRadiologyOrders(
+  query: RadiologyOrderQuery = {},
+): UseQueryResult<Fetched<RadiologyOrderPage>, QueryError> {
+  return useQuery<Fetched<RadiologyOrderPage>, QueryError>({
+    queryKey: [
+      'radiology-orders',
+      'list',
+      query.patientId ?? null,
+      query.branchId ?? null,
+      query.status ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchRadiologyOrders(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<RadiologyOrderPage>;
+      } catch (call) {
+        throw toQueryError(call as RadiologyCallError);
+      }
+    },
+    staleTime: 15_000,
     retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
   });
 }

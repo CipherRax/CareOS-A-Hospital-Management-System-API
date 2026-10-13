@@ -10,6 +10,8 @@ import { encountersHandlers } from './encounters-handlers';
 import { clinicalNotesHandlers } from './clinical-notes-handlers';
 import { medicationsHandlers } from './medications-handlers';
 import { prescriptionsHandlers } from './prescriptions-handlers';
+import { laboratoryHandlers } from './laboratory-handlers';
+import { radiologyHandlers } from './radiology-handlers';
 
 /**
  * API mock handlers.
@@ -161,6 +163,13 @@ export const handlers = [
   // the issue/cancel lifecycle. Dispensing is a pharmacy step. See
   // ./prescriptions-handlers.ts.
   ...prescriptionsHandlers(),
+  // F4 laboratory results (doctor results view): the patient's lab orders (thin
+  // list + full detail) and the test catalog that names result fields. See
+  // ./laboratory-handlers.ts.
+  ...laboratoryHandlers(),
+  // F4 radiology results (doctor results view): the patient's imaging orders,
+  // each serialized with its report. See ./radiology-handlers.ts.
+  ...radiologyHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).

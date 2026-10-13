@@ -992,5 +992,70 @@
     "confirmCancelTitle": "Ghairi dawa hii?",
     "confirmCancelBody": "Kughairi kunazuia kufikia maduka ya dawa. Hili haliwezi kutenduliwa.",
     "confirmCancel": "Ghairi dawa"
+  },
+  "results": {
+    "title": "Matokeo",
+    "intro": "Matokeo ya maabara na picha zilizotolewa kwa mgonjwa huyu. Kuagiza na kuchakata hufanywa na moduli za maabara na radiolojia.",
+    "loading": "Inapakia…",
+    "unavailableTitle": "Matokeo hayapatikani kwa sasa",
+    "unavailableBody": "Matokeo yaliyotolewa hayakuweza kupakiwa. Jaribu tena baadaye.",
+    "flag": {
+      "abnormal": "Isiyo ya kawaida",
+      "critical": "Hatari"
+    },
+    "laboratory": {
+      "heading": "Maabara",
+      "empty": "Hakuna matokeo ya maabara yaliyotolewa kwa mgonjwa huyu bado.",
+      "noResults": "Hakuna matokeo ya maabara yaliyo tayari bado.",
+      "pending": "Yanaendelea",
+      "orderNumber": "Oda {number}",
+      "ordered": "Iliagizwa {date}",
+      "released": "Iliyotolewa {date}",
+      "detailUnavailable": "Matokeo ya oda hii hayakuweza kupakiwa.",
+      "noValues": "Hakuna thamani zilizorekodiwa.",
+      "reference": "Kawaida {range}"
+    },
+    "imaging": {
+      "heading": "Picha",
+      "empty": "Hakuna ripoti za picha zilizotolewa kwa mgonjwa huyu bado.",
+      "orderNumber": "Oda {number}",
+      "impression": "Maoni",
+      "findings": "Matokeo yaliyoonekana",
+      "summary": "Muhtasari",
+      "awaitingReport": "Inasubiri ripoti.",
+      "reportPending": "Ripoti inaendelea.",
+      "ordered": "Iliagizwa {date}",
+      "performed": "Ilifanyika {date}",
+      "released": "Iliyotolewa {date}"
+    },
+    "status": {
+      "ORDERED": "Imeagizwa",
+      "COLLECTED": "Imekusanywa",
+      "RECEIVED": "Imepokelewa",
+      "PROCESSING": "Inachakatwa",
+      "RESULT_READY": "Matokeo tayari",
+      "VERIFIED": "Imethibitishwa",
+      "RELEASED": "Imetolewa",
+      "REJECTED": "Imekataliwa",
+      "CANCELLED": "Imefutwa",
+      "SCHEDULED": "Imepangwa",
+      "PERFORMED": "Imefanyika",
+      "REPORTED": "Imeripotiwa"
+    },
+    "priority": {
+      "ROUTINE": "Kawaida",
+      "URGENT": "Haraka",
+      "STAT": "Dharura"
+    },
+    "modality": {
+      "XRAY": "X-ray",
+      "CT": "CT",
+      "MRI": "MRI",
+      "ULTRASOUND": "Ultrasound",
+      "MAMMOGRAPHY": "Mammografia",
+      "DEXA": "DEXA",
+      "FLUOROSCOPY": "Floroskopia",
+      "OTHER": "Picha"
+    }
   }
 }

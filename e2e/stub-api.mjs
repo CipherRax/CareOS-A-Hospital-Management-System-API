@@ -427,6 +427,90 @@ function validatePrescriptionItems(value) {
   return items;
 }
 
+// --- laboratory + radiology results (F4 doctor results view) --------------
+// Same contract and records as the MSW handlers. The lab list is a thin
+// projection (no results, no test names); the detail route carries them.
+// Radiology serializes the full order including its report.
+const LAB_TEST_SEED = [
+  { id: 'lbt_example_5001', code: 'CBC', name: 'EXAMPLE Full blood count', sampleType: 'BLOOD', isActive: true, fields: [
+    { id: 'lbf_example_5101', name: 'Haemoglobin', fieldType: 'NUMERIC', unit: 'g/dL', referenceMin: '12', referenceMax: '16', criticalMin: '7', criticalMax: '20', allowsValues: null, displayOrder: 1, isActive: true },
+    { id: 'lbf_example_5102', name: 'White cell count', fieldType: 'NUMERIC', unit: '10^9/L', referenceMin: '4', referenceMax: '11', criticalMin: '1', criticalMax: '30', allowsValues: null, displayOrder: 2, isActive: true },
+    { id: 'lbf_example_5103', name: 'Platelet count', fieldType: 'NUMERIC', unit: '10^9/L', referenceMin: '150', referenceMax: '400', criticalMin: '50', criticalMax: '1000', allowsValues: null, displayOrder: 3, isActive: true },
+  ] },
+  { id: 'lbt_example_5002', code: 'U&E', name: 'EXAMPLE Urea and electrolytes', sampleType: 'BLOOD', isActive: true, fields: [
+    { id: 'lbf_example_5201', name: 'Sodium', fieldType: 'NUMERIC', unit: 'mmol/L', referenceMin: '135', referenceMax: '145', criticalMin: '120', criticalMax: '155', allowsValues: null, displayOrder: 1, isActive: true },
+    { id: 'lbf_example_5202', name: 'Potassium', fieldType: 'NUMERIC', unit: 'mmol/L', referenceMin: '3.5', referenceMax: '5.3', criticalMin: '2.5', criticalMax: '6.5', allowsValues: null, displayOrder: 2, isActive: true },
+    { id: 'lbf_example_5203', name: 'Creatinine', fieldType: 'NUMERIC', unit: 'umol/L', referenceMin: '60', referenceMax: '110', criticalMin: null, criticalMax: '500', allowsValues: null, displayOrder: 3, isActive: true },
+  ] },
+];
+const LIVE_LAB_TESTS = LAB_TEST_SEED.map((test) => ({
+  ...test, organizationId: 'org_example_0001', categoryId: null, specimenInstructions: null, version: 1,
+  fields: test.fields.map((field) => ({ ...field, organizationId: 'org_example_0001', testId: test.id })),
+}));
+let labItemSeq = 6200;
+let labResultSeq = 6300;
+const LAB_ORDER_SEED = [
+  { id: 'lab_example_5001', orderNumber: 'LAB-2026-000001', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'RELEASED', priority: 'ROUTINE', orderedMinutesAgo: 35, releasedMinutesAgo: 10, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, items: [
+    { testId: 'lbt_example_5001', notes: null, results: [
+      { testFieldId: 'lbf_example_5101', value: '13.4', isAbnormal: false, isCritical: false },
+      { testFieldId: 'lbf_example_5102', value: '12.8', isAbnormal: true, isCritical: false },
+      { testFieldId: 'lbf_example_5103', value: '245', isAbnormal: false, isCritical: false },
+    ] },
+  ] },
+  { id: 'lab_example_5002', orderNumber: 'LAB-2026-000002', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'RELEASED', priority: 'URGENT', orderedMinutesAgo: 30, releasedMinutesAgo: 5, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, items: [
+    { testId: 'lbt_example_5002', notes: 'Repeat potassium in two hours.', results: [
+      { testFieldId: 'lbf_example_5201', value: '138', isAbnormal: false, isCritical: false },
+      { testFieldId: 'lbf_example_5202', value: '6.2', isAbnormal: true, isCritical: true },
+      { testFieldId: 'lbf_example_5203', value: '132', isAbnormal: true, isCritical: false },
+    ] },
+  ] },
+  { id: 'lab_example_5003', orderNumber: 'LAB-2026-000003', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'PROCESSING', priority: 'ROUTINE', orderedMinutesAgo: 12, releasedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, items: [
+    { testId: 'lbt_example_5001', notes: null, results: [] },
+  ] },
+  { id: 'lab_example_5004', orderNumber: 'LAB-2026-000004', patientId: 'pat_example_1002', encounterId: 'enc_example_6002', status: 'RELEASED', priority: 'STAT', orderedMinutesAgo: 55, releasedMinutesAgo: 12, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, items: [
+    { testId: 'lbt_example_5001', notes: null, results: [{ testFieldId: 'lbf_example_5101', value: '9.4', isAbnormal: true, isCritical: false }] },
+  ] },
+];
+const LIVE_LAB_ORDERS = LAB_ORDER_SEED.map((seed) => ({
+  id: seed.id, organizationId: 'org_example_0001', orderNumber: seed.orderNumber, patientId: seed.patientId,
+  branchId: 'br_example_0001', encounterId: seed.encounterId, status: seed.status, priority: seed.priority,
+  clinicalNotes: seed.status === 'RELEASED' ? 'Requested during this visit.' : null, orderedById: 'usr_example_9001',
+  orderedAt: minutesAgo(seed.orderedMinutesAgo), releasedById: seed.releasedMinutesAgo === null ? null : 'usr_example_9002',
+  releasedAt: seed.releasedMinutesAgo === null ? null : minutesAgo(seed.releasedMinutesAgo), cancelledById: null,
+  cancelledAt: seed.cancelledMinutesAgo === null ? null : minutesAgo(seed.cancelledMinutesAgo), cancelledReason: seed.cancelReason,
+  rejectionReason: seed.rejectionReason, version: 1,
+  sample: seed.status === 'ORDERED' ? null : { id: `lbs_example_${6000 + labItemSeq++}`, sampleNumber: `SMP-2026-000${seed.orderNumber.slice(-1)}`, status: seed.status === 'PROCESSING' ? 'RECEIVED' : 'PROCESSED' },
+  _items: seed.items.map((item) => {
+    const test = LIVE_LAB_TESTS.find((t) => t.id === item.testId);
+    return { id: `loi_example_${labItemSeq++}`, testId: item.testId, testCode: test?.code ?? '', testName: test?.name ?? '', notes: item.notes, results: item.results.map((result) => ({ id: `lbr_example_${labResultSeq++}`, testFieldId: result.testFieldId, value: result.value, isAbnormal: result.isAbnormal, isCritical: result.isCritical, currentVersion: 1, amendments: 0 })) };
+  }),
+}));
+function serializeLabOrderSummary(order) {
+  const { _items, ...header } = order;
+  return { ...header, items: _items.map((item) => ({ id: item.id, testId: item.testId })) };
+}
+function serializeLabOrderDetail(order) {
+  const { _items, ...header } = order;
+  return { ...header, items: _items };
+}
+const RADIOLOGY_ORDER_SEED = [
+  { id: 'rad_example_4001', orderNumber: 'RAD-2026-000001', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', modality: 'XRAY', region: 'Chest', status: 'RELEASED', clinicalNotes: 'Persistent productive cough, query pneumonia.', orderedMinutesAgo: 38, performedMinutesAgo: 20, releasedMinutesAgo: 6, report: { id: 'imr_example_4001', findings: 'No focal consolidation or effusion. Cardiothoracic ratio within normal limits.', summary: 'Normal chest radiograph.', impression: 'No acute cardiopulmonary abnormality.', enteredMinutesAgo: 14, verifiedMinutesAgo: 8 } },
+  { id: 'rad_example_4002', orderNumber: 'RAD-2026-000002', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', modality: 'ULTRASOUND', region: 'Abdomen', status: 'SCHEDULED', clinicalNotes: 'Right upper quadrant pain.', orderedMinutesAgo: 5, performedMinutesAgo: null, releasedMinutesAgo: null, report: null },
+  { id: 'rad_example_4003', orderNumber: 'RAD-2026-000003', patientId: 'pat_example_1002', encounterId: 'enc_example_6002', modality: 'CT', region: 'Head', status: 'RELEASED', clinicalNotes: 'Sudden onset headache.', orderedMinutesAgo: 50, performedMinutesAgo: 30, releasedMinutesAgo: 15, report: { id: 'imr_example_4003', findings: 'No intracranial haemorrhage. Grey-white differentiation preserved.', summary: 'Unremarkable non-contrast CT head.', impression: 'No acute intracranial abnormality.', enteredMinutesAgo: 25, verifiedMinutesAgo: 18 } },
+];
+const LIVE_RADIOLOGY_ORDERS = RADIOLOGY_ORDER_SEED.map((seed) => ({
+  id: seed.id, organizationId: 'org_example_0001', orderNumber: seed.orderNumber, patientId: seed.patientId,
+  branchId: 'br_example_0001', encounterId: seed.encounterId, modality: seed.modality, region: seed.region,
+  status: seed.status, clinicalNotes: seed.clinicalNotes, orderedById: 'usr_example_9001', orderedAt: minutesAgo(seed.orderedMinutesAgo),
+  requestedAt: seed.status === 'SCHEDULED' ? minutesAgo(seed.orderedMinutesAgo - 1) : null,
+  performedById: seed.performedMinutesAgo === null ? null : 'usr_example_9002',
+  performedAt: seed.performedMinutesAgo === null ? null : minutesAgo(seed.performedMinutesAgo),
+  cancelledById: null, cancelledAt: null, cancelledReason: null,
+  releasedById: seed.releasedMinutesAgo === null ? null : 'usr_example_9003',
+  releasedAt: seed.releasedMinutesAgo === null ? null : minutesAgo(seed.releasedMinutesAgo), version: 1,
+  report: seed.report ? { id: seed.report.id, organizationId: 'org_example_0001', orderId: seed.id, findings: seed.report.findings, summary: seed.report.summary, impression: seed.report.impression, enteredById: seed.report.enteredMinutesAgo === null ? null : 'usr_example_9002', enteredAt: seed.report.enteredMinutesAgo === null ? null : minutesAgo(seed.report.enteredMinutesAgo), verifiedById: seed.report.verifiedMinutesAgo === null ? null : 'usr_example_9003', verifiedAt: seed.report.verifiedMinutesAgo === null ? null : minutesAgo(seed.report.verifiedMinutesAgo), version: 1 } : null,
+}));
+
 function serializeNote(note) {
   const body = { ...note };
   delete body._versions;
@@ -1540,6 +1624,58 @@ const server = createServer(async (request, response) => {
     const prescription = LIVE_PRESCRIPTIONS.find((p) => p.id === id);
     if (!prescription) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
     send(response, 200, { success: true, data: { prescription: serializePrescription(prescription) } });
+    return;
+  }
+
+  // --- laboratory results (F4 doctor results view) -----------------------
+  if (url.pathname === '/lab/orders' && request.method === 'GET') {
+    const patientId = url.searchParams.get('patientId');
+    const branchId = url.searchParams.get('branchId');
+    const status = url.searchParams.get('status');
+    let items = [...LIVE_LAB_ORDERS];
+    if (patientId) items = items.filter((o) => o.patientId === patientId);
+    if (branchId) items = items.filter((o) => o.branchId === branchId);
+    if (status) items = items.filter((o) => o.status === status);
+    items.sort((a, b) => Date.parse(b.orderedAt) - Date.parse(a.orderedAt));
+    send(response, 200, listEnvelope(items.map(serializeLabOrderSummary), 50));
+    return;
+  }
+
+  if (url.pathname === '/lab/tests' && request.method === 'GET') {
+    const active = url.searchParams.get('active');
+    let items = [...LIVE_LAB_TESTS];
+    if (active) items = items.filter((t) => t.isActive === (active === 'true'));
+    send(response, 200, listEnvelope(items, 100));
+    return;
+  }
+
+  if (url.pathname.match(/^\/lab\/orders\/[^/]+$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const order = LIVE_LAB_ORDERS.find((o) => o.id === id);
+    if (!order) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { order: serializeLabOrderDetail(order) } });
+    return;
+  }
+
+  // --- radiology results (F4 doctor results view) ------------------------
+  if (url.pathname === '/radiology/orders' && request.method === 'GET') {
+    const patientId = url.searchParams.get('patientId');
+    const branchId = url.searchParams.get('branchId');
+    const status = url.searchParams.get('status');
+    let items = [...LIVE_RADIOLOGY_ORDERS];
+    if (patientId) items = items.filter((o) => o.patientId === patientId);
+    if (branchId) items = items.filter((o) => o.branchId === branchId);
+    if (status) items = items.filter((o) => o.status === status);
+    items.sort((a, b) => Date.parse(b.orderedAt) - Date.parse(a.orderedAt));
+    send(response, 200, listEnvelope(items, 50));
+    return;
+  }
+
+  if (url.pathname.match(/^\/radiology\/orders\/[^/]+$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const order = LIVE_RADIOLOGY_ORDERS.find((o) => o.id === id);
+    if (!order) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { order } });
     return;
   }
 

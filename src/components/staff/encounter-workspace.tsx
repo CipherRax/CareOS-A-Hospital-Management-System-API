@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { ClinicalNotesPanel } from '@/components/staff/clinical-notes-panel';
 import { PrescriptionsPanel } from '@/components/staff/prescriptions-panel';
+import { ResultsPanel } from '@/components/staff/results-panel';
 import {
   useDepartmentList,
   useEncounter,
@@ -200,6 +201,8 @@ function EncounterBody({ row }: { row: EncounterRow }) {
       <ClinicalNotesPanel encounterId={row.id} encounterStatus={row.status} />
 
       <PrescriptionsPanel patientId={row.patientId} />
+
+      <ResultsPanel patientId={row.patientId} />
 
       <ConfirmDialog
         open={confirmComplete}

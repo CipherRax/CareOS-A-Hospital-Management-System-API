@@ -973,5 +973,70 @@
     "confirmCancelTitle": "Cancel this prescription?",
     "confirmCancelBody": "Cancelling stops it reaching the pharmacy. This cannot be undone.",
     "confirmCancel": "Cancel prescription"
+  },
+  "results": {
+    "title": "Results",
+    "intro": "Released laboratory and imaging results for this patient. Ordering and processing happen in the laboratory and radiology modules.",
+    "loading": "Loading…",
+    "unavailableTitle": "Results are temporarily unavailable",
+    "unavailableBody": "The released results could not be loaded. Try again shortly.",
+    "flag": {
+      "abnormal": "Abnormal",
+      "critical": "Critical"
+    },
+    "laboratory": {
+      "heading": "Laboratory",
+      "empty": "No laboratory results released for this patient yet.",
+      "noResults": "No laboratory results are ready yet.",
+      "pending": "In progress",
+      "orderNumber": "Order {number}",
+      "ordered": "Ordered {date}",
+      "released": "Released {date}",
+      "detailUnavailable": "This order's results could not be loaded.",
+      "noValues": "No values recorded.",
+      "reference": "Ref {range}"
+    },
+    "imaging": {
+      "heading": "Imaging",
+      "empty": "No imaging reports released for this patient yet.",
+      "orderNumber": "Order {number}",
+      "impression": "Impression",
+      "findings": "Findings",
+      "summary": "Summary",
+      "awaitingReport": "Awaiting report.",
+      "reportPending": "Report in progress.",
+      "ordered": "Ordered {date}",
+      "performed": "Performed {date}",
+      "released": "Released {date}"
+    },
+    "status": {
+      "ORDERED": "Ordered",
+      "COLLECTED": "Collected",
+      "RECEIVED": "Received",
+      "PROCESSING": "Processing",
+      "RESULT_READY": "Result ready",
+      "VERIFIED": "Verified",
+      "RELEASED": "Released",
+      "REJECTED": "Rejected",
+      "CANCELLED": "Cancelled",
+      "SCHEDULED": "Scheduled",
+      "PERFORMED": "Performed",
+      "REPORTED": "Reported"
+    },
+    "priority": {
+      "ROUTINE": "Routine",
+      "URGENT": "Urgent",
+      "STAT": "STAT"
+    },
+    "modality": {
+      "XRAY": "X-ray",
+      "CT": "CT",
+      "MRI": "MRI",
+      "ULTRASOUND": "Ultrasound",
+      "MAMMOGRAPHY": "Mammography",
+      "DEXA": "DEXA",
+      "FLUOROSCOPY": "Fluoroscopy",
+      "OTHER": "Imaging"
+    }
   }
 }
