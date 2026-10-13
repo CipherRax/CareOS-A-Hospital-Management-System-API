@@ -6,6 +6,7 @@ import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Field, Input, Select, Textarea } from '@/components/ui/field';
+import { CheckboxField } from '@/components/ui/primitives';
 import {
   useCreateLabOrder,
   useCreateRadiologyOrder,
@@ -162,30 +163,27 @@ function LabOrderComposer({
       ) : (
         <fieldset className="flex flex-col gap-2">
           <legend className="text-meta font-medium text-secondary">{t('testsLegend')}</legend>
-          <ul className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2">
             {tests.map((test) => (
-              <li key={test.id}>
-                <label className="flex items-start gap-2 text-meta text-primary">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 size-4"
-                    checked={selected.includes(test.id)}
-                    onChange={() =>
-                      setSelected((current) =>
-                        current.includes(test.id)
-                          ? current.filter((id) => id !== test.id)
-                          : [...current, test.id],
-                      )
-                    }
-                  />
-                  <span>
+              <CheckboxField
+                key={test.id}
+                label={
+                  <>
                     <span className="font-medium">{test.name}</span>
                     <span className="text-tertiary"> · {test.code}</span>
-                  </span>
-                </label>
-              </li>
+                  </>
+                }
+                checked={selected.includes(test.id)}
+                onCheckedChange={(checked) =>
+                  setSelected((current) =>
+                    checked
+                      ? [...current, test.id]
+                      : current.filter((id) => id !== test.id),
+                  )
+                }
+              />
             ))}
-          </ul>
+          </div>
         </fieldset>
       )}
 
