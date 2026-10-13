@@ -10,13 +10,14 @@ import {
 } from '@/lib/data/envelope';
 
 /**
- * Radiology / imaging results (F4 — doctor results view).
+ * Radiology / imaging results (F4 — doctor results view) and the imaging
+ * pipeline (F5 — radiology worklist: schedule, perform, report, verify, release).
  *
  * Unlike the laboratory list, `GET /radiology/orders` serializes the **full**
  * order including the imaging report, so the list read alone backs the doctor's
- * imaging results — no per-order follow-up fetch. (The write surface — schedule,
- * perform, report, verify, release — is a radiology-department responsibility
- * and belongs to F5, not this view.)
+ * imaging results — no per-order follow-up fetch. The same read backs the
+ * worklist, and `GET /radiology/orders/{id}` (typed as the bare entity while the
+ * service answers `{ order }`) backs the single-order workspace.
  *
  * Same GAP-020 export drift as every other list: the 200 is typed as
  * `ListRadiologyOrdersQueryDto` with `query: never`, so this rides the raw-fetch
@@ -53,6 +54,41 @@ export const IMAGING_MODALITIES = [
 ] as const;
 export type ImagingModality = (typeof IMAGING_MODALITIES)[number];
 
+/**
+ * The radiology lifecycle actions, in pipeline order. `report` carries the
+ * findings/summary/impression body; `cancel` carries a reason; every other move
+ * is one click. Mirrors `domain/radiology-flow.ts`.
+ */
+export const RADIOLOGY_ORDER_ACTIONS = [
+  'schedule',
+  'perform',
+  'report',
+  'verify',
+  'release',
+  'cancel',
+] as const;
+export type RadiologyOrderAction = (typeof RADIOLOGY_ORDER_ACTIONS)[number];
+
+/** Every move except `report`, which is handled by its own form. */
+export type RadiologyOrderTransition = Exclude<RadiologyOrderAction, 'report'>;
+
+/**
+ * The server's transition graph (`RAD_ALLOWED_FROM`): a move the server would
+ * refuse is never offered. Cancel is available only while ORDERED/SCHEDULED.
+ */
+export const RADIOLOGY_ORDER_ACTIONS_BY_STATUS: Record<
+  RadiologyStatus,
+  readonly RadiologyOrderAction[]
+> = {
+  ORDERED: ['schedule', 'cancel'],
+  SCHEDULED: ['perform', 'cancel'],
+  PERFORMED: ['report'],
+  REPORTED: ['verify'],
+  VERIFIED: ['release'],
+  RELEASED: [],
+  CANCELLED: [],
+};
+
 export interface ImagingReportRow {
   readonly id: string;
   readonly orderId: string;
@@ -82,6 +118,7 @@ export interface RadiologyOrderRow {
   readonly requestedAt: string | null;
   readonly performedById: string | null;
   readonly performedAt: string | null;
+  readonly cancelledById: string | null;
   readonly cancelledAt: string | null;
   readonly cancelledReason: string | null;
   readonly releasedById: string | null;
@@ -144,6 +181,7 @@ export function readRadiologyOrder(value: unknown): RadiologyOrderRow | null {
     requestedAt: nullableString(value.requestedAt),
     performedById: nullableString(value.performedById),
     performedAt: nullableString(value.performedAt),
+    cancelledById: nullableString(value.cancelledById),
     cancelledAt: nullableString(value.cancelledAt),
     cancelledReason: nullableString(value.cancelledReason),
     releasedById: nullableString(value.releasedById),

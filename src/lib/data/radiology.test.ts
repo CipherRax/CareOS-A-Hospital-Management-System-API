@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   IMAGING_MODALITIES,
+  RADIOLOGY_ORDER_ACTIONS_BY_STATUS,
   RADIOLOGY_REPORT_STATUSES,
   RADIOLOGY_STATUSES,
   extractRadiologyOrderPage,
@@ -47,6 +48,7 @@ const order = {
   requestedAt: '2026-10-11T09:30:00.000Z',
   performedById: 'usr_example_9002',
   performedAt: '2026-10-11T10:00:00.000Z',
+  cancelledById: null,
   cancelledAt: null,
   cancelledReason: null,
   releasedById: 'usr_example_9003',
@@ -61,6 +63,18 @@ describe('readRadiologyOrder', () => {
     expect(row?.modality).toBe('XRAY');
     expect(row?.region).toBe('Chest');
     expect(row?.report?.impression).toBe('No acute cardiopulmonary abnormality.');
+  });
+
+  it('reads the cancellation provenance', () => {
+    const row = readRadiologyOrder({
+      ...order,
+      status: 'CANCELLED',
+      cancelledById: 'usr_example_9002',
+      cancelledAt: '2026-10-11T09:45:00.000Z',
+      cancelledReason: 'Patient declined.',
+    });
+    expect(row?.cancelledById).toBe('usr_example_9002');
+    expect(row?.cancelledReason).toBe('Patient declined.');
   });
 
   it('reads an order still awaiting a report', () => {
@@ -122,5 +136,15 @@ describe('constants', () => {
     ]);
     expect(IMAGING_MODALITIES).toContain('XRAY');
     expect(RADIOLOGY_REPORT_STATUSES).toEqual(['REPORTED', 'VERIFIED', 'RELEASED']);
+  });
+
+  it('mirror the server transition graph', () => {
+    expect(RADIOLOGY_ORDER_ACTIONS_BY_STATUS.ORDERED).toEqual(['schedule', 'cancel']);
+    expect(RADIOLOGY_ORDER_ACTIONS_BY_STATUS.SCHEDULED).toEqual(['perform', 'cancel']);
+    expect(RADIOLOGY_ORDER_ACTIONS_BY_STATUS.PERFORMED).toEqual(['report']);
+    expect(RADIOLOGY_ORDER_ACTIONS_BY_STATUS.REPORTED).toEqual(['verify']);
+    expect(RADIOLOGY_ORDER_ACTIONS_BY_STATUS.VERIFIED).toEqual(['release']);
+    expect(RADIOLOGY_ORDER_ACTIONS_BY_STATUS.RELEASED).toEqual([]);
+    expect(RADIOLOGY_ORDER_ACTIONS_BY_STATUS.CANCELLED).toEqual([]);
   });
 });

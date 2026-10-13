@@ -124,10 +124,13 @@ import {
   type LaboratoryCallError,
 } from '@/lib/data/laboratory';
 import {
+  extractRadiologyOrderRecord,
   fetchRadiologyOrders,
   type RadiologyCallError,
   type RadiologyOrderPage,
   type RadiologyOrderQuery,
+  type RadiologyOrderRow,
+  type RadiologyOrderTransition,
 } from '@/lib/data/radiology';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
@@ -2165,5 +2168,129 @@ export function useRadiologyOrders(
     },
     staleTime: 15_000,
     retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+// --- radiology worklist actions (F5) ---------------------------------------
+
+/** A record body that fails structural validation is an internal contract break. */
+function radiologyWriteError(status = 201): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+export interface RadiologyOrderTransitionInput {
+  id: string;
+  action: RadiologyOrderTransition;
+  /** `cancel` captures a reason; every other move takes none. */
+  reason?: string;
+}
+
+export interface SubmitImagingReportInput {
+  id: string;
+  findings: string;
+  summary?: string;
+  impression?: string;
+}
+
+/**
+ * Full radiology order `GET /radiology/orders/{id}` — the workspace read. The
+ * service answers `{ order }` while the export types the bare entity, so the
+ * unwrapped body is validated structurally (GAP-020).
+ */
+export function useRadiologyOrder(
+  id: string,
+): UseQueryResult<Fetched<RadiologyOrderRow>, QueryError> {
+  return useQuery<Fetched<RadiologyOrderRow>, QueryError>({
+    queryKey: ['radiology-orders', id],
+    queryFn: () =>
+      fetchPatientEnvelope<RadiologyOrderRow>(
+        api.GET('/radiology/orders/{id}', { params: { path: { id } } }),
+        (body) => {
+          const parsed = extractRadiologyOrderRecord(body);
+          if (!parsed.ok) return { ok: false as const };
+          return { ok: true as const, data: parsed.order };
+        },
+      ),
+    enabled: id.length > 0,
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Advances an order along the imaging pipeline
+ * (`POST /radiology/orders/{id}/{schedule|perform|verify|release|cancel}`).
+ *
+ * The transition set is the server's (`RADIOLOGY_ORDER_ACTIONS_BY_STATUS`), and
+ * the export types the 201 body as the bare entity while the service answers
+ * `{ order }` — so the unwrapped body is validated structurally (GAP-020). A move
+ * the server refuses (stale status) rejects with the mapped code in place, never
+ * a thrown string.
+ */
+export function useRadiologyOrderTransition(): UseMutationResult<
+  RadiologyOrderRow,
+  QueryError,
+  RadiologyOrderTransitionInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<RadiologyOrderRow, QueryError, RadiologyOrderTransitionInput>({
+    mutationFn: async (input) => {
+      const params = { path: { id: input.id } };
+      const call =
+        input.action === 'schedule'
+          ? api.POST('/radiology/orders/{id}/schedule', { params })
+          : input.action === 'perform'
+            ? api.POST('/radiology/orders/{id}/perform', { params })
+            : input.action === 'verify'
+              ? api.POST('/radiology/orders/{id}/verify', { params })
+              : input.action === 'release'
+                ? api.POST('/radiology/orders/{id}/release', { params })
+                : api.POST('/radiology/orders/{id}/cancel', {
+                    params,
+                    body: { reason: input.reason ?? '' },
+                  });
+      const fetched = await unwrap<unknown>(call);
+      const parsed = extractRadiologyOrderRecord(fetched.data);
+      if (!parsed.ok) throw radiologyWriteError();
+      return parsed.order;
+    },
+    onSuccess: (_order, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['radiology-orders', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['radiology-orders', 'list'] });
+    },
+  });
+}
+
+/**
+ * Writes the imaging report (`POST /radiology/orders/{id}/report`) for an order
+ * in PERFORMED. `findings` is required; `summary` and `impression` are optional.
+ * The move is one-way to REPORTED; verification and release follow.
+ */
+export function useSubmitImagingReport(): UseMutationResult<
+  RadiologyOrderRow,
+  QueryError,
+  SubmitImagingReportInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<RadiologyOrderRow, QueryError, SubmitImagingReportInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/radiology/orders/{id}/report', {
+          params: { path: { id: input.id } },
+          body: {
+            findings: input.findings,
+            summary: input.summary,
+            impression: input.impression,
+          },
+        }),
+      );
+      const parsed = extractRadiologyOrderRecord(fetched.data);
+      if (!parsed.ok) throw radiologyWriteError();
+      return parsed.order;
+    },
+    onSuccess: (_order, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['radiology-orders', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['radiology-orders', 'list'] });
+    },
   });
 }

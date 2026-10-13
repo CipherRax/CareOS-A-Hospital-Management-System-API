@@ -1125,6 +1125,115 @@
       "failedBody": "Try again shortly."
     }
   },
+  "radiology": {
+    "pageTitle": "Radiology",
+    "pageIntro": "Imaging requests, from scheduling through reporting and release.",
+    "filterStatus": "Filter by status",
+    "filterModality": "Filter by modality",
+    "allStatuses": "All statuses",
+    "allModalities": "All modalities",
+    "tableCaption": "Radiology orders, newest first",
+    "columnOrder": "Order",
+    "columnPatient": "Patient",
+    "columnStudy": "Study",
+    "columnOrdered": "Ordered",
+    "columnStatus": "Status",
+    "openOrder": "Open order {number}",
+    "empty": "No radiology orders match this filter.",
+    "unavailableTitle": "Radiology orders are temporarily unavailable",
+    "unavailableBody": "The worklist could not be loaded. Try again shortly.",
+    "unknownPatient": "Unknown patient",
+    "unknownDate": "—",
+    "status": {
+      "ORDERED": "Ordered",
+      "SCHEDULED": "Scheduled",
+      "PERFORMED": "Performed",
+      "REPORTED": "Reported",
+      "VERIFIED": "Verified",
+      "RELEASED": "Released",
+      "CANCELLED": "Cancelled"
+    },
+    "modality": {
+      "XRAY": "X-ray",
+      "CT": "CT",
+      "MRI": "MRI",
+      "ULTRASOUND": "Ultrasound",
+      "MAMMOGRAPHY": "Mammography",
+      "DEXA": "DEXA",
+      "FLUOROSCOPY": "Fluoroscopy",
+      "OTHER": "Other"
+    },
+    "workspace": {
+      "back": "Back to radiology worklist",
+      "loading": "Loading order…",
+      "unavailableTitle": "This order is temporarily unavailable",
+      "unavailableBody": "The radiology order could not be loaded. Try again shortly.",
+      "notFoundTitle": "Order not found",
+      "notFoundBody": "This radiology order does not exist or you do not have access to it.",
+      "orderHeading": "Order",
+      "modality": "Modality",
+      "region": "Region",
+      "noRegion": "Not specified",
+      "ordered": "Ordered",
+      "requested": "Requested",
+      "performed": "Performed",
+      "released": "Released",
+      "clinicalNotes": "Clinical notes",
+      "noNotes": "None recorded",
+      "cancelReason": "Cancellation reason",
+      "notYet": "Not yet",
+      "version": "Version {version}",
+      "report": "Report",
+      "findings": "Findings",
+      "summary": "Summary",
+      "impression": "Impression",
+      "entered": "Entered",
+      "verified": "Verified",
+      "noReport": "No report has been written for this study yet.",
+      "actions": "Actions",
+      "noActions": "No actions are available at this stage.",
+      "openPatient": "Open patient record"
+    },
+    "action": {
+      "schedule": "Schedule",
+      "perform": "Mark performed",
+      "report": "Write report",
+      "verify": "Verify report",
+      "release": "Release report",
+      "cancel": "Cancel order"
+    },
+    "confirm": {
+      "verifyTitle": "Verify this report?",
+      "verifyBody": "Verification confirms the report is correct and ready for release.",
+      "releaseTitle": "Release this report?",
+      "releaseBody": "Releasing publishes the report to the patient record. This cannot be undone."
+    },
+    "reason": {
+      "label": "Reason",
+      "hint": "At least 10 characters.",
+      "placeholder": "Explain the reason…",
+      "cancelTitle": "Cancel this order?",
+      "cancelBody": "Cancelling stops the study from being performed. This cannot be undone."
+    },
+    "report": {
+      "intro": "Record the findings before submitting. Summary and impression are optional.",
+      "findings": "Findings",
+      "findingsRequired": "Enter the findings.",
+      "summary": "Summary",
+      "impression": "Impression",
+      "optional": "Optional",
+      "submit": "Submit report"
+    },
+    "dialog": {
+      "cancel": "Cancel"
+    },
+    "errors": {
+      "staleTitle": "This order changed elsewhere",
+      "staleBody": "The action is no longer available — the order may have moved on. Reload the workspace.",
+      "failedTitle": "The action could not be completed",
+      "failedBody": "Try again shortly."
+    }
+  },
   "results": {
     "title": "Results",
     "intro": "Released laboratory and imaging results for this patient. Ordering and processing happen in the laboratory and radiology modules.",

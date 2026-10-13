@@ -389,3 +389,28 @@ against `src/modules/laboratory` and `src/modules/radiology`:
   `domain/lab-flow.ts`, and releasing before every critical result is
   acknowledged is refused with 409 `LAB_RESULT_NOT_ACKNOWLEDGED`, a wrong-state
   move with 409 `INVALID_WORKFLOW_TRANSITION`.
+
+**Same drift under the radiology write surface (F5 slice 2).** Verified against
+`src/modules/radiology`:
+
+- Every transition POST — `schedule`, `perform`, `report`, `verify`, `release`,
+  `cancel` under `/radiology/orders/{id}` — is typed as the bare
+  `RadiologyOrderResponseDto` but answers `{ order }`, and answers **201**.
+  `schedule` / `perform` / `verify` / `release` carry `requestBody?: never`;
+  `report` takes `{ findings, summary?, impression? }`; `cancel` takes
+  `{ reason }`.
+- `POST /radiology/orders` (create) is typed as the bare entity but answers
+  `{ order }`; the client is not yet wired to it.
+- The reads keep their earlier shape: the list serializes the full order
+  including the report and the single read answers `{ order }`; the service, not
+  the DTO, is authority. The client validates every body in
+  `src/lib/data/radiology.ts` regardless — the reads through
+  `readRadiologyOrder` / `extractRadiologyOrderRecord`, and the writes through
+  the same record validator on the unwrapped `{ order }`.
+- `RadiologyOrderResponseDto` exposes `cancelledById` but the F4 row reader did
+  not read it; it is now part of `RadiologyOrderRow`, so a cancelled study can
+  show who cancelled it.
+- The workflow itself is not in doubt: the transition guards mirror
+  `domain/radiology-flow.ts` (`RAD_ALLOWED_FROM`), and a wrong-state move is
+  refused with 409 `INVALID_WORKFLOW_TRANSITION`. A report is required before
+  verification (the 1:1 report is created by `report`).

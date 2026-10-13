@@ -36,6 +36,7 @@ const SECTIONS: readonly NavSection[] = [
       { href: '/vitals', label: 'Vitals' },
       { href: '/encounters', label: 'Encounters' },
       { href: '/lab', label: 'Laboratory' },
+      { href: '/radiology', label: 'Radiology' },
       { href: '/patients', label: 'Patients' },
     ],
   },

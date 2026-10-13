@@ -570,18 +570,26 @@ function classifyLabValue(field, value) {
   return { isAbnormal, isCritical };
 }
 const RADIOLOGY_ORDER_SEED = [
-  { id: 'rad_example_4001', orderNumber: 'RAD-2026-000001', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', modality: 'XRAY', region: 'Chest', status: 'RELEASED', clinicalNotes: 'Persistent productive cough, query pneumonia.', orderedMinutesAgo: 38, performedMinutesAgo: 20, releasedMinutesAgo: 6, report: { id: 'imr_example_4001', findings: 'No focal consolidation or effusion. Cardiothoracic ratio within normal limits.', summary: 'Normal chest radiograph.', impression: 'No acute cardiopulmonary abnormality.', enteredMinutesAgo: 14, verifiedMinutesAgo: 8 } },
-  { id: 'rad_example_4002', orderNumber: 'RAD-2026-000002', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', modality: 'ULTRASOUND', region: 'Abdomen', status: 'SCHEDULED', clinicalNotes: 'Right upper quadrant pain.', orderedMinutesAgo: 5, performedMinutesAgo: null, releasedMinutesAgo: null, report: null },
-  { id: 'rad_example_4003', orderNumber: 'RAD-2026-000003', patientId: 'pat_example_1002', encounterId: 'enc_example_6002', modality: 'CT', region: 'Head', status: 'RELEASED', clinicalNotes: 'Sudden onset headache.', orderedMinutesAgo: 50, performedMinutesAgo: 30, releasedMinutesAgo: 15, report: { id: 'imr_example_4003', findings: 'No intracranial haemorrhage. Grey-white differentiation preserved.', summary: 'Unremarkable non-contrast CT head.', impression: 'No acute intracranial abnormality.', enteredMinutesAgo: 25, verifiedMinutesAgo: 18 } },
+  { id: 'rad_example_4001', orderNumber: 'RAD-2026-000001', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', modality: 'XRAY', region: 'Chest', status: 'RELEASED', clinicalNotes: 'Persistent productive cough, query pneumonia.', orderedMinutesAgo: 38, requestedMinutesAgo: 36, performedMinutesAgo: 20, cancelledMinutesAgo: null, cancelReason: null, releasedMinutesAgo: 6, report: { id: 'imr_example_4001', findings: 'No focal consolidation or effusion. Cardiothoracic ratio within normal limits.', summary: 'Normal chest radiograph.', impression: 'No acute cardiopulmonary abnormality.', enteredMinutesAgo: 14, verifiedMinutesAgo: 8 } },
+  { id: 'rad_example_4002', orderNumber: 'RAD-2026-000002', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', modality: 'ULTRASOUND', region: 'Abdomen', status: 'SCHEDULED', clinicalNotes: 'Right upper quadrant pain.', orderedMinutesAgo: 5, requestedMinutesAgo: 3, performedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, releasedMinutesAgo: null, report: null },
+  { id: 'rad_example_4003', orderNumber: 'RAD-2026-000003', patientId: 'pat_example_1002', encounterId: 'enc_example_6002', modality: 'CT', region: 'Head', status: 'RELEASED', clinicalNotes: 'Sudden onset headache.', orderedMinutesAgo: 50, requestedMinutesAgo: 48, performedMinutesAgo: 30, cancelledMinutesAgo: null, cancelReason: null, releasedMinutesAgo: 15, report: { id: 'imr_example_4003', findings: 'No intracranial haemorrhage. Grey-white differentiation preserved.', summary: 'Unremarkable non-contrast CT head.', impression: 'No acute intracranial abnormality.', enteredMinutesAgo: 25, verifiedMinutesAgo: 18 } },
+  { id: 'rad_example_4004', orderNumber: 'RAD-2026-000004', patientId: 'pat_example_1003', encounterId: 'enc_example_6003', modality: 'MRI', region: 'Knee', status: 'ORDERED', clinicalNotes: 'Twisted knee; query meniscal tear.', orderedMinutesAgo: 2, requestedMinutesAgo: null, performedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, releasedMinutesAgo: null, report: null },
+  { id: 'rad_example_4005', orderNumber: 'RAD-2026-000005', patientId: 'pat_example_1004', encounterId: null, modality: 'XRAY', region: 'Chest', status: 'PERFORMED', clinicalNotes: 'Pre-operative assessment.', orderedMinutesAgo: 40, requestedMinutesAgo: 38, performedMinutesAgo: 10, cancelledMinutesAgo: null, cancelReason: null, releasedMinutesAgo: null, report: null },
+  { id: 'rad_example_4006', orderNumber: 'RAD-2026-000006', patientId: 'pat_example_1003', encounterId: null, modality: 'CT', region: 'Abdomen', status: 'REPORTED', clinicalNotes: 'Recurrent abdominal pain.', orderedMinutesAgo: 60, requestedMinutesAgo: 58, performedMinutesAgo: 25, cancelledMinutesAgo: null, cancelReason: null, releasedMinutesAgo: null, report: { id: 'imr_example_4006', findings: 'No bowel obstruction. Mild fat stranding in the right iliac fossa.', summary: 'Mild inflammatory change.', impression: 'Probable early appendicitis; correlate clinically.', enteredMinutesAgo: 8, verifiedMinutesAgo: null } },
+  { id: 'rad_example_4007', orderNumber: 'RAD-2026-000007', patientId: 'pat_example_1002', encounterId: null, modality: 'MRI', region: 'Spine', status: 'VERIFIED', clinicalNotes: 'Chronic low back pain.', orderedMinutesAgo: 90, requestedMinutesAgo: 88, performedMinutesAgo: 50, cancelledMinutesAgo: null, cancelReason: null, releasedMinutesAgo: null, report: { id: 'imr_example_4007', findings: 'L4/L5 disc bulge without nerve root compression.', summary: 'Degenerative disc disease.', impression: 'No surgical target identified.', enteredMinutesAgo: 30, verifiedMinutesAgo: 12 } },
+  { id: 'rad_example_4008', orderNumber: 'RAD-2026-000008', patientId: 'pat_example_1004', encounterId: null, modality: 'ULTRASOUND', region: 'Pelvis', status: 'CANCELLED', clinicalNotes: 'Query ovarian pathology.', orderedMinutesAgo: 20, requestedMinutesAgo: null, performedMinutesAgo: null, cancelledMinutesAgo: 15, cancelReason: 'Patient declined; imaging to be rescheduled.', releasedMinutesAgo: null, report: null },
 ];
+let radiologyReportSeq = 4100;
 const LIVE_RADIOLOGY_ORDERS = RADIOLOGY_ORDER_SEED.map((seed) => ({
   id: seed.id, organizationId: 'org_example_0001', orderNumber: seed.orderNumber, patientId: seed.patientId,
   branchId: 'br_example_0001', encounterId: seed.encounterId, modality: seed.modality, region: seed.region,
   status: seed.status, clinicalNotes: seed.clinicalNotes, orderedById: 'usr_example_9001', orderedAt: minutesAgo(seed.orderedMinutesAgo),
-  requestedAt: seed.status === 'SCHEDULED' ? minutesAgo(seed.orderedMinutesAgo - 1) : null,
+  requestedAt: seed.requestedMinutesAgo === null ? null : minutesAgo(seed.requestedMinutesAgo),
   performedById: seed.performedMinutesAgo === null ? null : 'usr_example_9002',
   performedAt: seed.performedMinutesAgo === null ? null : minutesAgo(seed.performedMinutesAgo),
-  cancelledById: null, cancelledAt: null, cancelledReason: null,
+  cancelledById: seed.cancelledMinutesAgo === null ? null : 'usr_example_9001',
+  cancelledAt: seed.cancelledMinutesAgo === null ? null : minutesAgo(seed.cancelledMinutesAgo),
+  cancelledReason: seed.cancelReason,
   releasedById: seed.releasedMinutesAgo === null ? null : 'usr_example_9003',
   releasedAt: seed.releasedMinutesAgo === null ? null : minutesAgo(seed.releasedMinutesAgo), version: 1,
   report: seed.report ? { id: seed.report.id, organizationId: 'org_example_0001', orderId: seed.id, findings: seed.report.findings, summary: seed.report.summary, impression: seed.report.impression, enteredById: seed.report.enteredMinutesAgo === null ? null : 'usr_example_9002', enteredAt: seed.report.enteredMinutesAgo === null ? null : minutesAgo(seed.report.enteredMinutesAgo), verifiedById: seed.report.verifiedMinutesAgo === null ? null : 'usr_example_9003', verifiedAt: seed.report.verifiedMinutesAgo === null ? null : minutesAgo(seed.report.verifiedMinutesAgo), version: 1 } : null,
@@ -1862,6 +1870,52 @@ const server = createServer(async (request, response) => {
     const order = LIVE_RADIOLOGY_ORDERS.find((o) => o.id === id);
     if (!order) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
     send(response, 200, { success: true, data: { order } });
+    return;
+  }
+
+  // --- radiology worklist writes (F5) -----------------------------------
+  // Mirror the MSW handlers and the server's state machine against the same
+  // in-memory order list, so a transition taken in the UI is reflected on the
+  // next read (and a stale move answers 409).
+  const radiologyWrite = url.pathname.match(/^\/radiology\/orders\/([^/]+)\/(schedule|perform|report|verify|release|cancel)$/);
+  if (radiologyWrite && request.method === 'POST') {
+    const order = LIVE_RADIOLOGY_ORDERS.find((o) => o.id === radiologyWrite[1]);
+    const action = radiologyWrite[2];
+    if (!order) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Radiology order not found' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const conflict = (message) => send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION', message } });
+    const now = new Date().toISOString();
+    if (action === 'schedule') {
+      if (order.status !== 'ORDERED') { conflict('Only an ordered study can be scheduled.'); return; }
+      order.status = 'SCHEDULED';
+      order.requestedAt = now;
+    } else if (action === 'perform') {
+      if (order.status !== 'SCHEDULED') { conflict('Only a scheduled study can be performed.'); return; }
+      order.status = 'PERFORMED';
+      order.performedAt = now;
+      order.performedById = 'usr_example_9002';
+    } else if (action === 'report') {
+      if (order.status !== 'PERFORMED') { conflict('Only a performed study can be reported.'); return; }
+      order.status = 'REPORTED';
+      order.report = { id: `imr_example_${radiologyReportSeq++}`, organizationId: 'org_example_0001', orderId: order.id, findings: typeof body.findings === 'string' ? body.findings : null, summary: typeof body.summary === 'string' ? body.summary : null, impression: typeof body.impression === 'string' ? body.impression : null, enteredById: 'usr_example_9002', enteredAt: now, verifiedById: null, verifiedAt: null, version: 1 };
+    } else if (action === 'verify') {
+      if (order.status !== 'REPORTED') { conflict('Only a reported study can be verified.'); return; }
+      order.status = 'VERIFIED';
+      if (order.report) { order.report.verifiedById = 'usr_example_9003'; order.report.verifiedAt = now; }
+    } else if (action === 'release') {
+      if (order.status !== 'VERIFIED') { conflict('Only a verified study can be released.'); return; }
+      order.status = 'RELEASED';
+      order.releasedById = 'usr_example_9003';
+      order.releasedAt = now;
+    } else if (action === 'cancel') {
+      if (order.status !== 'ORDERED' && order.status !== 'SCHEDULED') { conflict('This study can no longer be cancelled.'); return; }
+      order.status = 'CANCELLED';
+      order.cancelledAt = now;
+      order.cancelledById = 'usr_example_9001';
+      order.cancelledReason = typeof body.reason === 'string' ? body.reason : '';
+    }
+    send(response, 201, { success: true, data: { order } });
     return;
   }
 

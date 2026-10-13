@@ -17,7 +17,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F2 Patients & reception        | **complete** — patient search, walk-in registration with duplicate guard, master record (banner + sections + timeline + access log), MSW fixtures, structural validators | shipped (`a185d69`, `8b6ce44`); live API round-trip Docker-gated; GAP-012–GAP-016 documented |
 | F3 Scheduling, queue, nursing  | **complete** — reception queue slice (live queue board, walk-in ticket issuance, status/priority moves), appointment desk slice (day book, booking with slot search, appointment status moves, department waitlist), nursing vitals slice (patient chart, record/correct with BMI), schedule admin slice (weekly template CRUD + dated exceptions), and reschedule from the day book | live API round-trip Docker-gated; GAP-017–GAP-019 documented |
 | F4 Doctor workspace            | encounters + clinical notes + prescriptions + results **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), the clinical-notes panel (structured DRAFT → Finalize → Amend with version history), the prescriptions panel (medication orders: DRAFT → issue → pharmacy dispense, cancel while un-/partially-dispensed), and the read-only results panel (released laboratory results + imaging reports); MSW fixtures + stub + e2e swept | live API round-trip Docker-gated; GAP-020 documented |
-| F5 Laboratory & radiology      | not started                                                                                | lab orders, samples, results                           |
+| F5 Laboratory & radiology      | in progress — laboratory worklist + order workspace, and radiology worklist + imaging workspace | pharmacy, billing                                         |
 | F6 Pharmacy & inventory        | not started                                                                                | dispensing, stock, batches, POs                        |
 | F7 Billing & insurance         | not started                                                                                | invoices, payments, M-PESA, claims                     |
 | F8 Inpatient & emergency       | not started                                                                                | wards, beds, admissions                                |
@@ -657,3 +657,45 @@ entity while answering an envelope; the transition POSTs answer 201. Records are
 EXAMPLE-prefixed and duplicated deliberately between the MSW registry and
 `e2e/stub-api.mjs`, with an order at every status so each transition can be
 exercised. Data layers: 19 unit tests (`laboratory.test.ts`).
+
+## F5 — Radiology, slice 2: worklist and imaging workspace
+
+**Status:** complete. `/radiology` lists every imaging order and `/radiology/[id]`
+is the radiology department's workspace for one order, at whatever point of the
+pipeline it sits. Scheduling, performing, reporting and release live here (the
+doctor's view of F4 slice 4 is read-only).
+
+- **Worklist.** `GET /radiology/orders` serializes the full order including the
+  report, but the export mis-types its 200 as the request DTO
+  (`ListRadiologyOrdersQueryDto`, `query: never`), so rows are validated
+  structurally in `src/lib/data/radiology.ts`. Status and modality filters narrow
+  the list; rows carry only `patientId`, so names resolve on demand (GAP-018),
+  the same as the day book. Modality is shown beside the region as the study.
+- **Imaging workspace.** The single read answers `{ order }`; the reader was
+  extended to read `cancelledById`, which the F4 row had omitted, so a cancelled
+  study shows its cancellation reason. The report card renders findings, summary
+  and impression with their entered/verified stamps, or an "awaiting report" line
+  before one exists.
+- **Transitions.** The action bar is the server's transition graph
+  (`RADIOLOGY_ORDER_ACTIONS_BY_STATUS`): a move the server would refuse is never
+  offered. `schedule` and `perform` are one-click; `verify` and `release` confirm;
+  `cancel` requires a reason (min 10 characters, `ReasonField`). Writing the report
+  is the in-section form shown while the study is PERFORMED — `findings` required,
+  `summary` and `impression` optional — and it creates the 1:1 report that
+  verification then signs off. A stale tab answers 409
+  `INVALID_WORKFLOW_TRANSITION` and surfaces as a status-specific alert.
+- **Mutations** (`src/lib/data/queries.ts`): `useRadiologyOrder` (single read),
+  `useRadiologyOrderTransition` (schedule/perform/verify/release/cancel) and
+  `useSubmitImagingReport` (`POST /radiology/orders/{id}/report`), all
+  invalidating `['radiology-orders']`. Every response body is validated in the
+  data layer, because the writes answer `{ order }` while the export types the
+  bare entity (GAP-020).
+
+Contract notes recorded against the source (GAP-020, appended): the transition
+POSTs (`schedule`/`perform`/`report`/`verify`/`release`/`cancel`) all type the
+bare entity while answering an envelope, and answer 201; `report` carries
+`{ findings, summary?, impression? }` and `cancel` a `{ reason }`. Records are
+EXAMPLE-prefixed and duplicated deliberately between the MSW registry and
+`e2e/stub-api.mjs`, with an order at every status so each transition can be
+exercised. Data layers: `radiology.test.ts` extended (cancelled-by reader +
+transition map).

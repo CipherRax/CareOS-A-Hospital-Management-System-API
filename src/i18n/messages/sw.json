@@ -1144,6 +1144,115 @@
       "failedBody": "Jaribu tena baadaye."
     }
   },
+  "radiology": {
+    "pageTitle": "Radiolojia",
+    "pageIntro": "Maombi ya picha, kuanzia kupanga hadi kuripoti na kutoa.",
+    "filterStatus": "Chuja kwa hali",
+    "filterModality": "Chuja kwa aina ya picha",
+    "allStatuses": "Hali zote",
+    "allModalities": "Aina zote",
+    "tableCaption": "Oda za radiolojia, mpya kwanza",
+    "columnOrder": "Oda",
+    "columnPatient": "Mgonjwa",
+    "columnStudy": "Uchunguzi",
+    "columnOrdered": "Iliagizwa",
+    "columnStatus": "Hali",
+    "openOrder": "Fungua oda {number}",
+    "empty": "Hakuna oda za radiolojia zinazolingana na kichujio hiki.",
+    "unavailableTitle": "Oda za radiolojia hazipatikani kwa sasa",
+    "unavailableBody": "Orodha ya kazi haikuweza kupakiwa. Jaribu tena baadaye.",
+    "unknownPatient": "Mgonjwa asiyejulikana",
+    "unknownDate": "—",
+    "status": {
+      "ORDERED": "Imeagizwa",
+      "SCHEDULED": "Imepangwa",
+      "PERFORMED": "Imefanyika",
+      "REPORTED": "Imeripotiwa",
+      "VERIFIED": "Imethibitishwa",
+      "RELEASED": "Imetolewa",
+      "CANCELLED": "Imefutwa"
+    },
+    "modality": {
+      "XRAY": "X-ray",
+      "CT": "CT",
+      "MRI": "MRI",
+      "ULTRASOUND": "Ultrasound",
+      "MAMMOGRAPHY": "Mamografia",
+      "DEXA": "DEXA",
+      "FLUOROSCOPY": "Fluoroskopia",
+      "OTHER": "Nyingine"
+    },
+    "workspace": {
+      "back": "Rudi kwenye orodha ya radiolojia",
+      "loading": "Inapakia oda…",
+      "unavailableTitle": "Oda hii haipatikani kwa sasa",
+      "unavailableBody": "Oda ya radiolojia haikuweza kupakiwa. Jaribu tena baadaye.",
+      "notFoundTitle": "Oda haipatikani",
+      "notFoundBody": "Oda hii ya radiolojia haipo au huna ruhusa ya kuifikia.",
+      "orderHeading": "Oda",
+      "modality": "Aina ya picha",
+      "region": "Eneo",
+      "noRegion": "Haijabainishwa",
+      "ordered": "Iliagizwa",
+      "requested": "Iliombwa",
+      "performed": "Ilifanyika",
+      "released": "Iliyotolewa",
+      "clinicalNotes": "Maelezo ya kliniki",
+      "noNotes": "Hakuna yaliyorekodiwa",
+      "cancelReason": "Sababu ya kufuta",
+      "notYet": "Bado",
+      "version": "Toleo {version}",
+      "report": "Ripoti",
+      "findings": "Matokeo ya uchunguzi",
+      "summary": "Muhtasari",
+      "impression": "Maoni",
+      "entered": "Iliingizwa",
+      "verified": "Ilithibitishwa",
+      "noReport": "Hakuna ripoti iliyoandikwa kwa uchunguzi huu bado.",
+      "actions": "Vitendo",
+      "noActions": "Hakuna vitendo vinavyopatikana katika hatua hii.",
+      "openPatient": "Fungua rekodi ya mgonjwa"
+    },
+    "action": {
+      "schedule": "Panga",
+      "perform": "Weka kama imefanyika",
+      "report": "Andika ripoti",
+      "verify": "Thibitisha ripoti",
+      "release": "Toa ripoti",
+      "cancel": "Futa oda"
+    },
+    "confirm": {
+      "verifyTitle": "Thibitisha ripoti hii?",
+      "verifyBody": "Uthibitisho unahakikisha ripoti ni sahihi na tayari kutolewa.",
+      "releaseTitle": "Toa ripoti hii?",
+      "releaseBody": "Kutoa kunachapisha ripoti kwenye rekodi ya mgonjwa. Hili haliwezi kutenduliwa."
+    },
+    "reason": {
+      "label": "Sababu",
+      "hint": "Angalau herufi 10.",
+      "placeholder": "Eleza sababu…",
+      "cancelTitle": "Futa oda hii?",
+      "cancelBody": "Kufuta kunasimamisha uchunguzi kufanywa. Hili haliwezi kutenduliwa."
+    },
+    "report": {
+      "intro": "Rekodi matokeo kabla ya kuwasilisha. Muhtasari na maoni ni ya hiari.",
+      "findings": "Matokeo",
+      "findingsRequired": "Weka matokeo.",
+      "summary": "Muhtasari",
+      "impression": "Maoni",
+      "optional": "Hiari",
+      "submit": "Wasilisha ripoti"
+    },
+    "dialog": {
+      "cancel": "Ghairi"
+    },
+    "errors": {
+      "staleTitle": "Oda hii ilibadilika mahali pengine",
+      "staleBody": "Kitendo hakipatikani tena — huenda oda iliendelea. Pakia upya eneo la kazi.",
+      "failedTitle": "Kitendo hakikuweza kukamilika",
+      "failedBody": "Jaribu tena baadaye."
+    }
+  },
   "results": {
     "title": "Matokeo",
     "intro": "Matokeo ya maabara na picha zilizotolewa kwa mgonjwa huyu. Kuagiza na kuchakata hufanywa na moduli za maabara na radiolojia.",
