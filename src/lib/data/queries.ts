@@ -134,6 +134,14 @@ import {
   type RadiologyOrderRow,
   type RadiologyOrderTransition,
 } from '@/lib/data/radiology';
+import {
+  fetchStockOnHand,
+  readDispenseResult,
+  type DispenseInput,
+  type DispenseResult,
+  type InventoryCallError,
+  type StockOnHandRow,
+} from '@/lib/data/inventory';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
@@ -270,7 +278,8 @@ function toQueryError(
     | VitalsCallError
     | SchedulesCallError
     | LaboratoryCallError
-    | RadiologyCallError,
+    | RadiologyCallError
+    | InventoryCallError,
 ): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
@@ -2385,6 +2394,77 @@ export function useSubmitImagingReport(): UseMutationResult<
     onSuccess: (_order, variables) => {
       queryClient.invalidateQueries({ queryKey: ['radiology-orders', variables.id] });
       queryClient.invalidateQueries({ queryKey: ['radiology-orders', 'list'] });
+    },
+  });
+}
+
+// --- pharmacy inventory (F6) -----------------------------------------------
+
+/**
+ * Current stock on hand per medication/branch `GET /pharmacy/stock/on-hand`.
+ * The export leaves the query unmodelled and mis-types the 200 as the request
+ * DTO (GAP-020), so this rides the raw-fetch path in `src/lib/data/inventory.ts`.
+ */
+export function useStockOnHand(
+  query: { branchId?: string } = {},
+): UseQueryResult<Fetched<readonly StockOnHandRow[]>, QueryError> {
+  return useQuery<Fetched<readonly StockOnHandRow[]>, QueryError>({
+    queryKey: ['inventory', 'on-hand', query.branchId ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const rows = await fetchStockOnHand(query, signal);
+        return { data: rows, response: new Response(null, { status: 200 }) } satisfies Fetched<
+          readonly StockOnHandRow[]
+        >;
+      } catch (call) {
+        throw toQueryError(call as InventoryCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/** A dispense body that fails structural validation is an internal contract break. */
+function inventoryWriteError(status = 201): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+/**
+ * Dispenses a prescription `POST /pharmacy/stock/dispense`. The service answers
+ * a bare `{ prescriptionStatus, dispensedLines }` while the export fastens the
+ * `InventoryResponseDto` to the 201 (GAP-020), so the unwrapped body is
+ * validated structurally. Both the prescription list and the on-hand read are
+ * invalidated — the prescription moves to DISPENSED/PARTIALLY_DISPENSED and the
+ * branch's stock is decremented FEFO.
+ */
+export function useDispensePrescription(): UseMutationResult<
+  DispenseResult,
+  QueryError,
+  DispenseInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<DispenseResult, QueryError, DispenseInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/pharmacy/stock/dispense', {
+          body: {
+            prescriptionId: input.prescriptionId,
+            branchId: input.branchId,
+            lines: input.lines.map((line) => ({
+              medicationId: line.medicationId,
+              quantity: line.quantity,
+            })),
+          },
+        }),
+      );
+      const parsed = readDispenseResult(fetched.data);
+      if (!parsed.ok) throw inventoryWriteError();
+      return parsed.result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['prescriptions'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory', 'on-hand'] });
     },
   });
 }

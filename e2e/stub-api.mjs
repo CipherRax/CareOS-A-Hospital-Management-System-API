@@ -384,6 +384,8 @@ function buildPrescriptions() {
     { id: 'prx_example_7002', patientId: 'pat_example_1001', providerId: 'usr_example_9001', status: 'ISSUED', notes: 'For headache not controlled by rest.', createdMinutesAgo: 40, issuedMinutesAgo: 33, dispensedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, items: [{ medicationId: 'med_example_7102', quantity: 12, dispensedQuantity: 0, dosage: '1g', frequency: 'when required, max 4 times daily', durationDays: null, instructions: 'Do not exceed four doses a day.' }] },
     { id: 'prx_example_7003', patientId: 'pat_example_1002', providerId: 'usr_example_9002', status: 'DISPENSED', notes: null, createdMinutesAgo: 65, issuedMinutesAgo: 62, dispensedMinutesAgo: 50, cancelledMinutesAgo: null, cancelReason: null, items: [{ medicationId: 'med_example_7103', quantity: 200, dispensedQuantity: 200, dosage: '200mcg (2 puffs)', frequency: 'when required', durationDays: 30, instructions: 'Use spacer in the emergency bay.' }] },
     { id: 'prx_example_7004', patientId: 'pat_example_1003', providerId: 'usr_example_9003', status: 'CANCELLED', notes: null, createdMinutesAgo: 210, issuedMinutesAgo: null, dispensedMinutesAgo: null, cancelledMinutesAgo: 195, cancelReason: 'EXAMPLE changed the plan to amoxicillin–clavulanate.', items: [{ medicationId: 'med_example_7101', quantity: 10, dispensedQuantity: 0, dosage: '250mg', frequency: '12 hourly', durationDays: 5, instructions: null }] },
+    { id: 'prx_example_7005', patientId: 'pat_example_1002', providerId: 'usr_example_9002', status: 'ISSUED', notes: 'Start metformin alongside lifestyle advice.', createdMinutesAgo: 26, issuedMinutesAgo: 21, dispensedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, items: [{ medicationId: 'med_example_7104', quantity: 28, dispensedQuantity: 0, dosage: '500mg', frequency: 'twice daily with meals', durationDays: 28, instructions: 'Swallow whole; do not crush.' }] },
+    { id: 'prx_example_7006', patientId: 'pat_example_1004', providerId: 'usr_example_9002', status: 'PARTIALLY_DISPENSED', notes: 'Half the course supplied; balance to follow.', createdMinutesAgo: 52, issuedMinutesAgo: 47, dispensedMinutesAgo: null, cancelledMinutesAgo: null, cancelReason: null, items: [{ medicationId: 'med_example_7101', quantity: 21, dispensedQuantity: 10, dosage: '500mg', frequency: '8 hourly', durationDays: 7, instructions: 'Complete the full course.' }] },
   ];
   return seeds.map((seed) => ({
     id: seed.id, organizationId: 'org_example_0001', branchId: 'br_example_0001',
@@ -398,6 +400,19 @@ function buildPrescriptions() {
   }));
 }
 const LIVE_PRESCRIPTIONS = buildPrescriptions();
+// --- pharmacy inventory (F6 dispense worklist) ---------------------------
+// Same contract and records as the MSW handlers. Branch stock is mutable so the
+// dispense write is reflected by the next on-hand read.
+const INVENTORY_BRANCH_ID = 'br_example_0001';
+const STOCK_ON_HAND_SEED = [
+  { medicationId: 'med_example_7101', quantity: 30 },
+  { medicationId: 'med_example_7102', quantity: 40 },
+  { medicationId: 'med_example_7103', quantity: 12 },
+  { medicationId: 'med_example_7104', quantity: 60 },
+  { medicationId: 'med_example_7105', quantity: 4 },
+  { medicationId: 'med_example_7106', quantity: 8 },
+];
+const LIVE_STOCK = new Map(STOCK_ON_HAND_SEED.map((row) => [row.medicationId, row.quantity]));
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
   DRAFT: ['issue', 'cancel'],
   ISSUED: ['cancel'],
@@ -1703,6 +1718,60 @@ const server = createServer(async (request, response) => {
       prescription.cancelReason = typeof body.cancelReason === 'string' && body.cancelReason.trim().length > 0 ? body.cancelReason.trim() : null;
     }
     send(response, 201, { success: true, data: { prescription: serializePrescription(prescription) } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/prescriptions\/[^/]+$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const prescription = LIVE_PRESCRIPTIONS.find((p) => p.id === id);
+    if (!prescription) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { prescription: serializePrescription(prescription) } });
+    return;
+  }
+
+  // --- pharmacy inventory (F6 dispense worklist) ---------------------------
+  if (url.pathname === '/pharmacy/stock/on-hand' && request.method === 'GET') {
+    const branchId = url.searchParams.get('branchId');
+    const onHand = [...LIVE_STOCK]
+      .map(([medicationId, quantity]) => {
+        const medication = LIVE_MEDICATIONS.find((m) => m.id === medicationId);
+        return { medicationId, name: medication ? medication.name : null, unit: medication ? medication.unit : null, branchId: INVENTORY_BRANCH_ID, quantity };
+      })
+      .filter((row) => !branchId || row.branchId === branchId);
+    send(response, 200, { success: true, data: { onHand } });
+    return;
+  }
+
+  if (url.pathname === '/pharmacy/stock/dispense' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const lines = Array.isArray(body.lines) ? body.lines : null;
+    if (typeof body.prescriptionId !== 'string' || typeof body.branchId !== 'string' || !lines || lines.length === 0) {
+      send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return;
+    }
+    const prescription = LIVE_PRESCRIPTIONS.find((p) => p.id === body.prescriptionId);
+    if (!prescription) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    if (prescription.status !== 'ISSUED' && prescription.status !== 'PARTIALLY_DISPENSED') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    if (prescription.branchId !== body.branchId) { send(response, 409, { success: false, error: { code: 'INSUFFICIENT_STOCK' } }); return; }
+    for (const line of lines) {
+      const item = prescription._items.find((it) => it.medicationId === line.medicationId);
+      if (!item) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+      const quantity = Number(line.quantity);
+      if (!Number.isInteger(quantity) || quantity <= 0 || quantity > item.quantity - item.dispensedQuantity) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+      if ((LIVE_STOCK.get(line.medicationId) || 0) < quantity) { send(response, 409, { success: false, error: { code: 'INSUFFICIENT_STOCK' } }); return; }
+    }
+    for (const line of lines) {
+      const quantity = Number(line.quantity);
+      LIVE_STOCK.set(line.medicationId, (LIVE_STOCK.get(line.medicationId) || 0) - quantity);
+      prescription._items.find((it) => it.medicationId === line.medicationId).dispensedQuantity += quantity;
+    }
+    const totalRequested = prescription._items.reduce((sum, item) => sum + item.quantity, 0);
+    const totalDispensed = prescription._items.reduce((sum, item) => sum + item.dispensedQuantity, 0);
+    const next = totalDispensed >= totalRequested ? 'DISPENSED' : 'PARTIALLY_DISPENSED';
+    prescription.status = next;
+    prescription.version += 1;
+    if (next === 'DISPENSED') prescription.dispensedAt = new Date().toISOString();
+    send(response, 201, { success: true, data: { prescriptionStatus: next, dispensedLines: lines.map((line) => line.medicationId) } });
     return;
   }
 

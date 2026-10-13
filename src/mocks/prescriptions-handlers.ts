@@ -24,7 +24,7 @@ import { delay, apiError, apiOk, apiPage, MOCK_LATENCY_MS } from './handlers';
 
 type LiveStatus = BuildPrescription['status'];
 
-interface LivePrescription {
+export interface LivePrescription {
   id: string;
   organizationId: string;
   branchId: string;
@@ -70,9 +70,11 @@ function fromFixture(fixture: PrescriptionFixture) {
   };
 }
 
-const LIVE: LivePrescription[] = PRESCRIPTIONS.map(fromFixture);
+// Exported so the pharmacy dispense handler (F6) can advance a prescription's
+// status and item dispensed quantities against the same live store.
+export const LIVE: LivePrescription[] = PRESCRIPTIONS.map(fromFixture);
 
-function serialize(prescription: LivePrescription) {
+export function serialize(prescription: LivePrescription) {
   // The live MediationResponse omits createdAt entirely, so the serialized row
   // mirrors the wire exactly; createdAt stays only as an internal sort key.
   const { _items, id, organizationId, branchId, patientId, providerId, status, notes, issuedById, issuedAt, dispensedAt, cancelledById, cancelledAt, cancelReason, version } = prescription;

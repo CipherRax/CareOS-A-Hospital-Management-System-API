@@ -1283,6 +1283,32 @@
       "failedBody": "Jaribu tena baadaye."
     }
   },
+  "pharmacy": {
+    "pageTitle": "Duka la dawa",
+    "pageIntro": "Toa dawa zilizoagizwa kwa kutumia akiba ya tawi hili. Kiasi huanza na salio linalosalia na unaweza kurekebisha kabla ya kutoa.",
+    "loading": "Inapakia foleni ya kutoa dawa…",
+    "unavailableTitle": "Foleni ya kutoa dawa haipatikani kwa sasa",
+    "unavailableBody": "Dawa hazingeweza kupakiwa. Jaribu tena baadaye.",
+    "empty": "Hakuna dawa zinazosubiri kutolewa.",
+    "remaining": "{count, plural, =1 {imebaki #} other {zimebaki #}}",
+    "onHand": "{count} zilizopo",
+    "quantityLabel": "Kiasi",
+    "dispense": "Toa dawa",
+    "working": "Inatoa…",
+    "dispensed": "Imetolewa — sasa {status}.",
+    "unknownPatient": "Mgonjwa haijulikani",
+    "status": {
+      "ISSUED": "Imetolewa maagizo",
+      "PARTIALLY_DISPENSED": "Imetolewa kwa sehemu"
+    },
+    "error": {
+      "noLines": "Weka kiasi kwa mstari mmoja angalau.",
+      "invalidQuantity": "Kiasi kimoja kinazidi salio linalosalia la mstari wake.",
+      "insufficientStock": "Tawi halina akiba ya kutosha kwa mstari huu.",
+      "staleBody": "Dawa hii ilibadilika. Pakia upya na ujaribu tena.",
+      "failedBody": "Dawa haingeweza kutolewa. Jaribu tena baadaye."
+    }
+  },
   "results": {
     "title": "Matokeo",
     "intro": "Matokeo ya maabara na picha zilizotolewa kwa mgonjwa huyu. Kuagiza na kuchakata hufanywa na moduli za maabara na radiolojia.",

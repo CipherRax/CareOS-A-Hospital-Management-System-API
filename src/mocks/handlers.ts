@@ -10,6 +10,7 @@ import { encountersHandlers } from './encounters-handlers';
 import { clinicalNotesHandlers } from './clinical-notes-handlers';
 import { medicationsHandlers } from './medications-handlers';
 import { prescriptionsHandlers } from './prescriptions-handlers';
+import { inventoryHandlers } from './inventory-handlers';
 import { laboratoryHandlers } from './laboratory-handlers';
 import { radiologyHandlers } from './radiology-handlers';
 
@@ -170,6 +171,10 @@ export const handlers = [
   // F4 radiology results (doctor results view): the patient's imaging orders,
   // each serialized with its report. See ./radiology-handlers.ts.
   ...radiologyHandlers(),
+  // F6 pharmacy inventory (dispensing worklist): branch stock on hand and the
+  // FEFO dispense write that advances a prescription. See
+  // ./inventory-handlers.ts.
+  ...inventoryHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).

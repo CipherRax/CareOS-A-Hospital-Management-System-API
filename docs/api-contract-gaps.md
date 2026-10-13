@@ -434,3 +434,23 @@ against `src/modules/laboratory` and `src/modules/radiology`:
   The active test catalogue for the picker still comes from `GET /lab/tests`
   (page-typed DTO, raw-fetched), and the modality list from
   `domain/radiology-flow.ts` constants mirrored in the client.
+
+**Same drift under the pharmacy inventory reads/writes (F6 slice 1).** Verified
+against `src/modules/inventory` — note the controller base path is **`pharmacy`**,
+not `inventory` (`@Controller('pharmacy')` in `inventory.controller.ts`), even
+though the module is `inventory`:
+
+- `GET /pharmacy/stock/on-hand` carries `query: never` in the export and types
+  the 200 as the request DTO (`OnHandQueryDto`) while the service answers
+  `{ onHand: [{ medicationId, name, unit, branchId, quantity }] }`. The client
+  rides the raw-fetch path (`fetchStockOnHand`/`extractStockOnHand`/
+  `readStockOnHandRow`).
+- `POST /pharmacy/stock/dispense` is typed as `InventoryResponseDto` but answers a
+  **bare** `{ prescriptionStatus, dispensedLines }` (201). Body is `DispenseDto`
+  (`{ prescriptionId, branchId, lines: [{ medicationId, quantity }] }`, 1–100
+  lines). The service FEFOs across the branch's batches under a row lock and
+  derives the new status from cumulative dispensed quantity
+  (`statusAfterDispense`: `DISPENSED` when fully dispensed, else
+  `PARTIALLY_DISPENSED`); a line above the outstanding balance is a 400, a stock
+  shortfall or a non-`ISSUED`/`PARTIALLY_DISPENSED` prescription a 409. The client
+  validates the unwrapped body through `readDispenseResult`.

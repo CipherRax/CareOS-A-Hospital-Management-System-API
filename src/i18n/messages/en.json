@@ -1261,7 +1261,34 @@
       "validationTitle": "Check the order details",
       "validationBody": "The order was rejected. Review the fields and try again.",
       "failedTitle": "The order could not be placed",
+      "failedTitle": "The order could not be placed",
       "failedBody": "Try again shortly."
+    }
+  },
+  "pharmacy": {
+    "pageTitle": "Pharmacy",
+    "pageIntro": "Dispense issued prescriptions against this branch's stock. Quantities start at the outstanding balance and can be adjusted before dispensing.",
+    "loading": "Loading the dispense queue…",
+    "unavailableTitle": "The dispense queue is temporarily unavailable",
+    "unavailableBody": "Prescriptions could not be loaded. Try again shortly.",
+    "empty": "No prescriptions are waiting to be dispensed.",
+    "remaining": "{count, plural, =1 {# remaining} other {# remaining}}",
+    "onHand": "{count} on hand",
+    "quantityLabel": "Quantity",
+    "dispense": "Dispense",
+    "working": "Dispensing…",
+    "dispensed": "Dispensed — now {status}.",
+    "unknownPatient": "Unknown patient",
+    "status": {
+      "ISSUED": "Issued",
+      "PARTIALLY_DISPENSED": "Partially dispensed"
+    },
+    "error": {
+      "noLines": "Enter a quantity for at least one line.",
+      "invalidQuantity": "A quantity is above the outstanding balance for its line.",
+      "insufficientStock": "The branch does not have enough stock to fill this line.",
+      "staleBody": "This prescription changed. Reload and try again.",
+      "failedBody": "The prescription could not be dispensed. Try again shortly."
     }
   },
   "results": {

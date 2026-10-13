@@ -17,8 +17,8 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F2 Patients & reception        | **complete** — patient search, walk-in registration with duplicate guard, master record (banner + sections + timeline + access log), MSW fixtures, structural validators | shipped (`a185d69`, `8b6ce44`); live API round-trip Docker-gated; GAP-012–GAP-016 documented |
 | F3 Scheduling, queue, nursing  | **complete** — reception queue slice (live queue board, walk-in ticket issuance, status/priority moves), appointment desk slice (day book, booking with slot search, appointment status moves, department waitlist), nursing vitals slice (patient chart, record/correct with BMI), schedule admin slice (weekly template CRUD + dated exceptions), and reschedule from the day book | live API round-trip Docker-gated; GAP-017–GAP-019 documented |
 | F4 Doctor workspace            | encounters + clinical notes + prescriptions + results **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), the clinical-notes panel (structured DRAFT → Finalize → Amend with version history), the prescriptions panel (medication orders: DRAFT → issue → pharmacy dispense, cancel while un-/partially-dispensed), and the read-only results panel (released laboratory results + imaging reports); MSW fixtures + stub + e2e swept | live API round-trip Docker-gated; GAP-020 documented |
-| F5 Laboratory & radiology      | in progress — laboratory worklist + order workspace, radiology worklist + imaging workspace, and order entry from the encounter | pharmacy, billing                                         |
-| F6 Pharmacy & inventory        | not started                                                                                | dispensing, stock, batches, POs                        |
+| F5 Laboratory & radiology      | **complete** — laboratory worklist + order workspace, radiology worklist + imaging workspace, and order entry from the encounter | billing |
+| F6 Pharmacy & inventory        | in progress — pharmacy dispense worklist (`/pharmacy`)                                     | receiving, transfers, counts, batches, POs             |
 | F7 Billing & insurance         | not started                                                                                | invoices, payments, M-PESA, claims                     |
 | F8 Inpatient & emergency       | not started                                                                                | wards, beds, admissions                                |
 | F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                     |
@@ -734,3 +734,47 @@ The gate is green: lint clean, `tsc --noEmit` 0, unit 405, `build:prod` OK,
 e2e/a11y 127. No new a11y route was needed — the existing
 `/encounters/enc_example_6001` check now covers the panel (both composers are
 closed on load). Contract note appended to GAP-020.
+
+## F6 — Pharmacy, slice 1: dispense worklist
+
+**Status:** complete. `/pharmacy` is the pharmacy's dispense queue: it lists
+every prescription the pharmacy can act on (`ISSUED` or `PARTIALLY_DISPENSED`)
+and lets the pharmacist adjust each outstanding line's quantity against the
+branch's stock before dispensing.
+
+- **Worklist** (`src/components/staff/pharmacy-worklist.tsx`). Reads
+  prescriptions through the existing `usePrescriptions`, keeps the actionable
+  statuses and renders each as a card with the patient name, status pill and
+  version. Each outstanding line (ordered − dispensed) defaults to its full
+  remaining quantity, shows the branch's stock on hand and turns the on-hand
+  figure critical when it is short. `POST /pharmacy/stock/dispense` (FEFO across
+  batches server-side) advances the prescription; the card reports the resulting
+  status in a `role="status"` line, or the mapped code
+  (`INSUFFICIENT_STOCK`, `INVALID_WORKFLOW_TRANSITION`, `VALIDATION_ERROR`) in a
+  `role="alert"`.
+- **Data layer** (`src/lib/data/inventory.ts`). `GET /pharmacy/stock/on-hand`
+  carries `query: never` and a 200 typed as the request DTO (`OnHandQueryDto`)
+  while the service answers `{ onHand: [...] }`, so it rides the raw-fetch path
+  (`fetchStockOnHand`, `extractStockOnHand`, `readStockOnHandRow`). The dispense
+  write answers a bare `{ prescriptionStatus, dispensedLines }` while the export
+  fastens `InventoryResponseDto` to the 201, so `readDispenseResult` validates it
+  structurally. Both are GAP-020. Note the controller base path is `pharmacy`,
+  not `inventory` (`src/modules/inventory/inventory.controller.ts`).
+- **Mutations** (`src/lib/data/queries.ts`). `useStockOnHand({ branchId? })`
+  (key `['inventory','on-hand', branchId]`) and `useDispensePrescription`
+  (`POST /pharmacy/stock/dispense`), invalidating `['prescriptions']` and
+  `['inventory','on-hand']` on success.
+- **Mocks/stub.** `src/mocks/fixtures/inventory-registry.ts` seeds branch stock
+  (a controlled drug and a supply deliberately sit low);
+  `src/mocks/inventory-handlers.ts` owns the mutable stock map and the dispense
+  write, sharing the prescriptions live store (`LIVE`/`serialize` are now
+  exported from `src/mocks/prescriptions-handlers.ts`). Two prescriptions were
+  added (`prx_example_7005` ISSUED, `prx_example_7006` PARTIALLY_DISPENSED) so
+  the queue has variety. The same seed and handlers are mirrored in
+  `e2e/stub-api.mjs`.
+- **Nav + i18n.** A *Pharmacy* entry sits after Radiology in the staff shell;
+  the `pharmacy` namespace was added to `en.json` and `sw.json`.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 411 (`inventory.test.ts`, 6 new),
+`build:prod` OK, e2e/a11y 131 (new `/pharmacy` route in both theme variants).
+Contract note appended to GAP-020.
