@@ -20,7 +20,10 @@ import {
  *
  * `GET /pharmacy/stock/on-hand` carries `query: never` and a 200 typed as the
  * request DTO (`OnHandQueryDto`) while the service answers `{ onHand: [...] }`,
- * so it rides the raw-fetch path like the other list reads.
+ * so it rides the raw-fetch path like the other list reads. `GET
+ * /pharmacy/stock/alerts` has the same drift (`{ alerts: [...] }`), and
+ * `POST /pharmacy/stock/receive` answers a bare `{ batches: [...] }` while the
+ * export types the 201 as `InventoryResponseDto`.
  */
 
 /** Stock on hand for one medication at one branch, reconstructed from the ledger. */
@@ -117,4 +120,112 @@ export function readDispenseResult(
       dispensedLines: payload.dispensedLines as readonly string[],
     },
   };
+}
+
+/** The three stock-risk tiers `assessStockRisk` can return. */
+export type StockAlertLabel = 'LOW_STOCK' | 'REORDER_RISK' | 'EXPIRY_RISK';
+
+const STOCK_ALERT_LABELS: readonly StockAlertLabel[] = [
+  'LOW_STOCK',
+  'REORDER_RISK',
+  'EXPIRY_RISK',
+];
+
+/** One advisory from `GET /pharmacy/stock/alerts`. */
+export interface StockAlertRow {
+  readonly medicationId: string;
+  readonly name: string;
+  readonly label: StockAlertLabel;
+  readonly detail: string;
+}
+
+/** Reads one serialized alert; returns null when the row is unusable. */
+export function readStockAlertRow(value: unknown): StockAlertRow | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.medicationId !== 'string') return null;
+  if (typeof value.name !== 'string') return null;
+  if (typeof value.label !== 'string' || !STOCK_ALERT_LABELS.includes(value.label as StockAlertLabel)) {
+    return null;
+  }
+  if (typeof value.detail !== 'string') return null;
+  return {
+    medicationId: value.medicationId,
+    name: value.name,
+    label: value.label as StockAlertLabel,
+    detail: value.detail,
+  };
+}
+
+/** Reads the alert list from the unwrapped `data`: `{ alerts: [...] }`. */
+export function extractStockAlerts(
+  payload: unknown,
+): { ok: true; alerts: readonly StockAlertRow[] } | { ok: false } {
+  if (!isRecord(payload) || !Array.isArray(payload.alerts)) return { ok: false };
+  const alerts = payload.alerts.map(readStockAlertRow);
+  if (alerts.some((alert) => alert === null)) return { ok: false };
+  return { ok: true, alerts: alerts as readonly StockAlertRow[] };
+}
+
+/** Raw read against `GET /pharmacy/stock/alerts?…` (same GAP-020 drift as on-hand). */
+export async function fetchStockAlerts(
+  query: StockOnHandQuery = {},
+  signal?: AbortSignal,
+): Promise<readonly StockAlertRow[]> {
+  const suffix = queryString({ branchId: query.branchId });
+  const url = `${publicEnv.apiBasePath}/pharmacy/stock/alerts${suffix}`;
+  return readEnvelope<readonly StockAlertRow[]>(
+    url,
+    (data) => {
+      const parsed = extractStockAlerts(data);
+      return parsed.ok ? { ok: true, value: parsed.alerts } : { ok: false };
+    },
+    signal,
+  );
+}
+
+export interface ReceiveStockLine {
+  readonly medicationId: string;
+  readonly quantity: number;
+  readonly batchNumber: string;
+  readonly expiryDate?: string;
+  readonly unitCost?: number;
+}
+
+export interface ReceiveStockInput {
+  readonly branchId: string;
+  readonly lines: readonly ReceiveStockLine[];
+}
+
+/** One batch the receive write created or topped up. */
+export interface ReceivedBatch {
+  readonly id: string;
+  readonly batchNumber: string;
+  readonly medicationId: string;
+  readonly quantity: number;
+}
+
+/** Reads the receive body: `{ batches: [...] }` (the export types the 201 as `InventoryResponseDto`). */
+export function readReceiveResult(
+  payload: unknown,
+): { ok: true; batches: readonly ReceivedBatch[] } | { ok: false } {
+  if (!isRecord(payload) || !Array.isArray(payload.batches)) return { ok: false };
+  const batches: ReceivedBatch[] = [];
+  for (const entry of payload.batches) {
+    if (!isRecord(entry)) return { ok: false };
+    if (
+      typeof entry.id !== 'string' ||
+      typeof entry.batchNumber !== 'string' ||
+      typeof entry.medicationId !== 'string' ||
+      typeof entry.quantity !== 'number'
+    ) {
+      return { ok: false };
+    }
+    batches.push({
+      id: entry.id,
+      batchNumber: entry.batchNumber,
+      medicationId: entry.medicationId,
+      quantity: entry.quantity,
+    });
+  }
+  return { ok: true, batches };
 }

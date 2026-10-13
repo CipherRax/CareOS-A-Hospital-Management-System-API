@@ -407,12 +407,46 @@ const INVENTORY_BRANCH_ID = 'br_example_0001';
 const STOCK_ON_HAND_SEED = [
   { medicationId: 'med_example_7101', quantity: 30 },
   { medicationId: 'med_example_7102', quantity: 40 },
-  { medicationId: 'med_example_7103', quantity: 12 },
+  { medicationId: 'med_example_7103', quantity: 12, expiryInDays: 18 },
   { medicationId: 'med_example_7104', quantity: 60 },
   { medicationId: 'med_example_7105', quantity: 4 },
   { medicationId: 'med_example_7106', quantity: 8 },
 ];
 const LIVE_STOCK = new Map(STOCK_ON_HAND_SEED.map((row) => [row.medicationId, row.quantity]));
+const LIVE_EXPIRY_DAYS = new Map(
+  STOCK_ON_HAND_SEED.filter((row) => row.expiryInDays !== undefined).map((row) => [row.medicationId, row.expiryInDays]),
+);
+const INVENTORY_BATCH_IDS = new Map();
+let inventoryBatchSeq = 7300;
+const LOW_STOCK_AT_OR_BELOW = 5;
+const REORDER_AT_OR_BELOW = 15;
+function inventoryMedicationName(medicationId) {
+  const medication = LIVE_MEDICATIONS.find((m) => m.id === medicationId);
+  return medication ? medication.name : medicationId;
+}
+function serializeInventoryAlerts() {
+  const alerts = [];
+  for (const [medicationId, quantity] of LIVE_STOCK) {
+    const name = inventoryMedicationName(medicationId);
+    const expiry = LIVE_EXPIRY_DAYS.get(medicationId);
+    if (expiry !== undefined && expiry <= 30) {
+      alerts.push({ medicationId, name, label: 'EXPIRY_RISK', detail: `Closest expiry in ${expiry} day(s).` });
+    }
+    if (quantity <= LOW_STOCK_AT_OR_BELOW) {
+      alerts.push({ medicationId, name, label: 'LOW_STOCK', detail: 'Stock at or below target cover with no usage history.' });
+    } else if (quantity <= REORDER_AT_OR_BELOW) {
+      alerts.push({ medicationId, name, label: 'REORDER_RISK', detail: `${(quantity / 2).toFixed(1)} day(s) of cover — order soon.` });
+    }
+  }
+  return alerts;
+}
+function inventoryBatchIdFor(branchId, medicationId, batchNumber) {
+  const key = `${branchId}:${medicationId}:${batchNumber}`;
+  if (INVENTORY_BATCH_IDS.has(key)) return INVENTORY_BATCH_IDS.get(key);
+  const id = `bat_example_${inventoryBatchSeq++}`;
+  INVENTORY_BATCH_IDS.set(key, id);
+  return id;
+}
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
   DRAFT: ['issue', 'cancel'],
   ISSUED: ['cancel'],
@@ -1739,6 +1773,41 @@ const server = createServer(async (request, response) => {
       })
       .filter((row) => !branchId || row.branchId === branchId);
     send(response, 200, { success: true, data: { onHand } });
+    return;
+  }
+
+  if (url.pathname === '/pharmacy/stock/alerts' && request.method === 'GET') {
+    const branchId = url.searchParams.get('branchId');
+    const alerts = !branchId || branchId === INVENTORY_BRANCH_ID ? serializeInventoryAlerts() : [];
+    send(response, 200, { success: true, data: { alerts } });
+    return;
+  }
+
+  if (url.pathname === '/pharmacy/stock/receive' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const lines = Array.isArray(body.lines) ? body.lines : null;
+    if (typeof body.branchId !== 'string' || !lines || lines.length === 0) {
+      send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return;
+    }
+    for (const line of lines) {
+      const quantity = Number(line.quantity);
+      if (typeof line.medicationId !== 'string' || typeof line.batchNumber !== 'string' || line.batchNumber.trim().length === 0 || !Number.isInteger(quantity) || quantity <= 0) {
+        send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return;
+      }
+      if (!LIVE_MEDICATIONS.find((m) => m.id === line.medicationId)) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    }
+    const batches = lines.map((line) => {
+      const quantity = Number(line.quantity);
+      const batchNumber = line.batchNumber.trim();
+      LIVE_STOCK.set(line.medicationId, (LIVE_STOCK.get(line.medicationId) || 0) + quantity);
+      if (typeof line.expiryDate === 'string' && line.expiryDate.length > 0) {
+        const days = Math.ceil((Date.parse(line.expiryDate) - Date.now()) / 86400000);
+        if (!Number.isNaN(days)) LIVE_EXPIRY_DAYS.set(line.medicationId, days);
+      }
+      return { id: inventoryBatchIdFor(body.branchId, line.medicationId, batchNumber), batchNumber, medicationId: line.medicationId, quantity };
+    });
+    send(response, 201, { success: true, data: { batches } });
     return;
   }
 

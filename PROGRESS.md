@@ -18,7 +18,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F3 Scheduling, queue, nursing  | **complete** — reception queue slice (live queue board, walk-in ticket issuance, status/priority moves), appointment desk slice (day book, booking with slot search, appointment status moves, department waitlist), nursing vitals slice (patient chart, record/correct with BMI), schedule admin slice (weekly template CRUD + dated exceptions), and reschedule from the day book | live API round-trip Docker-gated; GAP-017–GAP-019 documented |
 | F4 Doctor workspace            | encounters + clinical notes + prescriptions + results **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), the clinical-notes panel (structured DRAFT → Finalize → Amend with version history), the prescriptions panel (medication orders: DRAFT → issue → pharmacy dispense, cancel while un-/partially-dispensed), and the read-only results panel (released laboratory results + imaging reports); MSW fixtures + stub + e2e swept | live API round-trip Docker-gated; GAP-020 documented |
 | F5 Laboratory & radiology      | **complete** — laboratory worklist + order workspace, radiology worklist + imaging workspace, and order entry from the encounter | billing |
-| F6 Pharmacy & inventory        | in progress — pharmacy dispense worklist (`/pharmacy`)                                     | receiving, transfers, counts, batches, POs             |
+| F6 Pharmacy & inventory        | in progress — pharmacy dispense worklist (`/pharmacy`) and stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) | transfers, write-offs, counts, batch expiry, POs      |
 | F7 Billing & insurance         | not started                                                                                | invoices, payments, M-PESA, claims                     |
 | F8 Inpatient & emergency       | not started                                                                                | wards, beds, admissions                                |
 | F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                     |
@@ -778,3 +778,46 @@ branch's stock before dispensing.
 Gate: lint clean, `tsc --noEmit` 0, unit 411 (`inventory.test.ts`, 6 new),
 `build:prod` OK, e2e/a11y 131 (new `/pharmacy` route in both theme variants).
 Contract note appended to GAP-020.
+
+## F6 — Pharmacy, slice 2: stock control
+
+**Status:** complete. `/pharmacy/stock` is the pharmacy's stock desk: it shows
+the branch on-hand ledger, the risk advisories, and a receiving composer that
+books new batches.
+
+- **Screen** (`src/components/staff/pharmacy-stock.tsx`). The advisories panel
+  renders `GET /pharmacy/stock/alerts` as a `DataTable` of medication, tier
+  (`LOW_STOCK`/`REORDER_RISK`/`EXPIRY_RISK`) and the service's own detail text,
+  using `StatusPill` for the tier; the on-hand panel renders
+  `GET /pharmacy/stock/on-hand`. Both are read-only until the receiving
+  composer (`ReceiveComposer`) opens — a multi-line form
+  (`useMedications({ isActive: 'true' })` for the picker) with per-line
+  medication, batch number, quantity, optional expiry and unit cost, adding and
+  removing lines. It posts `POST /pharmacy/stock/receive` and invalidates both
+  reads on success. There is no branch picker in the app, so the composer
+  receives into the branch the on-hand read reports (`onHand[0].branchId`);
+  without stock it says so instead of guessing.
+- **Data layer** (`src/lib/data/inventory.ts`). `GET /pharmacy/stock/alerts`
+  carries `query: never` and a 200 typed as the request DTO while the service
+  answers `{ alerts: [...] }`, so it rides the raw-fetch path
+  (`fetchStockAlerts`, `extractStockAlerts`, `readStockAlertRow`, which rejects
+  an unknown tier). `POST /pharmacy/stock/receive` answers a bare
+  `{ batches: [...] }` while the export types the 201 as
+  `InventoryResponseDto`, so `readReceiveResult` validates it structurally. Both
+  are GAP-020.
+- **Mutations** (`src/lib/data/queries.ts`). `useStockAlerts({ branchId? })`
+  (key `['inventory','alerts', branchId]`) and `useReceiveStock`
+  (`POST /pharmacy/stock/receive`), invalidating `['inventory','on-hand']` and
+  `['inventory','alerts']` on success.
+- **Mocks/stub.** `src/mocks/inventory-handlers.ts` derives the advisories from
+  the mutable stock map with fixed thresholds (≤5 `LOW_STOCK`, ≤15
+  `REORDER_RISK`, expiry ≤30 days `EXPIRY_RISK`) and books receive batches into
+  it (reusing a batch id per branch/medication/batch number). The registry seed
+  gained an `expiryInDays` so one medication carries a near expiry. Both the
+  advisory and receive handlers are mirrored in `e2e/stub-api.mjs`.
+- **Nav + i18n.** `/pharmacy/stock` is linked from the dispense worklist header
+  (no shell nav entry); the `pharmacy.stockControl` label and a `pharmacyStock`
+  namespace were added to `en.json` and `sw.json`.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 415 (`inventory.test.ts` grown to 10),
+`build:prod` OK, e2e/a11y 135. Contract note appended to GAP-020.

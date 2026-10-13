@@ -1297,6 +1297,7 @@
     "working": "Inatoa…",
     "dispensed": "Imetolewa — sasa {status}.",
     "unknownPatient": "Mgonjwa haijulikani",
+    "stockControl": "Udhibiti wa akiba",
     "status": {
       "ISSUED": "Imetolewa maagizo",
       "PARTIALLY_DISPENSED": "Imetolewa kwa sehemu"
@@ -1307,6 +1308,47 @@
       "insufficientStock": "Tawi halina akiba ya kutosha kwa mstari huu.",
       "staleBody": "Dawa hii ilibadilika. Pakia upya na ujaribu tena.",
       "failedBody": "Dawa haingeweza kutolewa. Jaribu tena baadaye."
+    }
+  },
+  "pharmacyStock": {
+    "back": "Rudi kwenye foleni ya kutoa dawa",
+    "pageTitle": "Akiba ya duka la dawa",
+    "pageIntro": "Akiba iliyopo kwa tawi hili na taarifa za tahadhari zinazotokana na leja. Kupokea akiba huunda au kuongeza kundi na kurekodi mwendo.",
+    "receiveStock": "Pokea akiba",
+    "working": "Inahifadhi…",
+    "alertsTitle": "Taarifa za akiba",
+    "alertsIntro": "Tahadhari za akiba ndogo, uwezekano wa kuagiza upya na ukiukaji wa muda wa kuharibika.",
+    "alert": {
+      "LOW_STOCK": "Akiba ndogo",
+      "REORDER_RISK": "Agiza upya hivi karibuni",
+      "EXPIRY_RISK": "Hatari ya kuharibika"
+    },
+    "onHandTitle": "Iliyopo",
+    "tableCaption": "Akiba iliyopo kwa dawa na tawi",
+    "columnMedication": "Dawa",
+    "columnOnHand": "Iliyopo",
+    "empty": "Hakuna akiba iliyopokelewa katika tawi hili bado.",
+    "unavailableTitle": "Akiba haipatikani kwa sasa",
+    "unavailableBody": "Akiba ya tawi haingeweza kupakiwa. Jaribu tena baadaye.",
+    "error": {
+      "noLines": "Ongeza mstari mmoja angalau wenye dawa, namba ya kundi na kiasi.",
+      "invalidQuantity": "Kiasi lazima kiwe namba kamili zaidi ya sifuri.",
+      "unknownMedication": "Mojawapo ya dawa haipo tena kwenye orodha.",
+      "failedBody": "Akiba haingeweza kupokelewa. Jaribu tena baadaye."
+    },
+    "composer": {
+      "title": "Pokea akiba",
+      "lineHeading": "Mstari {number}",
+      "medicationLabel": "Dawa",
+      "medicationPlaceholder": "Chagua dawa",
+      "batchLabel": "Namba ya kundi",
+      "quantityLabel": "Kiasi",
+      "expiryLabel": "Tarehe ya kuharibika",
+      "unitCostLabel": "Gharama kwa kimoja",
+      "addLine": "Ongeza mstari",
+      "removeLine": "Ondoa",
+      "save": "Pokea akiba",
+      "cancel": "Ghairi"
     }
   },
   "results": {

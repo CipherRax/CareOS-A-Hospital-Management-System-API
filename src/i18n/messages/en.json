@@ -1279,6 +1279,9 @@
     "working": "Dispensing…",
     "dispensed": "Dispensed — now {status}.",
     "unknownPatient": "Unknown patient",
+    "dispensed": "Dispensed — now {status}.",
+    "unknownPatient": "Unknown patient",
+    "stockControl": "Stock control",
     "status": {
       "ISSUED": "Issued",
       "PARTIALLY_DISPENSED": "Partially dispensed"
@@ -1289,6 +1292,47 @@
       "insufficientStock": "The branch does not have enough stock to fill this line.",
       "staleBody": "This prescription changed. Reload and try again.",
       "failedBody": "The prescription could not be dispensed. Try again shortly."
+    }
+  },
+  "pharmacyStock": {
+    "back": "Back to the dispense queue",
+    "pageTitle": "Pharmacy stock",
+    "pageIntro": "Stock on hand for this branch and the advisories the ledger raises. Receiving stock creates or tops up a batch and records the movement.",
+    "receiveStock": "Receive stock",
+    "working": "Saving…",
+    "alertsTitle": "Stock advisories",
+    "alertsIntro": "Low stock, reorder risk and expiry warnings derived from the branch ledger.",
+    "alert": {
+      "LOW_STOCK": "Low stock",
+      "REORDER_RISK": "Reorder soon",
+      "EXPIRY_RISK": "Expiry risk"
+    },
+    "onHandTitle": "On hand",
+    "tableCaption": "Stock on hand by medication and branch",
+    "columnMedication": "Medication",
+    "columnOnHand": "On hand",
+    "empty": "No stock has been received into this branch yet.",
+    "unavailableTitle": "Stock is temporarily unavailable",
+    "unavailableBody": "The branch stock could not be loaded. Try again shortly.",
+    "error": {
+      "noLines": "Add at least one line with a medication, batch number and quantity.",
+      "invalidQuantity": "A quantity must be a whole number above zero.",
+      "unknownMedication": "One of the medications is no longer in the catalogue.",
+      "failedBody": "The stock could not be received. Try again shortly."
+    },
+    "composer": {
+      "title": "Receive stock",
+      "lineHeading": "Line {number}",
+      "medicationLabel": "Medication",
+      "medicationPlaceholder": "Select a medication",
+      "batchLabel": "Batch number",
+      "quantityLabel": "Quantity",
+      "expiryLabel": "Expiry date",
+      "unitCostLabel": "Unit cost",
+      "addLine": "Add line",
+      "removeLine": "Remove",
+      "save": "Receive stock",
+      "cancel": "Cancel"
     }
   },
   "results": {

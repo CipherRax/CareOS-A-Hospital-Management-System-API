@@ -135,11 +135,16 @@ import {
   type RadiologyOrderTransition,
 } from '@/lib/data/radiology';
 import {
+  fetchStockAlerts,
   fetchStockOnHand,
   readDispenseResult,
+  readReceiveResult,
   type DispenseInput,
   type DispenseResult,
   type InventoryCallError,
+  type ReceiveStockInput,
+  type ReceivedBatch,
+  type StockAlertRow,
   type StockOnHandRow,
 } from '@/lib/data/inventory';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
@@ -2465,6 +2470,72 @@ export function useDispensePrescription(): UseMutationResult<
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['prescriptions'] });
       queryClient.invalidateQueries({ queryKey: ['inventory', 'on-hand'] });
+    },
+  });
+}
+
+/**
+ * Stock-risk advisories `GET /pharmacy/stock/alerts`. The export leaves the query
+ * unmodelled and mis-types the 200 as the request DTO while the service answers
+ * `{ alerts: [...] }` (GAP-020), so this rides the raw-fetch path.
+ */
+export function useStockAlerts(
+  query: { branchId?: string } = {},
+): UseQueryResult<Fetched<readonly StockAlertRow[]>, QueryError> {
+  return useQuery<Fetched<readonly StockAlertRow[]>, QueryError>({
+    queryKey: ['inventory', 'alerts', query.branchId ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const alerts = await fetchStockAlerts(query, signal);
+        return { data: alerts, response: new Response(null, { status: 200 }) } satisfies Fetched<
+          readonly StockAlertRow[]
+        >;
+      } catch (call) {
+        throw toQueryError(call as InventoryCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Receives stock into a branch `POST /pharmacy/stock/receive`: creates or tops up
+ * a batch and writes a RECEIVED ledger entry per line. The service answers a bare
+ * `{ batches: [...] }` while the export types the 201 as `InventoryResponseDto`
+ * (GAP-020), so the unwrapped body is validated through `readReceiveResult`. The
+ * on-hand and alerts reads are invalidated because both are derived from the
+ * ledger this write grows.
+ */
+export function useReceiveStock(): UseMutationResult<
+  readonly ReceivedBatch[],
+  QueryError,
+  ReceiveStockInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<readonly ReceivedBatch[], QueryError, ReceiveStockInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/pharmacy/stock/receive', {
+          body: {
+            branchId: input.branchId,
+            lines: input.lines.map((line) => ({
+              medicationId: line.medicationId,
+              quantity: line.quantity,
+              batchNumber: line.batchNumber,
+              ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
+              ...(line.unitCost !== undefined ? { unitCost: line.unitCost } : {}),
+            })),
+          },
+        }),
+      );
+      const parsed = readReceiveResult(fetched.data);
+      if (!parsed.ok) throw inventoryWriteError();
+      return parsed.batches;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory', 'on-hand'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory', 'alerts'] });
     },
   });
 }

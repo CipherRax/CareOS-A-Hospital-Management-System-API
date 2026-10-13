@@ -454,3 +454,17 @@ though the module is `inventory`:
   `PARTIALLY_DISPENSED`); a line above the outstanding balance is a 400, a stock
   shortfall or a non-`ISSUED`/`PARTIALLY_DISPENSED` prescription a 409. The client
   validates the unwrapped body through `readDispenseResult`.
+
+**Stock control reads/writes (F6 slice 2).** Same drift, same controller:
+
+- `GET /pharmacy/stock/alerts` carries `query: never` and types the 200 as the
+  request DTO while the service answers
+  `{ alerts: [{ medicationId, name, label, detail }] }`, `label` one of
+  `LOW_STOCK | REORDER_RISK | EXPIRY_RISK`. The client rides the raw-fetch path
+  (`fetchStockAlerts`/`extractStockAlerts`/`readStockAlertRow`, which rejects an
+  unknown tier).
+- `POST /pharmacy/stock/receive` is typed as `InventoryResponseDto` but answers a
+  **bare** `{ batches: [{ id, batchNumber, medicationId, quantity }] }` (201).
+  Body is `ReceiveStockDto` (`{ branchId, lines: [{ medicationId, quantity,
+  batchNumber, expiryDate?, unitCost? }] }`, 1–100 lines, `batchNumber` 1–200).
+  The client validates the unwrapped body through `readReceiveResult`.

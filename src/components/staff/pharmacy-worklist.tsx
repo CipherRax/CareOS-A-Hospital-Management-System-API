@@ -1,6 +1,7 @@
 'use client';
 
 import { Pill } from 'lucide-react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 
@@ -42,9 +43,17 @@ export function PharmacyWorklistScreen() {
 
   return (
     <div className="flex flex-col gap-4 px-6 py-6">
-      <header>
-        <h1 className="text-heading font-semibold text-primary">{t('pageTitle')}</h1>
-        <p className="text-meta text-secondary">{t('pageIntro')}</p>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-heading font-semibold text-primary">{t('pageTitle')}</h1>
+          <p className="text-meta text-secondary">{t('pageIntro')}</p>
+        </div>
+        <Link
+          href="/pharmacy/stock"
+          className="inline-flex items-center gap-1.5 text-meta font-medium text-secondary underline-offset-2 hover:underline"
+        >
+          {t('stockControl')}
+        </Link>
       </header>
 
       {prescriptions.error ? (
