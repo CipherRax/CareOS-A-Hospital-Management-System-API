@@ -1234,6 +1234,36 @@
       "failedBody": "Try again shortly."
     }
   },
+  "orders": {
+    "title": "Orders",
+    "intro": "Place laboratory and imaging requests for this encounter. They go to the laboratory and radiology worklists for processing.",
+    "orderLab": "Order laboratory tests",
+    "orderImaging": "Order imaging",
+    "placedLab": "Laboratory order {number} placed.",
+    "placedImaging": "Imaging order {number} placed.",
+    "laboratoryTitle": "Order laboratory tests",
+    "testsLegend": "Tests",
+    "catalogLoading": "Loading the test catalogue…",
+    "catalogEmpty": "No active laboratory tests are available.",
+    "selectAtLeastOne": "Select at least one test.",
+    "priority": "Priority",
+    "clinicalNotes": "Clinical notes",
+    "clinicalNotesHint": "Optional context for the laboratory or radiology team.",
+    "submitLaboratory": "Place laboratory order",
+    "imagingTitle": "Order imaging",
+    "modality": "Modality",
+    "region": "Region",
+    "regionHint": "Optional — the body part or area to image.",
+    "submitImaging": "Place imaging order",
+    "working": "Placing…",
+    "cancel": "Cancel",
+    "error": {
+      "validationTitle": "Check the order details",
+      "validationBody": "The order was rejected. Review the fields and try again.",
+      "failedTitle": "The order could not be placed",
+      "failedBody": "Try again shortly."
+    }
+  },
   "results": {
     "title": "Results",
     "intro": "Released laboratory and imaging results for this patient. Ordering and processing happen in the laboratory and radiology modules.",

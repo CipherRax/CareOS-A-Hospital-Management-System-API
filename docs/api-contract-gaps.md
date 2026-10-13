@@ -400,7 +400,8 @@ against `src/modules/laboratory` and `src/modules/radiology`:
   `report` takes `{ findings, summary?, impression? }`; `cancel` takes
   `{ reason }`.
 - `POST /radiology/orders` (create) is typed as the bare entity but answers
-  `{ order }`; the client is not yet wired to it.
+  `{ order }`; the client unwraps and validates it through
+  `extractRadiologyOrderRecord` (wired in F5 slice 3).
 - The reads keep their earlier shape: the list serializes the full order
   including the report and the single read answers `{ order }`; the service, not
   the DTO, is authority. The client validates every body in
@@ -414,3 +415,22 @@ against `src/modules/laboratory` and `src/modules/radiology`:
   `domain/radiology-flow.ts` (`RAD_ALLOWED_FROM`), and a wrong-state move is
   refused with 409 `INVALID_WORKFLOW_TRANSITION`. A report is required before
   verification (the 1:1 report is created by `report`).
+
+**Same drift under the order-entry creates (F5 slice 3).** Verified against
+`src/modules/laboratory` and `src/modules/radiology`:
+
+- `POST /lab/orders` is typed as the bare `LabOrderResponseDto` but answers
+  `{ order }` (201); the body is `CreateLabOrderDto`
+  (`{ patientId, branchId, encounterId?, priority?, clinicalNotes?, testIds }`
+  with `testIds` 1–50). The client validates the unwrapped body through
+  `extractLabOrderRecord`.
+- `POST /radiology/orders` matches the `report`/`cancel` pattern above: bare
+  entity typed, `{ order }` (201) answered, body `CreateRadiologyOrderDto`
+  (`{ patientId, branchId, encounterId?, modality, region?, clinicalNotes?,
+  requestedAt? }`). Validated through `extractRadiologyOrderRecord`.
+- Both creates default `orderedById`/`orderedAt` server-side and return the new
+  order at status `ORDERED`, which is what the worklists then process. The
+  export carries the request DTOs correctly for once — the drift is envelope-only.
+  The active test catalogue for the picker still comes from `GET /lab/tests`
+  (page-typed DTO, raw-fetched), and the modality list from
+  `domain/radiology-flow.ts` constants mirrored in the client.

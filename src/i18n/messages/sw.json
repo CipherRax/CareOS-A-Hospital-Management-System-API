@@ -1253,6 +1253,36 @@
       "failedBody": "Jaribu tena baadaye."
     }
   },
+  "orders": {
+    "title": "Oda",
+    "intro": "Weka maombi ya maabino na upigaji picha kwa hudhurio hili. Huenda kwenye ratiba za maabino na radiolojia kwa usindikaji.",
+    "orderLab": "Agiza vipimo vya maabino",
+    "orderImaging": "Agiza upigaji picha",
+    "placedLab": "Oda ya maabino {number} imewekwa.",
+    "placedImaging": "Oda ya upigaji picha {number} imewekwa.",
+    "laboratoryTitle": "Agiza vipimo vya maabino",
+    "testsLegend": "Vipimo",
+    "catalogLoading": "Inapakia orodha ya vipimo…",
+    "catalogEmpty": "Hakuna vipimo vya maabino vinavyotumika.",
+    "selectAtLeastOne": "Chagua kipimo kimoja angalau.",
+    "priority": "Kipaumbele",
+    "clinicalNotes": "Maelezo ya kliniki",
+    "clinicalNotesHint": "Muktadha wa hiari kwa timu ya maabino au radiolojia.",
+    "submitLaboratory": "Weka oda ya maabino",
+    "imagingTitle": "Agiza upigaji picha",
+    "modality": "Aina ya picha",
+    "region": "Eneo",
+    "regionHint": "Hiari — sehemu ya mwili au eneo la kupiga picha.",
+    "submitImaging": "Weka oda ya upigaji picha",
+    "working": "Inaweka…",
+    "cancel": "Ghairi",
+    "error": {
+      "validationTitle": "Angalia maelezo ya oda",
+      "validationBody": "Oda ilikataliwa. Pitia sehemu na ujaribu tena.",
+      "failedTitle": "Oda haikuweza kuwekwa",
+      "failedBody": "Jaribu tena baadaye."
+    }
+  },
   "results": {
     "title": "Matokeo",
     "intro": "Matokeo ya maabara na picha zilizotolewa kwa mgonjwa huyu. Kuagiza na kuchakata hufanywa na moduli za maabara na radiolojia.",

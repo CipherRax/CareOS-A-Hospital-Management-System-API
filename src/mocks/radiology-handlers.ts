@@ -62,6 +62,7 @@ interface LiveOrder {
 }
 
 let reportSeq = 4100;
+let createdOrderSeq = 4501;
 
 function iso(minutesAgo: number): string {
   return new Date(Date.now() - minutesAgo * 60_000).toISOString();
@@ -139,6 +140,56 @@ function orderResponse(order: LiveOrder) {
 
 export function radiologyHandlers() {
   return [
+    http.post('*/api/v1/radiology/orders', async ({ request }) => {
+      await delay(MOCK_LATENCY_MS);
+      const body = (await request.json()) as {
+        patientId?: string;
+        branchId?: string;
+        encounterId?: string;
+        modality?: string;
+        region?: string;
+        clinicalNotes?: string;
+        requestedAt?: string;
+      };
+      if (!body.patientId || !body.branchId || !body.modality) {
+        return HttpResponse.json(
+          apiError('VALIDATION_ERROR', 'patientId, branchId and modality are required.'),
+          { status: 422 },
+        );
+      }
+
+      const order: LiveOrder = {
+        id: `rad_example_${createdOrderSeq}`,
+        organizationId: RADIOLOGY_ORG_ID,
+        orderNumber: `RAD-2026-${String(createdOrderSeq).padStart(6, '0')}`,
+        patientId: body.patientId,
+        branchId: body.branchId,
+        encounterId: body.encounterId ?? null,
+        modality: body.modality,
+        region: body.region ?? null,
+        status: 'ORDERED',
+        clinicalNotes: body.clinicalNotes ?? null,
+        orderedById: RADIOLOGY_ORDERED_BY,
+        orderedAt: new Date().toISOString(),
+        requestedAt: body.requestedAt ?? null,
+        performedById: null,
+        performedAt: null,
+        cancelledById: null,
+        cancelledAt: null,
+        cancelledReason: null,
+        releasedById: null,
+        releasedAt: null,
+        version: 1,
+        report: null,
+      };
+      createdOrderSeq += 1;
+      LIVE_ORDERS.unshift(order);
+      return HttpResponse.json(
+        apiOk({ order }, 'req_mock_radiology_create'),
+        { status: 201 },
+      );
+    }),
+
     http.get('*/api/v1/radiology/orders', async ({ request }) => {
       await delay(MOCK_LATENCY_MS);
       const url = new URL(request.url);

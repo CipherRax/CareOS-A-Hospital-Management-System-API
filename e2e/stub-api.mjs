@@ -450,6 +450,8 @@ const LIVE_LAB_TESTS = LAB_TEST_SEED.map((test) => ({
 let labItemSeq = 6200;
 let labResultSeq = 6300;
 let labCriticalSeq = 6400;
+let labCreatedOrderSeq = 7001;
+let labCreatedSampleSeq = 7101;
 const LAB_ORDER_SEED = [
   { id: 'lab_example_5001', orderNumber: 'LAB-2026-000001', patientId: 'pat_example_1001', encounterId: 'enc_example_6001', status: 'RELEASED', priority: 'ROUTINE', orderedMinutesAgo: 35, releasedMinutesAgo: 10, cancelledMinutesAgo: null, cancelReason: null, rejectionReason: null, clinicalNotes: null, sampleNumber: 'S-2026-000001', items: [
     { testId: 'lbt_example_5001', notes: null, results: [
@@ -580,6 +582,7 @@ const RADIOLOGY_ORDER_SEED = [
   { id: 'rad_example_4008', orderNumber: 'RAD-2026-000008', patientId: 'pat_example_1004', encounterId: null, modality: 'ULTRASOUND', region: 'Pelvis', status: 'CANCELLED', clinicalNotes: 'Query ovarian pathology.', orderedMinutesAgo: 20, requestedMinutesAgo: null, performedMinutesAgo: null, cancelledMinutesAgo: 15, cancelReason: 'Patient declined; imaging to be rescheduled.', releasedMinutesAgo: null, report: null },
 ];
 let radiologyReportSeq = 4100;
+let radiologyCreatedOrderSeq = 4501;
 const LIVE_RADIOLOGY_ORDERS = RADIOLOGY_ORDER_SEED.map((seed) => ({
   id: seed.id, organizationId: 'org_example_0001', orderNumber: seed.orderNumber, patientId: seed.patientId,
   branchId: 'br_example_0001', encounterId: seed.encounterId, modality: seed.modality, region: seed.region,
@@ -1712,6 +1715,40 @@ const server = createServer(async (request, response) => {
   }
 
   // --- laboratory results (F4 doctor results view) -----------------------
+  if (url.pathname === '/lab/orders' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const testIds = Array.isArray(body.testIds) ? body.testIds.filter((id) => typeof id === 'string') : [];
+    const firstTest = LIVE_LAB_TESTS.find((t) => t.id === testIds[0]);
+    if (!body.patientId || !body.branchId || testIds.length === 0 || !firstTest) {
+      send(response, 422, { success: false, error: { code: 'VALIDATION_ERROR', message: 'patientId, branchId and at least one test are required.' } });
+      return;
+    }
+    const orderId = `lab_example_${labCreatedOrderSeq}`;
+    const sampleNumber = `S-2026-${String(labCreatedSampleSeq).padStart(6, '0')}`;
+    const sampleId = `lbs_example_${labCreatedSampleSeq}`;
+    const orderNumber = `LAB-2026-${String(labCreatedOrderSeq).padStart(6, '0')}`;
+    labCreatedOrderSeq += 1;
+    labCreatedSampleSeq += 1;
+    const _items = testIds.map((testId) => {
+      const test = LIVE_LAB_TESTS.find((t) => t.id === testId);
+      return { id: `loi_example_${labItemSeq++}`, testId, testCode: test?.code ?? '', testName: test?.name ?? '', notes: null, results: [] };
+    });
+    const order = {
+      id: orderId, organizationId: 'org_example_0001', orderNumber, patientId: body.patientId,
+      branchId: body.branchId, encounterId: body.encounterId ?? null, status: 'ORDERED',
+      priority: body.priority ?? 'ROUTINE', clinicalNotes: body.clinicalNotes ?? null,
+      orderedById: 'usr_example_9001', orderedAt: new Date().toISOString(), releasedById: null,
+      releasedAt: null, cancelledById: null, cancelledAt: null, cancelledReason: null,
+      rejectionReason: null, version: 1,
+      sample: { id: sampleId, organizationId: 'org_example_0001', sampleNumber, orderId, patientId: body.patientId, branchId: body.branchId, sampleType: firstTest.sampleType, status: 'ORDERED', collectedAt: null, receivedAt: null, processingAt: null, completedAt: null, rejectedAt: null, rejectedReason: null, recollectsFromOrderId: null },
+      _items, criticalResults: [],
+    };
+    LIVE_LAB_ORDERS.unshift(order);
+    send(response, 201, { success: true, data: { order: serializeLabOrderDetail(order) } });
+    return;
+  }
+
   if (url.pathname === '/lab/orders' && request.method === 'GET') {
     const patientId = url.searchParams.get('patientId');
     const branchId = url.searchParams.get('branchId');
@@ -1852,6 +1889,30 @@ const server = createServer(async (request, response) => {
   }
 
   // --- radiology results (F4 doctor results view) ------------------------
+  if (url.pathname === '/radiology/orders' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (!body.patientId || !body.branchId || !body.modality) {
+      send(response, 422, { success: false, error: { code: 'VALIDATION_ERROR', message: 'patientId, branchId and modality are required.' } });
+      return;
+    }
+    const order = {
+      id: `rad_example_${radiologyCreatedOrderSeq}`,
+      organizationId: 'org_example_0001',
+      orderNumber: `RAD-2026-${String(radiologyCreatedOrderSeq).padStart(6, '0')}`,
+      patientId: body.patientId, branchId: body.branchId, encounterId: body.encounterId ?? null,
+      modality: body.modality, region: body.region ?? null, status: 'ORDERED',
+      clinicalNotes: body.clinicalNotes ?? null, orderedById: 'usr_example_9001',
+      orderedAt: new Date().toISOString(), requestedAt: body.requestedAt ?? null,
+      performedById: null, performedAt: null, cancelledById: null, cancelledAt: null,
+      cancelledReason: null, releasedById: null, releasedAt: null, version: 1, report: null,
+    };
+    radiologyCreatedOrderSeq += 1;
+    LIVE_RADIOLOGY_ORDERS.unshift(order);
+    send(response, 201, { success: true, data: { order } });
+    return;
+  }
+
   if (url.pathname === '/radiology/orders' && request.method === 'GET') {
     const patientId = url.searchParams.get('patientId');
     const branchId = url.searchParams.get('branchId');

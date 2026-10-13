@@ -116,6 +116,7 @@ import {
   type CriticalResultRow,
   type LabOrderDetail,
   type LabOrderPage,
+  type LabOrderPriority,
   type LabOrderQuery,
   type LabOrderTransition,
   type LabResultRow,
@@ -126,6 +127,7 @@ import {
 import {
   extractRadiologyOrderRecord,
   fetchRadiologyOrders,
+  type ImagingModality,
   type RadiologyCallError,
   type RadiologyOrderPage,
   type RadiologyOrderQuery,
@@ -1968,6 +1970,52 @@ function labWriteError(status = 201): QueryError {
   return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
 }
 
+export interface CreateLabOrderInput {
+  patientId: string;
+  branchId: string;
+  encounterId?: string;
+  priority?: LabOrderPriority;
+  clinicalNotes?: string;
+  testIds: readonly string[];
+}
+
+/**
+ * Places a laboratory order (`POST /lab/orders`) for the encounter's patient.
+ * The export types the 201 body as the bare entity while the service answers
+ * `{ order }`, so the unwrapped body is validated structurally (GAP-020). The
+ * list and detail reads are invalidated so the doctor's results panel and the
+ * laboratory worklist both pick the new order up.
+ */
+export function useCreateLabOrder(): UseMutationResult<
+  LabOrderDetail,
+  QueryError,
+  CreateLabOrderInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<LabOrderDetail, QueryError, CreateLabOrderInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/lab/orders', {
+          body: {
+            patientId: input.patientId,
+            branchId: input.branchId,
+            encounterId: input.encounterId,
+            priority: input.priority,
+            clinicalNotes: input.clinicalNotes,
+            testIds: [...input.testIds],
+          },
+        }),
+      );
+      const parsed = extractLabOrderRecord(fetched.data);
+      if (!parsed.ok) throw labWriteError();
+      return parsed.order;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lab-orders'] });
+    },
+  });
+}
+
 export interface LabOrderTransitionInput {
   id: string;
   action: LabOrderTransition;
@@ -2176,6 +2224,52 @@ export function useRadiologyOrders(
 /** A record body that fails structural validation is an internal contract break. */
 function radiologyWriteError(status = 201): QueryError {
   return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+export interface CreateRadiologyOrderInput {
+  patientId: string;
+  branchId: string;
+  encounterId?: string;
+  modality: ImagingModality;
+  region?: string;
+  clinicalNotes?: string;
+}
+
+/**
+ * Places an imaging order (`POST /radiology/orders`) for the encounter's
+ * patient. The export types the 201 body as the bare entity while the service
+ * answers `{ order }`, so the unwrapped body is validated structurally
+ * (GAP-020). The list and detail reads are invalidated so the doctor's results
+ * panel and the radiology worklist both pick the new order up.
+ */
+export function useCreateRadiologyOrder(): UseMutationResult<
+  RadiologyOrderRow,
+  QueryError,
+  CreateRadiologyOrderInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<RadiologyOrderRow, QueryError, CreateRadiologyOrderInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/radiology/orders', {
+          body: {
+            patientId: input.patientId,
+            branchId: input.branchId,
+            encounterId: input.encounterId,
+            modality: input.modality,
+            region: input.region,
+            clinicalNotes: input.clinicalNotes,
+          },
+        }),
+      );
+      const parsed = extractRadiologyOrderRecord(fetched.data);
+      if (!parsed.ok) throw radiologyWriteError();
+      return parsed.order;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['radiology-orders'] });
+    },
+  });
 }
 
 export interface RadiologyOrderTransitionInput {

@@ -102,6 +102,8 @@ interface LiveOrder {
 let itemSeq = 6200;
 let resultSeq = 6300;
 let criticalSeq = 6400;
+let createdOrderSeq = 7001;
+let createdSampleSeq = 7101;
 
 function iso(minutesAgo: number): string {
   return new Date(Date.now() - minutesAgo * 60_000).toISOString();
@@ -314,6 +316,95 @@ function advanceSample(order: LiveOrder, nextStatus: string, extra: Partial<Live
 
 export function laboratoryHandlers() {
   return [
+    http.post('*/api/v1/lab/orders', async ({ request }) => {
+      await delay(MOCK_LATENCY_MS);
+      const body = (await request.json()) as {
+        patientId?: string;
+        branchId?: string;
+        encounterId?: string;
+        priority?: string;
+        clinicalNotes?: string;
+        testIds?: readonly string[];
+      };
+      const testIds = body.testIds ?? [];
+      if (!body.patientId || !body.branchId || testIds.length === 0) {
+        return HttpResponse.json(
+          apiError('VALIDATION_ERROR', 'patientId, branchId and at least one test are required.'),
+          { status: 422 },
+        );
+      }
+      const firstTest = LAB_TESTS.find((row) => row.id === testIds[0]);
+      if (!firstTest || testIds.some((id) => !LAB_TESTS.some((row) => row.id === id))) {
+        return HttpResponse.json(
+          apiError('VALIDATION_ERROR', 'A requested test is unknown.'),
+          { status: 422 },
+        );
+      }
+
+      const orderId = `lab_example_${createdOrderSeq}`;
+      const sampleNumber = `S-2026-${String(createdSampleSeq).padStart(6, '0')}`;
+      const sampleId = `lbs_example_${createdSampleSeq}`;
+      const orderNumber = `LAB-2026-${String(createdOrderSeq).padStart(6, '0')}`;
+      createdOrderSeq += 1;
+      createdSampleSeq += 1;
+
+      const items: LiveItem[] = testIds.map((testId) => {
+        const test = LAB_TESTS.find((row) => row.id === testId);
+        return {
+          id: `loi_example_${itemSeq++}`,
+          testId,
+          testCode: test?.code ?? '',
+          testName: test?.name ?? '',
+          notes: null,
+          results: [],
+        };
+      });
+
+      const order: LiveOrder = {
+        id: orderId,
+        organizationId: LAB_ORG_ID,
+        orderNumber,
+        patientId: body.patientId,
+        branchId: body.branchId,
+        encounterId: body.encounterId ?? null,
+        status: 'ORDERED',
+        priority: body.priority ?? 'ROUTINE',
+        clinicalNotes: body.clinicalNotes ?? null,
+        orderedById: LAB_ORDERED_BY,
+        orderedAt: new Date().toISOString(),
+        releasedById: null,
+        releasedAt: null,
+        cancelledById: null,
+        cancelledAt: null,
+        cancelledReason: null,
+        rejectionReason: null,
+        version: 1,
+        sample: {
+          id: sampleId,
+          organizationId: LAB_ORG_ID,
+          sampleNumber,
+          orderId,
+          patientId: body.patientId,
+          branchId: body.branchId,
+          sampleType: firstTest.sampleType,
+          status: 'ORDERED',
+          collectedAt: null,
+          receivedAt: null,
+          processingAt: null,
+          completedAt: null,
+          rejectedAt: null,
+          rejectedReason: null,
+        },
+        _items: items,
+        criticalResults: [],
+      };
+      LIVE_ORDERS.unshift(order);
+      return HttpResponse.json(
+        apiOk({ order: serializeDetail(order) }, 'req_mock_lab_create'),
+        { status: 201 },
+      );
+    }),
+
     http.get('*/api/v1/lab/orders', async ({ request }) => {
       await delay(MOCK_LATENCY_MS);
       const url = new URL(request.url);
