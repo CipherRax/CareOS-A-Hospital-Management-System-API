@@ -516,6 +516,38 @@ path), so the invoice and payment routes sit at the API root:
   truncates the settled status with `settleInvoiceStatus(total, balanceDue)`
   (`PAID` at zero balance, else `PARTIALLY_PAID`).
 - **Not built this slice:** `POST /invoices` (create) needs a `branchId` and the
-  app still has no branch picker, and the whole insurance surface
-  (`/insurance/payers`, `/insurance/policies`, `/insurance/claims`) is deferred to
-  a later F7 slice.
+  app still has no branch picker; the whole insurance surface
+  (`/insurance/payers`, `/insurance/policies`, `/insurance/claims`) followed in
+  slice 2, below.
+
+**Same drift under the insurance reads/writes (F7 slice 2).** Verified against the
+same `src/modules/billing` controller (base path empty; the insurance routes also
+sit at the API root):
+
+- `GET /insurance/payers` is typed as the bare `InsurancePayerResponseDto` while
+  the service answers a `PageResult` (`pageOf(rows.map(serializePayer), …)`, total
+  forced to the row count); the client rides the raw-fetch path
+  (`fetchPayers`/`extractPayerPage`/`readPayer`).
+- `GET /insurance/policies` and `GET /insurance/claims` are typed as their request
+  DTOs (`ListPoliciesQueryDto` / `ListClaimsQueryDto`) while the service answers a
+  `PageResult`; both ride the raw-fetch path
+  (`extractPolicyPage`/`readPolicy`, `extractClaimPage`/`readClaim`).
+- `GET /insurance/claims/{id}` is typed as the bare entity but answers
+  `{ claim }`; `POST /insurance/claims` (create, `CreateClaimDto`) and
+  `POST /insurance/claims/{id}/action` (`ActionClaimDto` `{ action, approvedAmount?,
+  reason? }`) are typed the same bare way, answer `{ claim }`, and answer **201**.
+  All go through `extractClaimRecord` on the unwrapped body.
+- A claim's `amount` and `approvedAmount` (nullable) are decimal strings
+  (ADR-029); the client validates them as strings and never parses or computes
+  them. `serializeClaim` returns `approvedAmount: null` until a decision sets it.
+- The lifecycle mirrors the service's `CLAIM_ALLOWED_FROM`: `submit` from `DRAFT`,
+  `approve`/`partial_approve`/`deny` from `SUBMITTED`, `pay` from
+  `APPROVED|PARTIALLY_APPROVED`. Create-time guards: the policy's patient must
+  match the invoice's, and the amount may not exceed the invoice total; `approve`
+  may not exceed the claim amount and `partial_approve` must sit below it; `deny`
+  requires a reason. `pay` settles an INSURANCE-method payment against the invoice
+  (invoice must be `ISSUED|PARTIALLY_PAID`, payout within the balance), so a `pay`
+  invalidates the invoice reads as well as the claim's.
+- **Not built this slice:** the insurance *management* surface (creating payers and
+  policies — `POST /insurance/payers`, `POST /insurance/policies`) and M-PESA.
+  `POST /invoices` (create) still needs the branch picker.

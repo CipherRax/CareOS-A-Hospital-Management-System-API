@@ -162,6 +162,20 @@ import {
   type WriteOffInput,
   type WriteOffResult,
 } from '@/lib/data/inventory';
+import {
+  extractClaimRecord,
+  fetchClaim,
+  fetchClaims,
+  fetchPayers,
+  fetchPolicies,
+  type ClaimQuery,
+  type InsuranceCallError,
+  type InsuranceClaimPage,
+  type InsuranceClaimRow,
+  type InsurancePayerPage,
+  type InsurancePolicyPage,
+  type PolicyQuery,
+} from '@/lib/data/insurance';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
@@ -307,7 +321,8 @@ function toQueryError(
     | LaboratoryCallError
     | RadiologyCallError
     | InventoryCallError
-    | BillingCallError,
+    | BillingCallError
+    | InsuranceCallError,
 ): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
@@ -1234,6 +1249,192 @@ export function useRefundPayment(): UseMutationResult<PaymentRow, QueryError, Re
 export function useOrgCurrency(): string {
   const session = useSession();
   return session.data?.data.currency ?? 'KES';
+}
+
+// --- insurance: payers, policies and claims (F7) ----------------------------
+
+/** A record body that fails structural validation is an internal contract break. */
+function insuranceWriteError(status = 201): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+/**
+ * Insurance payers `GET /insurance/payers`. The export types the 200 as the bare
+ * entity while the service answers a `PageResult` (GAP-020 family), so it rides
+ * the raw-fetch path.
+ */
+export function useInsurancePayers(): UseQueryResult<Fetched<InsurancePayerPage>, QueryError> {
+  return useQuery<Fetched<InsurancePayerPage>, QueryError>({
+    queryKey: ['insurance', 'payers'],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchPayers(signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<InsurancePayerPage>;
+      } catch (call) {
+        throw toQueryError(call as InsuranceCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Patient policies `GET /insurance/policies?{filters}`. The export types the 200
+ * as the request DTO while the service answers a `PageResult` (GAP-020 family),
+ * so it rides the raw-fetch path. Used to pick an active policy when a claim is
+ * raised against an invoice.
+ */
+export function useInsurancePolicies(
+  query: PolicyQuery = {},
+): UseQueryResult<Fetched<InsurancePolicyPage>, QueryError> {
+  return useQuery<Fetched<InsurancePolicyPage>, QueryError>({
+    queryKey: ['insurance', 'policies', query.patientId ?? null, query.payerId ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchPolicies(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<InsurancePolicyPage>;
+      } catch (call) {
+        throw toQueryError(call as InsuranceCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Insurance claim list `GET /insurance/claims?{filters}`. The export types the
+ * 200 as the request DTO while the service answers a `PageResult` (GAP-020
+ * family), so it rides the raw-fetch path.
+ */
+export function useClaims(
+  query: ClaimQuery = {},
+): UseQueryResult<Fetched<InsuranceClaimPage>, QueryError> {
+  return useQuery<Fetched<InsuranceClaimPage>, QueryError>({
+    queryKey: [
+      'claims',
+      'list',
+      query.invoiceId ?? null,
+      query.patientId ?? null,
+      query.status ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchClaims(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<InsuranceClaimPage>;
+      } catch (call) {
+        throw toQueryError(call as InsuranceCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Full claim `GET /insurance/claims/{id}`. The service answers `{ claim }` while
+ * the export types the bare entity (GAP-020), so the unwrapped body is validated
+ * structurally.
+ */
+export function useClaim(id: string): UseQueryResult<Fetched<InsuranceClaimRow>, QueryError> {
+  return useQuery<Fetched<InsuranceClaimRow>, QueryError>({
+    queryKey: ['claims', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const claim = await fetchClaim(id, signal);
+        return { data: claim, response: new Response(null, { status: 200 }) } satisfies Fetched<InsuranceClaimRow>;
+      } catch (call) {
+        throw toQueryError(call as InsuranceCallError);
+      }
+    },
+    enabled: id.length > 0,
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+export interface CreateClaimInput {
+  invoiceId: string;
+  policyId: string;
+  /** Omitting the amount claims the whole invoice total, as the service does. */
+  amount?: string;
+  notes?: string;
+}
+
+/**
+ * Raises a DRAFT claim `POST /insurance/claims`. The service answers `{ claim }`
+ * while the export types the bare entity (GAP-020), so the unwrapped body is
+ * validated structurally. A claim above the invoice total, or against a policy
+ * that belongs to a different patient, answers 400/404.
+ */
+export function useCreateClaim(): UseMutationResult<InsuranceClaimRow, QueryError, CreateClaimInput> {
+  const queryClient = useQueryClient();
+  return useMutation<InsuranceClaimRow, QueryError, CreateClaimInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/insurance/claims', {
+          body: {
+            invoiceId: input.invoiceId,
+            policyId: input.policyId,
+            amount: input.amount,
+            notes: input.notes,
+          },
+        }),
+      );
+      const parsed = extractClaimRecord(fetched.data);
+      if (!parsed.ok) throw insuranceWriteError();
+      return parsed.claim;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['claims'] });
+    },
+  });
+}
+
+export type ClaimAction = 'submit' | 'approve' | 'partial_approve' | 'deny' | 'pay';
+
+export interface ClaimActionInput {
+  id: string;
+  action: ClaimAction;
+  /** `partial_approve` requires it; `approve` may carry it (must equal the claim). */
+  approvedAmount?: string;
+  /** `deny` requires a reason. */
+  reason?: string;
+}
+
+/**
+ * Submits, approves, partially approves, denies or pays a claim
+ * `POST /insurance/claims/{id}/action`. Every action answers `{ claim }` while
+ * the export types the bare entity (GAP-020). A move the server refuses (stale
+ * status, an approved amount out of range, a missing deny reason) answers 409/400
+ * with the mapped code, surfaced in place. `pay` also posts an INSURANCE payment
+ * against the invoice, so the invoice reads are invalidated as well.
+ */
+export function useClaimAction(): UseMutationResult<InsuranceClaimRow, QueryError, ClaimActionInput> {
+  const queryClient = useQueryClient();
+  return useMutation<InsuranceClaimRow, QueryError, ClaimActionInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/insurance/claims/{id}/action', {
+          params: { path: { id: input.id } },
+          body: {
+            action: input.action,
+            approvedAmount: input.approvedAmount,
+            reason: input.reason,
+          },
+        }),
+      );
+      const parsed = extractClaimRecord(fetched.data);
+      if (!parsed.ok) throw insuranceWriteError();
+      return parsed.claim;
+    },
+    onSuccess: (_claim, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['claims', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['claims', 'list'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
+  });
 }
 
 /** Declines a waitlist offer, re-offering the slot (`POST .../entries/{id}/decline`). */

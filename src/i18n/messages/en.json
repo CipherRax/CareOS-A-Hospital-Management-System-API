@@ -1486,14 +1486,18 @@
       "columnLineTotal": "Line total",
       "paymentsHeading": "Payments",
       "noPayments": "No payments recorded.",
-      "recorded": "recorded {date}"
+      "recorded": "recorded {date}",
+      "claimsHeading": "Insurance claims",
+      "claimsLoading": "Loading claims…",
+      "noClaims": "No claims raised against this invoice."
     },
     "action": {
       "issue": "Issue invoice",
       "cancel": "Cancel invoice",
       "refund": "Refund invoice",
       "recordPayment": "Record payment",
-      "refundPayment": "Refund"
+      "refundPayment": "Refund",
+      "raiseClaim": "Raise insurance claim"
     },
     "confirm": {
       "issueTitle": "Issue this invoice?",
@@ -1533,6 +1537,31 @@
     "dialog": {
       "cancel": "Cancel"
     },
+    "claimStatus": {
+      "DRAFT": "Draft",
+      "SUBMITTED": "Submitted",
+      "APPROVED": "Approved",
+      "PARTIALLY_APPROVED": "Partially approved",
+      "DENIED": "Denied",
+      "PAID": "Paid"
+    },
+    "claim": {
+      "title": "Raise an insurance claim",
+      "body": "A new claim starts as a draft you can submit to the payer.",
+      "policy": "Policy",
+      "choosePolicy": "Choose a policy",
+      "policiesLoading": "Loading policies…",
+      "noPolicies": "This patient has no active insurance policy.",
+      "policyRequired": "Choose a policy.",
+      "amount": "Claim amount",
+      "amountHint": "Decimal amount, for example 1500.00.",
+      "amountRequired": "Enter an amount.",
+      "amountInvalid": "Enter a positive amount, for example 1500.00.",
+      "amountAboveTotal": "A claim cannot exceed the invoice total.",
+      "invoiceTotal": "Invoice total:",
+      "notes": "Note",
+      "submit": "Raise claim"
+    },
     "errors": {
       "failedTitle": "Action failed",
       "failedBody": "The action could not be completed. Try again.",
@@ -1540,6 +1569,102 @@
       "staleBody": "Someone else changed this invoice. Reload to see the current state.",
       "paymentProcessedTitle": "Payment already processed",
       "paymentProcessedBody": "Only a completed payment can be refunded, and only once."
+    }
+  },
+  "insurance": {
+    "pageTitle": "Insurance",
+    "pageIntro": "Insurance claims raised across the facility, newest first.",
+    "filterStatus": "Status",
+    "allStatuses": "All statuses",
+    "tableCaption": "Insurance claims",
+    "columnClaim": "Claim",
+    "columnPatient": "Patient",
+    "columnAmount": "Claimed",
+    "columnApproved": "Approved",
+    "columnSubmitted": "Submitted",
+    "columnStatus": "Status",
+    "notApproved": "Not approved",
+    "notSubmitted": "Not submitted",
+    "unknownPatient": "Unknown patient",
+    "empty": "No claims match this filter.",
+    "unavailableTitle": "Claims unavailable",
+    "unavailableBody": "The claim list could not be loaded. Try again shortly.",
+    "openClaim": "Open claim {number}",
+    "status": {
+      "DRAFT": "Draft",
+      "SUBMITTED": "Submitted",
+      "APPROVED": "Approved",
+      "PARTIALLY_APPROVED": "Partially approved",
+      "DENIED": "Denied",
+      "PAID": "Paid"
+    },
+    "workspace": {
+      "back": "Back to insurance",
+      "loading": "Loading claim…",
+      "unavailableTitle": "Claim unavailable",
+      "unavailableBody": "This claim could not be loaded. Try again shortly.",
+      "notFoundTitle": "Claim not found",
+      "notFoundBody": "That claim does not exist, or you no longer have access to it.",
+      "summaryHeading": "Claim",
+      "patient": "Patient",
+      "policy": "Policy",
+      "submitted": "Submitted",
+      "notSubmitted": "Not submitted",
+      "decided": "Decided",
+      "notDecided": "Not decided",
+      "paid": "Paid",
+      "openPatient": "Open patient record",
+      "amountsHeading": "Amounts",
+      "claimed": "Claimed",
+      "approved": "Approved",
+      "openInvoice": "Open invoice",
+      "actionsHeading": "Actions",
+      "noActions": "No further action is available for this claim.",
+      "version": "Version {version}",
+      "notesHeading": "Notes",
+      "note": "Note",
+      "denyReason": "Denial reason"
+    },
+    "action": {
+      "submit": "Submit claim",
+      "decide": "Approve claim",
+      "deny": "Deny claim",
+      "pay": "Pay claim"
+    },
+    "confirm": {
+      "submitTitle": "Submit this claim?",
+      "submitBody": "Submitting sends the claim to the payer for a decision.",
+      "payTitle": "Pay this claim?",
+      "payBody": "Paying records an insurance payment against the invoice and settles the claim."
+    },
+    "decide": {
+      "title": "Approve this claim",
+      "body": "Approve the full amount, or enter a lower amount to partially approve.",
+      "claimed": "Claimed amount:",
+      "amount": "Approved amount",
+      "amountHint": "Decimal amount, for example 1000.00.",
+      "amountRequired": "Enter an amount.",
+      "amountInvalid": "Enter a positive amount, for example 1000.00.",
+      "amountAboveClaim": "The approved amount cannot exceed the claim amount.",
+      "submit": "Record decision"
+    },
+    "reason": {
+      "denyTitle": "Deny this claim",
+      "denyBody": "A denied claim cannot be reopened. Record why it is being denied.",
+      "label": "Reason",
+      "hint": "Recorded against your account, with the time and the action taken.",
+      "placeholder": "For example: the treatment is not covered by this policy."
+    },
+    "dialog": {
+      "cancel": "Cancel"
+    },
+    "errors": {
+      "failedTitle": "Action failed",
+      "failedBody": "The action could not be completed. Try again.",
+      "staleTitle": "This claim moved",
+      "staleBody": "Someone else changed this claim. Reload to see the current state.",
+      "invalidTitle": "The decision was rejected",
+      "invalidBody": "Check the amount and the claim status, then try again."
     }
   }
 }

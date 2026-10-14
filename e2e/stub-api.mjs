@@ -519,6 +519,41 @@ function billingListRow(invoice) {
   return { ...invoice, payments: [] };
 }
 
+// --- insurance (F7 claims desk) ------------------------------------------
+// Same contract and records as the MSW handlers. Claim money stays a decimal
+// string; claims are mutable so a submit/decide/pay lands on the next read.
+const INSURANCE_ORG = 'org_example_0001';
+function insurancePayer(id, name, contactPhone, email) {
+  return { id, organizationId: INSURANCE_ORG, name, contactPhone, email, isActive: true, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' };
+}
+function insurancePolicy(id, patientId, payerId, policyNumber, coverageType, coveragePercent, validityEnd = '2026-12-31T00:00:00.000Z') {
+  return { id, organizationId: INSURANCE_ORG, patientId, payerId, policyNumber, coverageType, coveragePercent, validityStart: '2026-01-01T00:00:00.000Z', validityEnd, isActive: true, version: 1, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' };
+}
+function insuranceClaim({ id, claimNumber, invoiceId, policyId, patientId, amount, status, notes = null, submittedAt = null, approvedAt = null, approvedAmount = null, deniedAt = null, denyReason = null, paidAt = null, version = 1 }) {
+  return { id, organizationId: INSURANCE_ORG, claimNumber, invoiceId, policyId, patientId, amount, status, notes, submittedAt, approvedAt, approvedAmount, deniedAt, denyReason, paidAt, version, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: paidAt ?? deniedAt ?? approvedAt ?? submittedAt ?? '2026-10-01T08:00:00.000Z' };
+}
+const LIVE_PAYERS = [
+  insurancePayer('payer_example_6001', 'EXAMPLE Jubilee Health', '+254700000010', 'claims@example.org'),
+  insurancePayer('payer_example_6002', 'EXAMPLE AAR Insurance', '+254700000011', 'health@example.org'),
+];
+const LIVE_POLICIES = [
+  insurancePolicy('pol_example_7001', 'pat_example_1001', 'payer_example_6001', 'POL-2026-000001', 'PARTIAL', 80),
+  insurancePolicy('pol_example_7002', 'pat_example_1002', 'payer_example_6002', 'POL-2026-000002', 'FULL', 100),
+  insurancePolicy('pol_example_7003', 'pat_example_1003', 'payer_example_6001', 'POL-2026-000003', 'PARTIAL', 50, null),
+];
+const LIVE_CLAIMS = [
+  insuranceClaim({ id: 'claim_example_5001', claimNumber: 'CLM-2026-000001', invoiceId: 'inv_example_8001', policyId: 'pol_example_7001', patientId: 'pat_example_1001', amount: '1500.00', status: 'DRAFT', notes: 'EXAMPLE claim awaiting submission.' }),
+  insuranceClaim({ id: 'claim_example_5002', claimNumber: 'CLM-2026-000002', invoiceId: 'inv_example_8002', policyId: 'pol_example_7002', patientId: 'pat_example_1002', amount: '4200.00', status: 'SUBMITTED', submittedAt: '2026-10-03T09:30:00.000Z', version: 2 }),
+  insuranceClaim({ id: 'claim_example_5003', claimNumber: 'CLM-2026-000003', invoiceId: 'inv_example_8003', policyId: 'pol_example_7003', patientId: 'pat_example_1003', amount: '800.00', status: 'PAID', submittedAt: '2026-10-03T10:00:00.000Z', approvedAt: '2026-10-04T11:00:00.000Z', approvedAmount: '800.00', paidAt: '2026-10-05T12:00:00.000Z', version: 4 }),
+  insuranceClaim({ id: 'claim_example_5004', claimNumber: 'CLM-2026-000004', invoiceId: 'inv_example_8001', policyId: 'pol_example_7001', patientId: 'pat_example_1001', amount: '1500.00', status: 'PARTIALLY_APPROVED', submittedAt: '2026-10-05T09:00:00.000Z', approvedAt: '2026-10-06T09:00:00.000Z', approvedAmount: '1000.00', version: 3 }),
+  insuranceClaim({ id: 'claim_example_5005', claimNumber: 'CLM-2026-000005', invoiceId: 'inv_example_8002', policyId: 'pol_example_7002', patientId: 'pat_example_1002', amount: '4200.00', status: 'DENIED', submittedAt: '2026-10-05T10:00:00.000Z', deniedAt: '2026-10-06T10:00:00.000Z', denyReason: 'EXAMPLE pre-existing condition not covered by the policy.', version: 3 }),
+  insuranceClaim({ id: 'claim_example_5006', claimNumber: 'CLM-2026-000006', invoiceId: 'inv_example_8002', policyId: 'pol_example_7002', patientId: 'pat_example_1002', amount: '4200.00', status: 'APPROVED', submittedAt: '2026-10-06T11:00:00.000Z', approvedAt: '2026-10-07T11:00:00.000Z', approvedAmount: '4200.00', version: 3 }),
+];
+let claimSeq = 7;
+function insuranceFindClaim(id) {
+  return LIVE_CLAIMS.find((claim) => claim.id === id);
+}
+
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
   DRAFT: ['issue', 'cancel'],
   ISSUED: ['cancel'],
@@ -2050,6 +2085,100 @@ const server = createServer(async (request, response) => {
     invoice.status = billingCents(invoice.balanceDue) === 0 ? 'PAID' : 'PARTIALLY_PAID';
     invoice.version += 1;
     send(response, 200, { success: true, data: { payment: found } });
+    return;
+  }
+
+  // --- insurance (F7 claims desk) ----------------------------------------
+  if (url.pathname === '/insurance/payers' && request.method === 'GET') {
+    send(response, 200, listEnvelope(LIVE_PAYERS.map((payer) => ({ ...payer }))));
+    return;
+  }
+
+  if (url.pathname === '/insurance/policies' && request.method === 'GET') {
+    const patientId = url.searchParams.get('patientId');
+    const payerId = url.searchParams.get('payerId');
+    const items = LIVE_POLICIES.filter((policy) =>
+      (!patientId || policy.patientId === patientId) &&
+      (!payerId || policy.payerId === payerId));
+    send(response, 200, listEnvelope(items.map((policy) => ({ ...policy }))));
+    return;
+  }
+
+  if (url.pathname === '/insurance/claims' && request.method === 'GET') {
+    const invoiceId = url.searchParams.get('invoiceId');
+    const patientId = url.searchParams.get('patientId');
+    const status = url.searchParams.get('status');
+    const items = LIVE_CLAIMS.filter((claim) =>
+      (!invoiceId || claim.invoiceId === invoiceId) &&
+      (!patientId || claim.patientId === patientId) &&
+      (!status || claim.status === status));
+    send(response, 200, listEnvelope(items.map((claim) => ({ ...claim }))));
+    return;
+  }
+
+  if (url.pathname === '/insurance/claims' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const invoice = billingFind(typeof body.invoiceId === 'string' ? body.invoiceId : '');
+    if (!invoice) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Invoice not found' } }); return; }
+    const policy = LIVE_POLICIES.find((row) => row.id === body.policyId && row.isActive);
+    if (!policy) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Insurance policy not found' } }); return; }
+    if (policy.patientId !== invoice.patientId) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'The policy belongs to a different patient than the invoice.' } }); return; }
+    const amount = typeof body.amount === 'string' && body.amount.length > 0 ? body.amount : invoice.total;
+    if (!/^\d+(\.\d{1,2})?$/.test(amount) || billingCents(amount) > billingCents(invoice.total)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A claim cannot exceed the invoice total.' } }); return; }
+    const now = new Date().toISOString();
+    const claim = insuranceClaim({ id: `claim_example_${5000 + claimSeq}`, claimNumber: `CLM-2026-${String(claimSeq).padStart(6, '0')}`, invoiceId: invoice.id, policyId: policy.id, patientId: invoice.patientId, amount, status: 'DRAFT', notes: typeof body.notes === 'string' && body.notes.length > 0 ? body.notes : null });
+    claim.createdAt = now; claim.updatedAt = now;
+    claimSeq += 1;
+    LIVE_CLAIMS.push(claim);
+    send(response, 201, { success: true, data: { claim } });
+    return;
+  }
+
+  const claimAction = url.pathname.match(/^\/insurance\/claims\/([^/]+)\/action$/);
+  if (claimAction && request.method === 'POST') {
+    const claim = insuranceFindClaim(claimAction[1]);
+    if (!claim) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { body = {}; }
+    const action = body.action;
+    const now = new Date().toISOString();
+    const money = (value) => typeof value === 'string' && /^\d+(\.\d{1,2})?$/.test(value);
+    if (action === 'submit') {
+      if (claim.status !== 'DRAFT') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+      claim.status = 'SUBMITTED'; claim.submittedAt = now;
+    } else if (action === 'approve') {
+      if (claim.status !== 'SUBMITTED') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+      const approved = money(body.approvedAmount) ? body.approvedAmount : claim.amount;
+      if (billingCents(approved) > billingCents(claim.amount)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+      if (billingCents(approved) < billingCents(claim.amount)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Use partial_approve.' } }); return; }
+      claim.status = 'APPROVED'; claim.approvedAmount = approved; claim.approvedAt = now;
+    } else if (action === 'partial_approve') {
+      if (claim.status !== 'SUBMITTED') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+      if (!money(body.approvedAmount)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'approvedAmount required.' } }); return; }
+      if (billingCents(body.approvedAmount) >= billingCents(claim.amount) || billingCents(body.approvedAmount) <= 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+      claim.status = 'PARTIALLY_APPROVED'; claim.approvedAmount = body.approvedAmount; claim.approvedAt = now;
+    } else if (action === 'deny') {
+      if (claim.status !== 'SUBMITTED') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+      if (typeof body.reason !== 'string' || body.reason.length === 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A deny reason is required.' } }); return; }
+      claim.status = 'DENIED'; claim.denyReason = body.reason; claim.deniedAt = now;
+    } else if (action === 'pay') {
+      if (claim.status !== 'APPROVED' && claim.status !== 'PARTIALLY_APPROVED') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+      claim.status = 'PAID'; claim.paidAt = now;
+    } else {
+      send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Unknown claim action.' } });
+      return;
+    }
+    claim.version += 1; claim.updatedAt = now;
+    send(response, 200, { success: true, data: { claim } });
+    return;
+  }
+
+  const claimOne = url.pathname.match(/^\/insurance\/claims\/([^/]+)$/);
+  if (claimOne && request.method === 'GET') {
+    const claim = insuranceFindClaim(claimOne[1]);
+    if (!claim) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { claim } });
     return;
   }
 

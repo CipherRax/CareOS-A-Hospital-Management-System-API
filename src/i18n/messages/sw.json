@@ -1502,14 +1502,18 @@
       "columnLineTotal": "Jumla ya mstari",
       "paymentsHeading": "Malipo",
       "noPayments": "Hakuna malipo yaliyorekodiwa.",
-      "recorded": "yaliyorekodiwa {date}"
+      "recorded": "yaliyorekodiwa {date}",
+      "claimsHeading": "Madai ya bima",
+      "claimsLoading": "Inapakia madai…",
+      "noClaims": "Hakuna madai yaliyowasilishwa dhidi ya ankara hii."
     },
     "action": {
       "issue": "Toa ankara",
       "cancel": "Futa ankara",
       "refund": "Rejesha ankara",
       "recordPayment": "Rekodi malipo",
-      "refundPayment": "Rejesha"
+      "refundPayment": "Rejesha",
+      "raiseClaim": "Wasilisha dai la bima"
     },
     "confirm": {
       "issueTitle": "Toa ankara hii?",
@@ -1549,6 +1553,31 @@
     "dialog": {
       "cancel": "Ghairi"
     },
+    "claimStatus": {
+      "DRAFT": "Rasimu",
+      "SUBMITTED": "Imewasilishwa",
+      "APPROVED": "Imeidhinishwa",
+      "PARTIALLY_APPROVED": "Imeidhinishwa kwa sehemu",
+      "DENIED": "Imekataliwa",
+      "PAID": "Imelipwa"
+    },
+    "claim": {
+      "title": "Wasilisha dai la bima",
+      "body": "Dai jipya huanza kama rasimu unayoweza kuwasilisha kwa mlipaji.",
+      "policy": "Polisi",
+      "choosePolicy": "Chagua polisi",
+      "policiesLoading": "Inapakia polisi…",
+      "noPolicies": "Mgonjwa huyu hana polisi ya bima inayotumika.",
+      "policyRequired": "Chagua polisi.",
+      "amount": "Kiasi kinachodaiwa",
+      "amountHint": "Kiasi cha desimali, kwa mfano 1500.00.",
+      "amountRequired": "Weka kiasi.",
+      "amountInvalid": "Weka kiasi chanya, kwa mfano 1500.00.",
+      "amountAboveTotal": "Dai haliwezi kuzidi jumla ya ankara.",
+      "invoiceTotal": "Jumla ya ankara:",
+      "notes": "Dokezo",
+      "submit": "Wasilisha dai"
+    },
     "errors": {
       "failedTitle": "Kitendo kimeshindikana",
       "failedBody": "Kitendo hakikuweza kukamilika. Jaribu tena.",
@@ -1556,6 +1585,102 @@
       "staleBody": "Mtu mwingine amebadilisha ankara hii. Pakia upya kuona hali ya sasa.",
       "paymentProcessedTitle": "Malipo yameshashughulikiwa",
       "paymentProcessedBody": "Malipo yaliyokamilika pekee yanaweza kurejeshwa, na mara moja tu."
+    }
+  },
+  "insurance": {
+    "pageTitle": "Bima",
+    "pageIntro": "Madai ya bima yaliyowasilishwa katika kituo, ya hivi punde kwanza.",
+    "filterStatus": "Hali",
+    "allStatuses": "Hali zote",
+    "tableCaption": "Madai ya bima",
+    "columnClaim": "Dai",
+    "columnPatient": "Mgonjwa",
+    "columnAmount": "Kimeidaiwa",
+    "columnApproved": "Kimeidhinishwa",
+    "columnSubmitted": "Kimewasilishwa",
+    "columnStatus": "Hali",
+    "notApproved": "Haijaidhinishwa",
+    "notSubmitted": "Haijawasilishwa",
+    "unknownPatient": "Mgonjwa asiyejulikana",
+    "empty": "Hakuna madai yanayolingana na kichujio hiki.",
+    "unavailableTitle": "Madai hayapatikani",
+    "unavailableBody": "Orodha ya madai haikuweza kupakiwa. Jaribu tena baadaye.",
+    "openClaim": "Fungua dai {number}",
+    "status": {
+      "DRAFT": "Rasimu",
+      "SUBMITTED": "Imewasilishwa",
+      "APPROVED": "Imeidhinishwa",
+      "PARTIALLY_APPROVED": "Imeidhinishwa kwa sehemu",
+      "DENIED": "Imekataliwa",
+      "PAID": "Imelipwa"
+    },
+    "workspace": {
+      "back": "Rudi kwa bima",
+      "loading": "Inapakia dai…",
+      "unavailableTitle": "Dai halipatikani",
+      "unavailableBody": "Dai hili halikuweza kupakiwa. Jaribu tena baadaye.",
+      "notFoundTitle": "Dai halipatikani",
+      "notFoundBody": "Dai hilo halipo, au huna ruhusa ya kuiona tena.",
+      "summaryHeading": "Dai",
+      "patient": "Mgonjwa",
+      "policy": "Polisi",
+      "submitted": "Liliwasilishwa",
+      "notSubmitted": "Halijawasilishwa",
+      "decided": "Liliamuliwa",
+      "notDecided": "Halijaamuliwa",
+      "paid": "Lililipwa",
+      "openPatient": "Fungua rekodi ya mgonjwa",
+      "amountsHeading": "Kiasi",
+      "claimed": "Kinachodaiwa",
+      "approved": "Kilichoidhinishwa",
+      "openInvoice": "Fungua ankara",
+      "actionsHeading": "Vitendo",
+      "noActions": "Hakuna kitendo kingine kinachopatikana kwa dai hili.",
+      "version": "Toleo {version}",
+      "notesHeading": "Madokezo",
+      "note": "Dokezo",
+      "denyReason": "Sababu ya kukataa"
+    },
+    "action": {
+      "submit": "Wasilisha dai",
+      "decide": "Idhinisha dai",
+      "deny": "Kataa dai",
+      "pay": "Lipa dai"
+    },
+    "confirm": {
+      "submitTitle": "Wasilisha dai hili?",
+      "submitBody": "Kuwasilisha kunatuma dai kwa mlipaji kwa uamuzi.",
+      "payTitle": "Lipa dai hili?",
+      "payBody": "Kulipa kunarekodi malipo ya bima dhidi ya ankara na kukamilisha dai."
+    },
+    "decide": {
+      "title": "Idhinisha dai hili",
+      "body": "Idhinisha kiasi kamili, au weka kiasi cha chini ili kuidhinisha kwa sehemu.",
+      "claimed": "Kiasi kinachodaiwa:",
+      "amount": "Kiasi kilichoidhinishwa",
+      "amountHint": "Kiasi cha desimali, kwa mfano 1000.00.",
+      "amountRequired": "Weka kiasi.",
+      "amountInvalid": "Weka kiasi chanya, kwa mfano 1000.00.",
+      "amountAboveClaim": "Kiasi kilichoidhinishwa hakiwezi kuzidi kiasi kinachodaiwa.",
+      "submit": "Rekodi uamuzi"
+    },
+    "reason": {
+      "denyTitle": "Kataa dai hili",
+      "denyBody": "Dai lililokataliwa haliwezi kufunguliwa tena. Rekodi sababu ya kukataa.",
+      "label": "Sababu",
+      "hint": "Hurekodiwa dhidi ya akaunti yako, pamoja na muda na kitendo kilichofanyika.",
+      "placeholder": "Kwa mfano: matibabu hayakufunikwa na polisi hii."
+    },
+    "dialog": {
+      "cancel": "Ghairi"
+    },
+    "errors": {
+      "failedTitle": "Kitendo kimeshindikana",
+      "failedBody": "Kitendo hakikuweza kukamilika. Jaribu tena.",
+      "staleTitle": "Dai hili limebadilika",
+      "staleBody": "Mtu mwingine amebadilisha dai hili. Pakia upya kuona hali ya sasa.",
+      "invalidTitle": "Uamuzi ulikataliwa",
+      "invalidBody": "Angalia kiasi na hali ya dai, kisha ujaribu tena."
     }
   }
 }

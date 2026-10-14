@@ -21,6 +21,9 @@ import {
 } from '@/components/ui/dialog';
 import { Field, Input, Select, Textarea } from '@/components/ui/field';
 import {
+  useClaims,
+  useCreateClaim,
+  useInsurancePolicies,
   useInvoice,
   useInvoiceAction,
   useOrgCurrency,
@@ -37,6 +40,7 @@ import {
   type InvoiceStatus,
   type PaymentMethod,
 } from '@/lib/data/billing';
+import { type ClaimStatus } from '@/lib/data/insurance';
 
 /**
  * Invoice workspace (F7) — one invoice, whichever point of its lifecycle it sits
@@ -67,6 +71,15 @@ const PAYMENT_TONE: Record<InvoicePaymentRow['status'], StatusTone> = {
   COMPLETED: 'success',
   FAILED: 'critical',
   REFUNDED: 'neutral',
+};
+
+const CLAIM_TONE: Record<ClaimStatus, StatusTone> = {
+  DRAFT: 'neutral',
+  SUBMITTED: 'info',
+  APPROVED: 'info',
+  PARTIALLY_APPROVED: 'warning',
+  DENIED: 'critical',
+  PAID: 'success',
 };
 
 export function InvoiceWorkspaceScreen({ id }: { id: string }) {
@@ -115,11 +128,14 @@ function InvoiceBody({ invoice }: { invoice: InvoiceRow }) {
   const action = useInvoiceAction();
   const recordPayment = useRecordPayment();
   const refundPayment = useRefundPayment();
+  const createClaim = useCreateClaim();
+  const claims = useClaims({ invoiceId: invoice.id });
 
   const [issueOpen, setIssueOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [refundInvoiceOpen, setRefundInvoiceOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [claimOpen, setClaimOpen] = useState(false);
   const [refundTarget, setRefundTarget] = useState<InvoicePaymentRow | null>(null);
 
   const format = (iso: string | null) =>
@@ -135,6 +151,7 @@ function InvoiceBody({ invoice }: { invoice: InvoiceRow }) {
     (action.isError && action.error) ||
     (recordPayment.isError && recordPayment.error) ||
     (refundPayment.isError && refundPayment.error) ||
+    (createClaim.isError && createClaim.error) ||
     null;
   const alert = failure ? describeFailure(failure, t) : null;
 
@@ -142,7 +159,9 @@ function InvoiceBody({ invoice }: { invoice: InvoiceRow }) {
   const canCancel = invoice.status === 'DRAFT' || invoice.status === 'ISSUED';
   const canPay = invoice.status === 'ISSUED' || invoice.status === 'PARTIALLY_PAID';
   const canRefundInvoice = invoice.status === 'PAID';
-  const hasActions = canIssue || canCancel || canPay || canRefundInvoice;
+  const canRaiseClaim = invoice.status === 'ISSUED' || invoice.status === 'PARTIALLY_PAID';
+  const hasActions = canIssue || canCancel || canPay || canRefundInvoice || canRaiseClaim;
+  const claimRows = claims.data?.data.rows ?? [];
 
   const itemColumns: readonly DataTableColumn<InvoiceItemRow>[] = [
     {
@@ -259,6 +278,11 @@ function InvoiceBody({ invoice }: { invoice: InvoiceRow }) {
                   {t('action.recordPayment')}
                 </Button>
               ) : null}
+              {canRaiseClaim ? (
+                <Button variant="secondary" onClick={() => setClaimOpen(true)}>
+                  {t('action.raiseClaim')}
+                </Button>
+              ) : null}
               {canRefundInvoice ? (
                 <Button variant="secondary" onClick={() => setRefundInvoiceOpen(true)}>
                   {t('action.refund')}
@@ -324,6 +348,39 @@ function InvoiceBody({ invoice }: { invoice: InvoiceRow }) {
                       {t('action.refundPayment')}
                     </Button>
                   ) : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-subheading font-semibold text-primary">{t('workspace.claimsHeading')}</h2>
+        {claims.isLoading && claimRows.length === 0 ? (
+          <p className="text-meta text-tertiary">{t('workspace.claimsLoading')}</p>
+        ) : claimRows.length === 0 ? (
+          <p className="text-meta text-tertiary">{t('workspace.noClaims')}</p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {claimRows.map((claim) => (
+              <li
+                key={claim.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface px-4 py-3"
+              >
+                <Link
+                  href={`/insurance/${claim.id}`}
+                  className="text-meta font-medium tabular-nums text-brand-ink underline-offset-2 hover:underline"
+                >
+                  {claim.claimNumber}
+                </Link>
+                <span className="flex items-center gap-3">
+                  <MoneyText amount={claim.amount} currency={currency} />
+                  <StatusPill
+                    size="sm"
+                    tone={CLAIM_TONE[claim.status]}
+                    label={t(`claimStatus.${claim.status}`)}
+                  />
                 </span>
               </li>
             ))}
@@ -400,6 +457,21 @@ function InvoiceBody({ invoice }: { invoice: InvoiceRow }) {
         onConfirm={(reason) => {
           if (refundTarget) refundPayment.mutate({ id: refundTarget.id, reason });
           setRefundTarget(null);
+        }}
+      />
+
+      <CreateClaimDialog
+        key={`claim-${invoice.id}`}
+        open={claimOpen}
+        patientId={invoice.patientId}
+        invoiceTotal={invoice.total}
+        currency={currency}
+        pending={createClaim.isPending}
+        cancelLabel={t('dialog.cancel')}
+        onOpenChange={(open) => !open && setClaimOpen(false)}
+        onConfirm={(input) => {
+          createClaim.mutate({ invoiceId: invoice.id, ...input });
+          setClaimOpen(false);
         }}
       />
     </div>
@@ -711,4 +783,152 @@ function RefundPaymentDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function CreateClaimDialog({
+  open,
+  patientId,
+  invoiceTotal,
+  currency,
+  pending,
+  cancelLabel,
+  onOpenChange,
+  onConfirm,
+}: {
+  open: boolean;
+  patientId: string;
+  invoiceTotal: string;
+  currency: string;
+  pending: boolean;
+  cancelLabel: string;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (input: { policyId: string; amount?: string; notes?: string }) => void;
+}) {
+  const t = useTranslations('billing');
+  const policies = useInsurancePolicies({ patientId });
+  const active = (policies.data?.data.rows ?? []).filter((policy) => policy.isActive);
+
+  const [policyId, setPolicyId] = useState('');
+  const [amount, setAmount] = useState(invoiceTotal);
+  const [notes, setNotes] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const close = () => {
+    setPolicyId('');
+    setAmount(invoiceTotal);
+    setNotes('');
+    setError(null);
+    onOpenChange(false);
+  };
+
+  const submit = () => {
+    if (!policyId) {
+      setError(t('claim.policyRequired'));
+      return;
+    }
+    const trimmed = amount.trim();
+    if (!trimmed) {
+      setError(t('claim.amountRequired'));
+      return;
+    }
+    if (!AMOUNT_PATTERN.test(trimmed) || /^0+(\.0+)?$/.test(trimmed)) {
+      setError(t('claim.amountInvalid'));
+      return;
+    }
+    if (toCents(trimmed) > toCents(invoiceTotal)) {
+      setError(t('claim.amountAboveTotal'));
+      return;
+    }
+    onConfirm({ policyId, amount: trimmed, notes: notes.trim() || undefined });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
+      <DialogContent>
+        <DialogHeader title={t('claim.title')} description={t('claim.body')} />
+        <DialogBody className="flex flex-col gap-4">
+          {policies.isLoading ? (
+            <p className="text-meta text-tertiary">{t('claim.policiesLoading')}</p>
+          ) : active.length === 0 ? (
+            <p className="text-meta text-secondary">{t('claim.noPolicies')}</p>
+          ) : (
+            <Field id="claim-policy" label={t('claim.policy')} required>
+              {({ controlId }) => (
+                <Select
+                  id={controlId}
+                  value={policyId}
+                  onChange={(event) => {
+                    setPolicyId(event.target.value);
+                    if (error) setError(null);
+                  }}
+                >
+                  <option value="">{t('claim.choosePolicy')}</option>
+                  {active.map((policy) => (
+                    <option key={policy.id} value={policy.id}>
+                      {policy.policyNumber} · {String(policy.coveragePercent)}%
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          )}
+          <Field
+            id="claim-amount"
+            label={t('claim.amount')}
+            hint={t('claim.amountHint')}
+            required
+          >
+            {({ controlId, describedBy, invalid }) => (
+              <Input
+                id={controlId}
+                aria-describedby={describedBy}
+                invalid={invalid}
+                inputMode="decimal"
+                value={amount}
+                onChange={(event) => {
+                  setAmount(event.target.value);
+                  if (error) setError(null);
+                }}
+              />
+            )}
+          </Field>
+          <p className="text-caption text-tertiary">
+            {t('claim.invoiceTotal')} <MoneyText amount={invoiceTotal} currency={currency} />
+          </p>
+          <Field id="claim-notes" label={t('claim.notes')}>
+            {({ controlId }) => (
+              <Textarea
+                id={controlId}
+                rows={2}
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+              />
+            )}
+          </Field>
+          {error ? (
+            <p role="alert" className="text-caption text-status-critical">
+              {error}
+            </p>
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="secondary" onClick={close}>
+            {cancelLabel}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={pending || active.length === 0}
+            onClick={submit}
+          >
+            {t('claim.submit')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function toCents(value: string): number {
+  const [whole, fraction = ''] = value.split('.');
+  return Number(whole) * 100 + Number((fraction + '00').slice(0, 2));
 }

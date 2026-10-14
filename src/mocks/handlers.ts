@@ -12,6 +12,7 @@ import { medicationsHandlers } from './medications-handlers';
 import { prescriptionsHandlers } from './prescriptions-handlers';
 import { inventoryHandlers } from './inventory-handlers';
 import { billingHandlers } from './billing-handlers';
+import { insuranceHandlers } from './insurance-handlers';
 import { laboratoryHandlers } from './laboratory-handlers';
 import { radiologyHandlers } from './radiology-handlers';
 
@@ -179,6 +180,9 @@ export const handlers = [
   // F7 billing (invoices desk): invoice list/detail, the issue/cancel/refund
   // lifecycle, and desk payments with their refunds. See ./billing-handlers.ts.
   ...billingHandlers(),
+  // F7 insurance (claims desk): payers, patient policies, and the claim
+  // create/submit/approve/deny/pay lifecycle. See ./insurance-handlers.ts.
+  ...insuranceHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).

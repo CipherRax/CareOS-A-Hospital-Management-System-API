@@ -19,7 +19,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F4 Doctor workspace            | encounters + clinical notes + prescriptions + results **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), the clinical-notes panel (structured DRAFT → Finalize → Amend with version history), the prescriptions panel (medication orders: DRAFT → issue → pharmacy dispense, cancel while un-/partially-dispensed), and the read-only results panel (released laboratory results + imaging reports); MSW fixtures + stub + e2e swept | live API round-trip Docker-gated; GAP-020 documented |
 | F5 Laboratory & radiology      | **complete** — laboratory worklist + order workspace, radiology worklist + imaging workspace, and order entry from the encounter | billing |
 | F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) and wastage write-offs | transfers/counts/POs have no read endpoint (GAP-020) |
-| F7 Billing & insurance         | in progress — invoices desk: worklist (`/billing`) + invoice workspace (`/billing/[id]`) with issue/cancel/refund and desk payments; insurance claims not started | create-invoice needs a branch picker; M-PESA, claims |
+| F7 Billing & insurance         | in progress — invoices desk (slice 1) and insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay, and raise-claim from the invoice workspace | create-invoice needs a branch picker; M-PESA; payers/policies CRUD |
 | F8 Inpatient & emergency       | not started                                                                                | wards, beds, admissions                                |
 | F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                     |
 | F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                          |
@@ -900,4 +900,56 @@ cancel, refund, and desk payments (record and refund).
 Gate: lint clean, `tsc --noEmit` 0, unit 430 (`billing.test.ts` + 13,
 `session.test.ts` + 1), `build:prod` OK, e2e/a11y 143. Contract note appended to
 GAP-020.
+
+## F7 — Insurance, slice 2: claims desk
+
+**Status:** complete. A front-office insurance desk: every claim, and one claim at
+any point of its lifecycle, with the moves a payer relationship needs — submit,
+approve (full or partial), deny (reason required) and pay — plus raising a claim
+against an issued invoice.
+
+- **Worklist** (`src/components/staff/insurance-worklist.tsx`, `/insurance`). Claim
+  number, patient (resolved on demand), claimed and approved amounts, submitted
+  date and a status pill, filterable by status. `GET /insurance/claims` mis-types
+  its 200 as the request DTO while the service answers a `PageResult` (GAP-020
+  family), so rows are validated structurally in `src/lib/data/insurance.ts`.
+- **Workspace** (`src/components/staff/claim-workspace.tsx`, `/insurance/[id]`).
+  Summary (patient, policy, submitted/decided/paid dates), amounts (claimed and
+  the server's approved amount — never computed here), notes and the denial reason,
+  a link to the patient record and to the linked invoice. The action bar offers only
+  the moves the server's lifecycle allows — submit (DRAFT); approve / partially
+  approve / deny (SUBMITTED, deny reason required); pay
+  (APPROVED|PARTIALLY_APPROVED) — and a move that races a stale tab resolves to a
+  409 rendered in place. The approve dialog takes an amount: entering the full
+  claim amount approves, entering less partially approves.
+- **Raise a claim** (`src/components/staff/invoice-workspace.tsx`). An issued or
+  partially paid invoice gains a *Raise insurance claim* action and an *Insurance
+  claims* section listing the claims raised against it, each linking to the claim
+  workspace. The dialog picks one of the patient's active policies and defaults the
+  amount to the invoice total; the amount may not exceed that total.
+- **Data layer** (`src/lib/data/insurance.ts`). Every amount is a decimal string
+  validated as a string only (ADR-029). `readPayer`/`readPolicy`/`readClaim` and the
+  `extract*` helpers validate the mis-typed list `PageResult`s and the `{ claim }`
+  envelope the service answers while the export types the bare entity (GAP-020).
+- **Hooks** (`src/lib/data/queries.ts`). `useInsurancePayers`, `useInsurancePolicies`
+  (patient/payer scoped), `useClaims` (invoice/patient/status scoped), `useClaim`,
+  `useCreateClaim` and `useClaimAction` (submit/approve/partial_approve/deny/pay),
+  invalidating claims, the claim and the invoice reads on success — `pay` settles
+  the invoice through an INSURANCE payment, so the invoice reads move too.
+- **Mocks/stub.** `src/mocks/fixtures/insurance-registry.ts` holds two payers, three
+  patient policies and six EXAMPLE claims spanning the whole lifecycle;
+  `src/mocks/insurance-handlers.ts` mirrors the service's `CLAIM_ALLOWED_FROM`
+  guards and create-time checks (policy patient matches the invoice, amount within
+  the total), with money kept as decimal strings. Mirrored in `e2e/stub-api.mjs`.
+  One deliberate simplification: the mock `pay` settles the claim only and does not
+  rewrite the invoice balance, because the invoice ledger is owned by the billing
+  handlers and the two modules share no mutable state.
+- **Nav + i18n + a11y.** An *Insurance* entry sits under Administration after
+  Billing; the `insurance` namespace (worklist, workspace, actions, decide/deny
+  dialogs, error copy) was added to `en.json` and `sw.json`, and the create-claim
+  copy joined the `billing` namespace; `/insurance` and
+  `/insurance/claim_example_5001` joined the a11y route sweep.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 441 (`insurance.test.ts` + 11),
+`build:prod` OK, e2e/a11y 151. Contract note appended to GAP-020.
 
