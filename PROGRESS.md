@@ -19,8 +19,8 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F4 Doctor workspace            | encounters + clinical notes + prescriptions + results **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), the clinical-notes panel (structured DRAFT → Finalize → Amend with version history), the prescriptions panel (medication orders: DRAFT → issue → pharmacy dispense, cancel while un-/partially-dispensed), and the read-only results panel (released laboratory results + imaging reports); MSW fixtures + stub + e2e swept | live API round-trip Docker-gated; GAP-020 documented |
 | F5 Laboratory & radiology      | **complete** — laboratory worklist + order workspace, radiology worklist + imaging workspace, and order entry from the encounter | billing |
 | F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) and wastage write-offs | transfers/counts/POs have no read endpoint (GAP-020) |
-| F7 Billing & insurance         | in progress — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
-| F8 Inpatient & emergency       | not started                                                                                | wards, beds, admissions                                |
+| F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
+| F8 Inpatient & emergency       | in progress — ward & bed board (slice 1)                                                   | admissions, emergency desk                             |
 | F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                     |
 | F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                          |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
@@ -993,4 +993,51 @@ insurers, and the policies that tie a patient to one.
 
 Gate: lint clean, `tsc --noEmit` 0, unit 445 (`insurance.test.ts` + 4),
 `build:prod` OK, e2e/a11y 155. Contract note appended to GAP-020.
+
+## F8 — Inpatient, slice 1: ward board and bed management
+
+**Status:** complete. The ward board: every ward with its beds at a glance, and
+one ward's rooms and beds laid out for management.
+
+- **Worklist** (`src/components/staff/ward-worklist.tsx`, `/wards`). Every ward
+  (name, code, floor, bed count, occupied, available, active state) with an
+  *Active wards only* filter and an *Add ward* dialog. `GET /wards` types its 200
+  as the request DTO while the service answers a `PageResult` (GAP-020), so rows
+  are validated structurally in `src/lib/data/inpatient.ts`. Occupancy is derived
+  from the row's own nested rooms and beds, never a second source that could
+  disagree with the ward.
+- **Workspace** (`src/components/staff/ward-workspace.tsx`, `/wards/[id]`). One
+  ward: a live `WardBoard` of every bed, then its rooms and beds in a `DataTable`
+  where a bed's status is changed. *Add room* and *Add bed* dialogs post to
+  `POST /wards/{id}/rooms` and `POST /rooms/{id}/beds`. `OCCUPIED` is
+  assignment-driven and cannot be chosen — the operator sets `AVAILABLE`,
+  `RESERVED`, `CLEANING`, `MAINTENANCE` or `BLOCKED`.
+- **Optimistic locking.** A bed-status change is a `PATCH /beds/{id}/status`
+  carrying the version the operator saw; a tab that has gone stale resolves to a
+  409 `OPTIMISTIC_LOCK_CONFLICT` rendered in the dialog rather than a silent
+  overwrite.
+- **Data layer** (`src/lib/data/inpatient.ts`). `readWard` (with nested
+  `readRoom`/`readBed`), the `extractWardPage`/`extractWardRecord`/
+  `extractRoomRecord`/`extractBedRecord` readers and the `fetchWards`/`fetchWard`
+  raw reads. A body that drifts fails closed rather than rendering an empty
+  board, which on a ward board reads as "no beds" — a dangerous lie.
+  `MANUAL_BED_STATUSES` lists only operator-settable states.
+- **Hooks** (`src/lib/data/queries.ts`). `useWards`, `useWard`, `useCreateWard`,
+  `useCreateRoom`, `useCreateBed` and `useSetBedStatus`, each invalidating the
+  ward reads on success. Wards the app creates use the EXAMPLE branch
+  (`INPATIENT_BRANCH_ID`, GAP-018) because the session still reports no current
+  branch.
+- **Mocks/stub.** `src/mocks/fixtures/inpatient-registry.ts` holds three EXAMPLE
+  wards (Medical active, Surgical active, Maternity inactive) with rooms and beds
+  spanning every status; `src/mocks/inpatient-handlers.ts` mirrors the service's
+  create guards (name required, EXAMPLE branch only, manual statuses only,
+  version check) and is registered in `src/mocks/handlers.ts`. Mirrored in
+  `e2e/stub-api.mjs`.
+- **Nav + i18n + a11y.** A *Ward board* entry sits under the Ward section; the
+  `inpatient` namespace was added to `en.json` and `sw.json`; `/wards` and
+  `/wards/ward_example_3001` joined the a11y route sweep.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 456 (`inpatient.test.ts` + 11),
+`build:prod` OK, e2e/a11y 163. Contract note appended to GAP-020.
+
 

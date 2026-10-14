@@ -556,6 +556,72 @@ function insuranceFindClaim(id) {
   return LIVE_CLAIMS.find((claim) => claim.id === id);
 }
 
+// --- inpatient (F8 ward board) ------------------------------------------
+// Wards carry their rooms and beds nested; beds are mutable so a status change
+// lands on the next board read.
+const INPATIENT_ORG = 'org_example_0001';
+const INPATIENT_BRANCH_ID = 'br_example_0001';
+const INPATIENT_STAMP = '2026-10-01T08:00:00.000Z';
+function inpatientBed(id, roomId, bedNumber, status, version = 1) {
+  return { id, organizationId: INPATIENT_ORG, roomId, bedNumber, status, version, createdAt: INPATIENT_STAMP, updatedAt: INPATIENT_STAMP };
+}
+function inpatientRoom(id, wardId, name, description, beds) {
+  return { id, organizationId: INPATIENT_ORG, wardId, name, description, createdAt: INPATIENT_STAMP, updatedAt: INPATIENT_STAMP, beds };
+}
+function inpatientWard({ id, name, code, floor, description, isActive = true, rooms }) {
+  return { id, organizationId: INPATIENT_ORG, branchId: INPATIENT_BRANCH_ID, name, code, floor, description, isActive, createdAt: INPATIENT_STAMP, updatedAt: INPATIENT_STAMP, rooms };
+}
+const LIVE_WARDS = [
+  inpatientWard({ id: 'ward_example_3001', name: 'EXAMPLE Medical Ward', code: 'MED', floor: '1st Floor', description: 'EXAMPLE general medical ward.', rooms: [
+    inpatientRoom('room_example_3101', 'ward_example_3001', 'Room 101', null, [
+      inpatientBed('bed_example_4101', 'room_example_3101', '101-A', 'OCCUPIED', 3),
+      inpatientBed('bed_example_4102', 'room_example_3101', '101-B', 'AVAILABLE'),
+      inpatientBed('bed_example_4103', 'room_example_3101', '101-C', 'CLEANING', 2),
+    ]),
+    inpatientRoom('room_example_3102', 'ward_example_3001', 'Room 102', 'EXAMPLE side room.', [
+      inpatientBed('bed_example_4104', 'room_example_3102', '102-A', 'RESERVED'),
+      inpatientBed('bed_example_4105', 'room_example_3102', '102-B', 'AVAILABLE'),
+    ]),
+  ]}),
+  inpatientWard({ id: 'ward_example_3002', name: 'EXAMPLE Surgical Ward', code: 'SURG', floor: '2nd Floor', description: 'EXAMPLE post-operative ward.', rooms: [
+    inpatientRoom('room_example_3201', 'ward_example_3002', 'Room 201', null, [
+      inpatientBed('bed_example_4201', 'room_example_3201', '201-A', 'OCCUPIED', 4),
+      inpatientBed('bed_example_4202', 'room_example_3201', '201-B', 'MAINTENANCE', 2),
+    ]),
+    inpatientRoom('room_example_3202', 'ward_example_3002', 'Room 202', null, [
+      inpatientBed('bed_example_4203', 'room_example_3202', '202-A', 'AVAILABLE'),
+      inpatientBed('bed_example_4204', 'room_example_3202', '202-B', 'BLOCKED'),
+    ]),
+  ]}),
+  inpatientWard({ id: 'ward_example_3003', name: 'EXAMPLE Maternity Ward', code: 'MAT', floor: '1st Floor', description: 'EXAMPLE maternity and newborn ward.', isActive: false, rooms: [
+    inpatientRoom('room_example_3301', 'ward_example_3003', 'Room 301', null, [
+      inpatientBed('bed_example_4301', 'room_example_3301', '301-A', 'AVAILABLE'),
+      inpatientBed('bed_example_4302', 'room_example_3301', '301-B', 'AVAILABLE'),
+    ]),
+  ]}),
+];
+let wardSeq = 3004;
+let roomSeq = 3302;
+let bedSeq = 4303;
+const MANUAL_BED_STATUSES = ['AVAILABLE', 'RESERVED', 'CLEANING', 'MAINTENANCE', 'BLOCKED'];
+function findWard(id) { return LIVE_WARDS.find((ward) => ward.id === id); }
+function findRoom(id) {
+  for (const ward of LIVE_WARDS) {
+    const room = ward.rooms.find((row) => row.id === id);
+    if (room) return { ward, room };
+  }
+  return null;
+}
+function findBed(id) {
+  for (const ward of LIVE_WARDS) {
+    for (const room of ward.rooms) {
+      const bed = room.beds.find((row) => row.id === id);
+      if (bed) return { ward, room, bed };
+    }
+  }
+  return null;
+}
+
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
   DRAFT: ['issue', 'cancel'],
   ISSUED: ['cancel'],
@@ -2215,6 +2281,82 @@ const server = createServer(async (request, response) => {
     const claim = insuranceFindClaim(claimOne[1]);
     if (!claim) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
     send(response, 200, { success: true, data: { claim } });
+    return;
+  }
+
+  // --- inpatient (F8 ward board) -----------------------------------------
+  if (url.pathname === '/wards' && request.method === 'GET') {
+    const branchId = url.searchParams.get('branchId');
+    const active = url.searchParams.get('active');
+    const page = Math.max(1, Number(url.searchParams.get('page') || '1') || 1);
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || '20') || 20));
+    const filtered = LIVE_WARDS.filter((ward) =>
+      (!branchId || ward.branchId === branchId) &&
+      (active === null || String(ward.isActive) === active));
+    const start = (page - 1) * limit;
+    const rows = filtered.slice(start, start + limit);
+    send(response, 200, { success: true, data: rows, meta: { page, limit, total: filtered.length, totalPages: Math.max(1, Math.ceil(filtered.length / limit)) } });
+    return;
+  }
+
+  if (url.pathname === '/wards' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.name !== 'string' || body.name.length === 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A ward name is required.' } }); return; }
+    if (body.branchId !== INPATIENT_BRANCH_ID) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Branch not found' } }); return; }
+    const now = new Date().toISOString();
+    const ward = { id: `ward_example_${wardSeq++}`, organizationId: INPATIENT_ORG, branchId: INPATIENT_BRANCH_ID, name: body.name, code: typeof body.code === 'string' && body.code.length > 0 ? body.code : null, floor: typeof body.floor === 'string' && body.floor.length > 0 ? body.floor : null, description: typeof body.description === 'string' && body.description.length > 0 ? body.description : null, isActive: true, createdAt: now, updatedAt: now, rooms: [] };
+    LIVE_WARDS.push(ward);
+    send(response, 201, { success: true, data: { ward } });
+    return;
+  }
+
+  const wardRoomCreate = url.pathname.match(/^\/wards\/([^/]+)\/rooms$/);
+  if (wardRoomCreate && request.method === 'POST') {
+    const ward = findWard(wardRoomCreate[1]);
+    if (!ward) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Ward not found' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.name !== 'string' || body.name.length === 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A room name is required.' } }); return; }
+    const now = new Date().toISOString();
+    const room = { id: `room_example_${roomSeq++}`, organizationId: INPATIENT_ORG, wardId: ward.id, name: body.name, description: typeof body.description === 'string' && body.description.length > 0 ? body.description : null, createdAt: now, updatedAt: now, beds: [] };
+    ward.rooms.push(room);
+    send(response, 201, { success: true, data: { room } });
+    return;
+  }
+
+  const roomBedCreate = url.pathname.match(/^\/rooms\/([^/]+)\/beds$/);
+  if (roomBedCreate && request.method === 'POST') {
+    const found = findRoom(roomBedCreate[1]);
+    if (!found) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Room not found' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.bedNumber !== 'string' || body.bedNumber.length === 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A bed number is required.' } }); return; }
+    const now = new Date().toISOString();
+    const bed = { id: `bed_example_${bedSeq++}`, organizationId: INPATIENT_ORG, roomId: found.room.id, bedNumber: body.bedNumber, status: 'AVAILABLE', version: 1, createdAt: now, updatedAt: now };
+    found.room.beds.push(bed);
+    send(response, 201, { success: true, data: { bed } });
+    return;
+  }
+
+  const bedStatus = url.pathname.match(/^\/beds\/([^/]+)\/status$/);
+  if (bedStatus && request.method === 'PATCH') {
+    const found = findBed(bedStatus[1]);
+    if (!found) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Bed not found' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { body = {}; }
+    if (typeof body.status !== 'string' || !MANUAL_BED_STATUSES.includes(body.status)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Bed status must be AVAILABLE, RESERVED, CLEANING, MAINTENANCE or BLOCKED.' } }); return; }
+    if (typeof body.version !== 'number' || body.version !== found.bed.version) { send(response, 409, { success: false, error: { code: 'OPTIMISTIC_LOCK_CONFLICT' } }); return; }
+    found.bed.status = body.status; found.bed.version += 1; found.bed.updatedAt = new Date().toISOString();
+    send(response, 200, { success: true, data: { bed: found.bed } });
+    return;
+  }
+
+  const wardOne = url.pathname.match(/^\/wards\/([^/]+)$/);
+  if (wardOne && request.method === 'GET') {
+    const ward = findWard(wardOne[1]);
+    if (!ward) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { ward } });
     return;
   }
 

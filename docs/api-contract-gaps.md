@@ -559,3 +559,31 @@ sit at the API root):
   `PageResult` read.
 - **Not built:** M-PESA; and `POST /invoices` (create), which still needs the
   branch picker.
+
+**Same drift under the inpatient reads/writes (F8 slice 1).** Verified against
+`src/modules/inpatient` — the controller is declared `@Controller()` (empty base
+path), so the ward, room, admission and emergency routes sit at the API root:
+
+- `GET /wards` carries `query: never` and types the 200 as the request DTO
+  (`ListWardsQueryDto`) while the service answers a `PageResult` whose each row
+  nests its `rooms` and each room its `beds`. The client rides the raw-fetch path
+  (`fetchWards`/`extractWardPage`/`readWard`), validating the whole nested shape
+  so a drift fails closed rather than rendering an empty board.
+- `GET /wards/{id}` is typed as the bare `WardResponseDto` but answers
+  `{ ward }`; the create/room/bed writes are typed the same bare way and answer
+  **201** (`POST /wards` → `{ ward }`, `POST /wards/{id}/rooms` → `{ room }`,
+  `POST /rooms/{id}/beds` → `{ bed }`), and `PATCH /beds/{id}/status` answers
+  `{ bed }` with 200. All go through `extractWardRecord`/`extractRoomRecord`/
+  `extractBedRecord` on the unwrapped body.
+- The bed status is `BedStatus` (`AVAILABLE | OCCUPIED | RESERVED | CLEANING |
+  MAINTENANCE | BLOCKED`); `OCCUPIED` is assignment-driven, so the operator may
+  set only `MANUAL_BED_STATUSES` (`AVAILABLE | RESERVED | CLEANING | MAINTENANCE |
+  BLOCKED`). A `PATCH /beds/{id}/status` is an optimistic-lock write: the version
+  the operator saw travels with the change and a mismatch is a 409
+  `OPTIMISTIC_LOCK_CONFLICT`.
+- **Not built this slice:** admissions (`POST|GET /admissions`,
+  `/admissions/{id}/transfer`, `/admissions/{id}/discharge`) and the emergency
+  desk (`/emergency/visits…`) follow in slices 2 and 3. `POST /wards` posts to the
+  EXAMPLE branch (`INPATIENT_BRANCH_ID`) because the session still reports no
+  current branch (GAP-018); a real deployment reads it from the session.
+

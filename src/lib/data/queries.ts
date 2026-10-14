@@ -182,6 +182,24 @@ import {
   type InsurancePolicyRow,
   type PolicyQuery,
 } from '@/lib/data/insurance';
+import {
+  extractBedRecord,
+  extractRoomRecord,
+  extractWardRecord,
+  fetchWard,
+  fetchWards,
+  INPATIENT_BRANCH_ID,
+  type BedRow,
+  type CreateBedInput,
+  type CreateRoomInput,
+  type CreateWardInput,
+  type InpatientCallError,
+  type ManualBedStatus,
+  type RoomRow,
+  type WardPage,
+  type WardQuery,
+  type WardRow,
+} from '@/lib/data/inpatient';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
@@ -328,7 +346,8 @@ function toQueryError(
     | RadiologyCallError
     | InventoryCallError
     | BillingCallError
-    | InsuranceCallError,
+    | InsuranceCallError
+    | InpatientCallError,
 ): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
@@ -1510,6 +1529,161 @@ export function useCreatePolicy(): UseMutationResult<
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['insurance', 'policies'] });
+    },
+  });
+}
+
+// --- inpatient: ward board and beds (F8) ------------------------------------
+
+/** A record body that fails structural validation is an internal contract break. */
+function inpatientWriteError(status = 201): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+/**
+ * Ward list `GET /wards?{filters}`. The export types the 200 as the request DTO
+ * while the service answers a paginated envelope (GAP-020 family), so it rides
+ * the raw-fetch path. Each ward carries its rooms and beds nested.
+ */
+export function useWards(query: WardQuery = {}): UseQueryResult<Fetched<WardPage>, QueryError> {
+  return useQuery<Fetched<WardPage>, QueryError>({
+    queryKey: ['wards', 'list', query.branchId ?? null, query.active ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchWards(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<WardPage>;
+      } catch (call) {
+        throw toQueryError(call as InpatientCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Single ward `GET /wards/{id}` — its rooms and beds. The service answers
+ * `{ ward }` while the export types the bare entity (GAP-020), so the unwrapped
+ * body is validated structurally.
+ */
+export function useWard(id: string): UseQueryResult<Fetched<WardRow>, QueryError> {
+  return useQuery<Fetched<WardRow>, QueryError>({
+    queryKey: ['wards', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const ward = await fetchWard(id, signal);
+        return { data: ward, response: new Response(null, { status: 200 }) } satisfies Fetched<WardRow>;
+      } catch (call) {
+        throw toQueryError(call as InpatientCallError);
+      }
+    },
+    enabled: id.length > 0,
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Creates a ward `POST /wards` (201 `{ ward }`). The app has no branch picker, so
+ * creation posts to the EXAMPLE branch the rest of the desks use (GAP-018). The
+ * ward list is invalidated so the board picks it up.
+ */
+export function useCreateWard(): UseMutationResult<WardRow, QueryError, CreateWardInput> {
+  const queryClient = useQueryClient();
+  return useMutation<WardRow, QueryError, CreateWardInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/wards', {
+          body: {
+            branchId: INPATIENT_BRANCH_ID,
+            name: input.name,
+            code: input.code,
+            floor: input.floor,
+            description: input.description,
+          },
+        }),
+      );
+      const parsed = extractWardRecord(fetched.data);
+      if (!parsed.ok) throw inpatientWriteError();
+      return parsed.ward;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['wards'] });
+    },
+  });
+}
+
+/** Creates a room in a ward `POST /wards/{id}/rooms` (201 `{ room }`). */
+export function useCreateRoom(): UseMutationResult<RoomRow, QueryError, CreateRoomInput> {
+  const queryClient = useQueryClient();
+  return useMutation<RoomRow, QueryError, CreateRoomInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/wards/{id}/rooms', {
+          params: { path: { id: input.wardId } },
+          body: { name: input.name, description: input.description },
+        }),
+      );
+      const parsed = extractRoomRecord(fetched.data);
+      if (!parsed.ok) throw inpatientWriteError();
+      return parsed.room;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['wards'] });
+    },
+  });
+}
+
+/** Creates a bed in a room `POST /rooms/{id}/beds` (201 `{ bed }`). */
+export function useCreateBed(): UseMutationResult<BedRow, QueryError, CreateBedInput> {
+  const queryClient = useQueryClient();
+  return useMutation<BedRow, QueryError, CreateBedInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/rooms/{id}/beds', {
+          params: { path: { id: input.roomId } },
+          body: { bedNumber: input.bedNumber },
+        }),
+      );
+      const parsed = extractBedRecord(fetched.data);
+      if (!parsed.ok) throw inpatientWriteError();
+      return parsed.bed;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['wards'] });
+    },
+  });
+}
+
+export interface SetBedStatusInput {
+  id: string;
+  status: ManualBedStatus;
+  /** The version the operator saw; a mismatch is a 409 the desk surfaces. */
+  version: number;
+}
+
+/**
+ * Sets a bed status `PATCH /beds/{id}/status` — an optimistic-lock write. The
+ * service answers `{ bed }`; a version that has moved answers 409
+ * `OPTIMISTIC_LOCK_CONFLICT`, surfaced in place. The ward reads are invalidated
+ * because the board shows the same bed.
+ */
+export function useSetBedStatus(): UseMutationResult<BedRow, QueryError, SetBedStatusInput> {
+  const queryClient = useQueryClient();
+  return useMutation<BedRow, QueryError, SetBedStatusInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/beds/{id}/status', {
+          params: { path: { id: input.id } },
+          body: { status: input.status, version: input.version },
+        }),
+      );
+      const parsed = extractBedRecord(fetched.data);
+      if (!parsed.ok) throw inpatientWriteError(200);
+      return parsed.bed;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['wards'] });
     },
   });
 }

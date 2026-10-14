@@ -13,6 +13,7 @@ import { prescriptionsHandlers } from './prescriptions-handlers';
 import { inventoryHandlers } from './inventory-handlers';
 import { billingHandlers } from './billing-handlers';
 import { insuranceHandlers } from './insurance-handlers';
+import { inpatientHandlers } from './inpatient-handlers';
 import { laboratoryHandlers } from './laboratory-handlers';
 import { radiologyHandlers } from './radiology-handlers';
 
@@ -183,6 +184,10 @@ export const handlers = [
   // F7 insurance (claims desk): payers, patient policies, and the claim
   // create/submit/approve/deny/pay lifecycle. See ./insurance-handlers.ts.
   ...insuranceHandlers(),
+  // F8 inpatient (ward board): wards with nested rooms and beds, room/bed
+  // creation and the optimistic-locked bed status write. See
+  // ./inpatient-handlers.ts.
+  ...inpatientHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).
