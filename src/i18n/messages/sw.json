@@ -1427,5 +1427,135 @@
       "FLUOROSCOPY": "Floroskopia",
       "OTHER": "Picha"
     }
+  },
+  "billing": {
+    "pageTitle": "Malipo",
+    "pageIntro": "Ankara zilizotolewa katika kituo, za hivi punde kwanza.",
+    "filterStatus": "Hali",
+    "allStatuses": "Hali zote",
+    "tableCaption": "Ankara",
+    "columnInvoice": "Ankara",
+    "columnPatient": "Mgonjwa",
+    "columnTotal": "Jumla",
+    "columnBalance": "Salio linalodaiwa",
+    "columnIssued": "Ilitolewa",
+    "notIssued": "Haijatolewa",
+    "unknownPatient": "Mgonjwa asiyejulikana",
+    "empty": "Hakuna ankara zinazolingana na kichujio hiki.",
+    "unavailableTitle": "Ankara hazipatikani",
+    "unavailableBody": "Orodha ya ankara haikuweza kupakiwa. Jaribu tena baadaye.",
+    "openInvoice": "Fungua ankara {number}",
+    "status": {
+      "DRAFT": "Rasimu",
+      "ISSUED": "Imetolewa",
+      "PARTIALLY_PAID": "Imelipwa kwa sehemu",
+      "PAID": "Imelipwa",
+      "CANCELLED": "Imefutwa",
+      "REFUNDED": "Imerejeshwa"
+    },
+    "method": {
+      "CASH": "Fedha taslimu",
+      "CARD": "Kadi",
+      "MOBILE_MONEY": "Pesa kwa simu",
+      "BANK_TRANSFER": "Uhamisho wa benki",
+      "CHEQUE": "Hundi",
+      "INSURANCE": "Bima",
+      "OTHER": "Nyingine"
+    },
+    "paymentStatus": {
+      "PENDING": "Inasubiri",
+      "COMPLETED": "Imekamilika",
+      "FAILED": "Imeshindikana",
+      "REFUNDED": "Imerejeshwa"
+    },
+    "workspace": {
+      "back": "Rudi kwa malipo",
+      "loading": "Inapakia ankara…",
+      "unavailableTitle": "Ankara haipatikani",
+      "unavailableBody": "Ankara hii haikuweza kupakiwa. Jaribu tena baadaye.",
+      "notFoundTitle": "Ankara haipatikani",
+      "notFoundBody": "Ankara hiyo haipo, au huna ruhusa ya kuiona tena.",
+      "summaryHeading": "Ankara",
+      "patient": "Mgonjwa",
+      "issued": "Ilitolewa",
+      "notIssued": "Haijatolewa",
+      "due": "Inadaiwa ifikapo",
+      "noDueDate": "Hakuna tarehe ya mwisho",
+      "cancelReason": "Sababu ya kufuta",
+      "refundReason": "Sababu ya kurejesha",
+      "openPatient": "Fungua rekodi ya mgonjwa",
+      "totalsHeading": "Jumla",
+      "subtotal": "Jumla ndogo",
+      "discount": "Punguzo",
+      "tax": "Kodi",
+      "total": "Jumla",
+      "balance": "Salio linalodaiwa",
+      "actionsHeading": "Vitendo",
+      "noActions": "Hakuna kitendo kingine kinachopatikana kwa ankara hii.",
+      "version": "Toleo {version}",
+      "itemsHeading": "Vitu vya ankara",
+      "itemsCaption": "Vitu vya ankara",
+      "noItems": "Hakuna vitu.",
+      "columnDescription": "Maelezo",
+      "columnQuantity": "Idadi",
+      "columnUnitPrice": "Bei ya kimoja",
+      "columnLineTotal": "Jumla ya mstari",
+      "paymentsHeading": "Malipo",
+      "noPayments": "Hakuna malipo yaliyorekodiwa.",
+      "recorded": "yaliyorekodiwa {date}"
+    },
+    "action": {
+      "issue": "Toa ankara",
+      "cancel": "Futa ankara",
+      "refund": "Rejesha ankara",
+      "recordPayment": "Rekodi malipo",
+      "refundPayment": "Rejesha"
+    },
+    "confirm": {
+      "issueTitle": "Toa ankara hii?",
+      "issueBody": "Kutoa kunafanya ankara ilipwe na hakuwezi kutenduliwa."
+    },
+    "reason": {
+      "cancelTitle": "Futa ankara hii",
+      "cancelBody": "Ankara iliyofutwa haiwezi kufunguliwa tena. Rekodi sababu ya kufuta.",
+      "refundTitle": "Rejesha ankara hii",
+      "refundBody": "Kurejesha kunatengua malipo yote na kurudisha salio. Rekodi sababu.",
+      "label": "Sababu",
+      "hint": "Hurekodiwa dhidi ya akaunti yako, pamoja na muda na kitendo kilichofanyika.",
+      "placeholder": "Kwa mfano: nakala ya ankara iliyotolewa kwa makosa."
+    },
+    "payment": {
+      "title": "Rekodi malipo",
+      "body": "Malipo yaliyorekodiwa hukamilika mara moja.",
+      "outstanding": "Salio linalodaiwa:",
+      "amount": "Kiasi",
+      "amountHint": "Kiasi cha desimali, kwa mfano 1500.00.",
+      "method": "Njia",
+      "chooseMethod": "Chagua njia",
+      "reference": "Kumbukumbu ya nje",
+      "referenceHint": "Namba ya muamala au risiti, si lazima.",
+      "note": "Dokezo",
+      "submit": "Rekodi malipo",
+      "amountRequired": "Weka kiasi.",
+      "amountInvalid": "Weka kiasi chanya, kwa mfano 1500.00.",
+      "methodRequired": "Chagua njia ya malipo."
+    },
+    "refund": {
+      "title": "Rejesha malipo haya",
+      "body": "Kurejesha {receipt} kurudisha salio la ankara.",
+      "reasonLabel": "Sababu",
+      "submit": "Rejesha malipo"
+    },
+    "dialog": {
+      "cancel": "Ghairi"
+    },
+    "errors": {
+      "failedTitle": "Kitendo kimeshindikana",
+      "failedBody": "Kitendo hakikuweza kukamilika. Jaribu tena.",
+      "staleTitle": "Ankara hii imebadilika",
+      "staleBody": "Mtu mwingine amebadilisha ankara hii. Pakia upya kuona hali ya sasa.",
+      "paymentProcessedTitle": "Malipo yameshashughulikiwa",
+      "paymentProcessedBody": "Malipo yaliyokamilika pekee yanaweza kurejeshwa, na mara moja tu."
+    }
   }
 }

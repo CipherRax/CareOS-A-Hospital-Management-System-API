@@ -481,3 +481,41 @@ only writes — there is no `GET /pharmacy/transfers` or `GET /pharmacy/stock/co
 to list what exists, and the app has no branch picker to choose a transfer
 destination. A client cannot render a durable transfers or counts desk without
 one of those.
+
+**Same drift under the billing reads/writes (F7 slice 1).** Verified against
+`src/modules/billing` — the controller is declared `@Controller()` (empty base
+path), so the invoice and payment routes sit at the API root:
+
+- `GET /invoices` carries `query: never` and types the 200 as the request DTO
+  (`ListInvoicesQueryDto`) while the service answers a `PageResult`
+  (`pageOf(rows.map(serializeInvoice), …)`). The client rides the raw-fetch path
+  (`fetchInvoices`/`extractInvoicePage`/`readInvoice`). The list serializes items
+  but **omits payments** (`payments: []`), so the row reader defaults `payments`
+  to empty.
+- `GET /invoices/{id}` is typed as the bare `InvoiceResponseDto` but answers
+  `{ invoice }`; the issue/cancel/refund writes (`POST /invoices/{id}/issue`,
+  `/cancel`, `/refund`, body `ActionInvoiceDto` `{ reason? }`) are typed the same
+  bare way, answer `{ invoice }`, and answer **201** for the lifecycle moves on
+  the typed client. All go through `extractInvoiceRecord` on the unwrapped body.
+- `POST /invoices/{id}/payments` (create) and `POST /payments/{id}/refund` are
+  typed as the bare `PaymentResponseDto` but answer `{ payment }`, and answer
+  **201**. Body is `CreatePaymentDto` / `RefundPaymentDto`; the client validates
+  the unwrapped body through `extractPaymentRecord`. `GET /invoices/{id}/payments`
+  and `GET /payments` are genuine page-typed reads the desk does not need yet.
+- Every money field is a decimal string (ADR-029, `Decimal(12,2)`); the client
+  validates it as a string and never parses or computes it. On the list read the
+  service can omit `items` if the query does not eager-load them, so the reader
+  defaults `items` and `payments` to empty arrays.
+- The lifecycle itself is not in doubt and mirrors the service: `issue` from
+  `DRAFT`, `cancel` from `DRAFT|ISSUED`, `refund` from `PAID` (refunding an
+  invoice also refunds its completed payments and restores `balanceDue = total`);
+  payments are accepted only on `ISSUED|PARTIALLY_PAID` (a payment above the
+  balance is a 409, a wrong-state invoice a 409 `INVALID_WORKFLOW_TRANSITION`),
+  and a single payment refunds only while `COMPLETED` (else 409
+  `PAYMENT_ALREADY_PROCESSED`), adding its amount back to the balance. The service
+  truncates the settled status with `settleInvoiceStatus(total, balanceDue)`
+  (`PAID` at zero balance, else `PARTIALLY_PAID`).
+- **Not built this slice:** `POST /invoices` (create) needs a `branchId` and the
+  app still has no branch picker, and the whole insurance surface
+  (`/insurance/payers`, `/insurance/policies`, `/insurance/claims`) is deferred to
+  a later F7 slice.

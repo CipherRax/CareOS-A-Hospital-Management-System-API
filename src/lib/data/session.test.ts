@@ -17,7 +17,16 @@ describe('normaliseSessionUser', () => {
       id: 'usr_1',
       displayName: 'EXAMPLE N. Wanjiru',
       roleLabel: 'Registrar',
+      currency: 'KES',
     });
+  });
+
+  it('reads the org currency for money display, falling back to KES', () => {
+    expect(
+      normaliseSessionUser({ organization: { currency: 'UGX' } }).currency,
+    ).toBe('UGX');
+    expect(normaliseSessionUser({ organization: { currency: '' } }).currency).toBe('KES');
+    expect(normaliseSessionUser({ organization: {} }).currency).toBe('KES');
   });
 
   it('uses the first role detail as the role label', () => {
@@ -29,16 +38,23 @@ describe('normaliseSessionUser', () => {
   });
 
   it('empties the persona when parts are missing', () => {
-    expect(normaliseSessionUser(null)).toEqual({ id: '', displayName: '', roleLabel: '' });
+    expect(normaliseSessionUser(null)).toEqual({
+      id: '',
+      displayName: '',
+      roleLabel: '',
+      currency: 'KES',
+    });
     expect(normaliseSessionUser({ user: undefined })).toEqual({
       id: '',
       displayName: '',
       roleLabel: '',
+      currency: 'KES',
     });
     expect(normaliseSessionUser({ user: { firstName: 4 } })).toEqual({
       id: '',
       displayName: '',
       roleLabel: '',
+      currency: 'KES',
     });
   });
 });

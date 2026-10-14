@@ -135,6 +135,18 @@ import {
   type RadiologyOrderTransition,
 } from '@/lib/data/radiology';
 import {
+  extractInvoiceRecord,
+  extractPaymentRecord,
+  fetchInvoice,
+  fetchInvoices,
+  type BillingCallError,
+  type InvoicePage,
+  type InvoiceQuery,
+  type InvoiceRow,
+  type PaymentMethod,
+  type PaymentRow,
+} from '@/lib/data/billing';
+import {
   fetchStockAlerts,
   fetchStockOnHand,
   readDispenseResult,
@@ -250,6 +262,8 @@ export interface SessionUser {
   displayName: string;
   roleLabel: string;
   facilityId?: string;
+  /** ISO 4217 for money display, from the org on `/auth/me`. */
+  currency: string;
 }
 
 /**
@@ -260,11 +274,12 @@ export interface SessionUser {
  */
 export function normaliseSessionUser(data: unknown): SessionUser {
   if (!data || typeof data !== 'object') {
-    return { id: '', displayName: '', roleLabel: '' };
+    return { id: '', displayName: '', roleLabel: '', currency: 'KES' };
   }
   const record = data as {
     user?: { id?: unknown; firstName?: unknown; otherNames?: unknown; lastName?: unknown };
     roleDetails?: ReadonlyArray<{ name?: unknown }> | null;
+    organization?: { currency?: unknown } | null;
   };
   const user = record.user;
   const id = typeof user?.id === 'string' ? user.id : '';
@@ -274,7 +289,11 @@ export function normaliseSessionUser(data: unknown): SessionUser {
   const displayName = parts.join(' ').trim();
   const roleLabel =
     typeof record.roleDetails?.[0]?.name === 'string' ? record.roleDetails[0].name : '';
-  return { id, displayName, roleLabel };
+  const currency =
+    typeof record.organization?.currency === 'string' && record.organization.currency.length > 0
+      ? record.organization.currency
+      : 'KES';
+  return { id, displayName, roleLabel, currency };
 }
 
 /** Pulls an untyped call (raw search/queue/scheduling/vitals/schedules) onto the query error contract. */
@@ -287,7 +306,8 @@ function toQueryError(
     | SchedulesCallError
     | LaboratoryCallError
     | RadiologyCallError
-    | InventoryCallError,
+    | InventoryCallError
+    | BillingCallError,
 ): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
@@ -1025,10 +1045,195 @@ export function useAcceptWaitlistOffer(): UseMutationResult<
       return parsed.appointment;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['waitlist'] });
-      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory', 'on-hand'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory', 'alerts'] });
     },
   });
+}
+
+// --- billing: invoices and payments (F7) -----------------------------------
+
+/** A record body that fails structural validation is an internal contract break. */
+function billingWriteError(status = 201): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+/**
+ * Invoice list `GET /invoices?{filters}`. The export types the 200 as the request
+ * DTO while the service answers a paginated envelope (GAP-020 family), so it
+ * rides the raw-fetch path.
+ */
+export function useInvoices(
+  query: InvoiceQuery = {},
+): UseQueryResult<Fetched<InvoicePage>, QueryError> {
+  return useQuery<Fetched<InvoicePage>, QueryError>({
+    queryKey: [
+      'invoices',
+      'list',
+      query.branchId ?? null,
+      query.patientId ?? null,
+      query.status ?? null,
+      query.page ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchInvoices(query, signal);
+        return {
+          data: page,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<InvoicePage>;
+      } catch (call) {
+        throw toQueryError(call as BillingCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Full invoice `GET /invoices/{id}` — items plus payments. The service answers
+ * `{ invoice }` while the export types the bare entity (GAP-020), so the
+ * unwrapped body is validated structurally.
+ */
+export function useInvoice(id: string): UseQueryResult<Fetched<InvoiceRow>, QueryError> {
+  return useQuery<Fetched<InvoiceRow>, QueryError>({
+    queryKey: ['invoices', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const invoice = await fetchInvoice(id, signal);
+        return {
+          data: invoice,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<InvoiceRow>;
+      } catch (call) {
+        throw toQueryError(call as BillingCallError);
+      }
+    },
+    enabled: id.length > 0,
+    staleTime: 30_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+export type InvoiceAction = 'issue' | 'cancel' | 'refund';
+
+export interface InvoiceActionInput {
+  id: string;
+  action: InvoiceAction;
+  /** `cancel`/`refund` capture a reason; `issue` takes none. */
+  reason?: string;
+}
+
+/**
+ * Issue, cancel or refund an invoice. Every action answers `{ invoice }` while
+ * the export types the bare entity (GAP-020). The list and detail reads are
+ * invalidated because both carry status and balance.
+ */
+export function useInvoiceAction(): UseMutationResult<InvoiceRow, QueryError, InvoiceActionInput> {
+  const queryClient = useQueryClient();
+  return useMutation<InvoiceRow, QueryError, InvoiceActionInput>({
+    mutationFn: async (input) => {
+      const path =
+        input.action === 'issue'
+          ? '/invoices/{id}/issue'
+          : input.action === 'cancel'
+            ? '/invoices/{id}/cancel'
+            : '/invoices/{id}/refund';
+      const fetched = await unwrap<unknown>(
+        api.POST(path, {
+          params: { path: { id: input.id } },
+          body: { reason: input.reason },
+        }),
+      );
+      const parsed = extractInvoiceRecord(fetched.data);
+      if (!parsed.ok) throw billingWriteError();
+      return parsed.invoice;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
+  });
+}
+
+export interface RecordPaymentInput {
+  invoiceId: string;
+  amount: string;
+  method: PaymentMethod;
+  externalReference?: string;
+  note?: string;
+}
+
+/**
+ * Records a desk payment `POST /invoices/{id}/payments`. The service answers
+ * `{ payment }` while the export types the bare entity (GAP-020), so the
+ * unwrapped body is validated structurally. The invoice's status and balance
+ * move with the payment, so both invoice reads are invalidated too.
+ */
+export function useRecordPayment(): UseMutationResult<PaymentRow, QueryError, RecordPaymentInput> {
+  const queryClient = useQueryClient();
+  return useMutation<PaymentRow, QueryError, RecordPaymentInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/invoices/{id}/payments', {
+          params: { path: { id: input.invoiceId } },
+          body: {
+            amount: input.amount,
+            method: input.method,
+            externalReference: input.externalReference,
+            note: input.note,
+          },
+        }),
+      );
+      const parsed = extractPaymentRecord(fetched.data);
+      if (!parsed.ok) throw billingWriteError();
+      return parsed.payment;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+    },
+  });
+}
+
+export interface RefundPaymentInput {
+  id: string;
+  reason?: string;
+}
+
+/**
+ * Refunds a completed payment `POST /payments/{id}/refund`. The service answers
+ * `{ payment }` while the export types the bare entity (GAP-020); the invoice
+ * balance is restored, so the invoice reads are invalidated as well.
+ */
+export function useRefundPayment(): UseMutationResult<PaymentRow, QueryError, RefundPaymentInput> {
+  const queryClient = useQueryClient();
+  return useMutation<PaymentRow, QueryError, RefundPaymentInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/payments/{id}/refund', {
+          params: { path: { id: input.id } },
+          body: { reason: input.reason },
+        }),
+      );
+      const parsed = extractPaymentRecord(fetched.data);
+      if (!parsed.ok) throw billingWriteError();
+      return parsed.payment;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+    },
+  });
+}
+
+/**
+ * The org currency for money display, read off the session. Falls back to KES so
+ * a drifted `/auth/me` still renders an amount rather than crashing the desk.
+ */
+export function useOrgCurrency(): string {
+  const session = useSession();
+  return session.data?.data.currency ?? 'KES';
 }
 
 /** Declines a waitlist offer, re-offering the slot (`POST .../entries/{id}/decline`). */

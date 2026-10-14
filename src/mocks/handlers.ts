@@ -11,6 +11,7 @@ import { clinicalNotesHandlers } from './clinical-notes-handlers';
 import { medicationsHandlers } from './medications-handlers';
 import { prescriptionsHandlers } from './prescriptions-handlers';
 import { inventoryHandlers } from './inventory-handlers';
+import { billingHandlers } from './billing-handlers';
 import { laboratoryHandlers } from './laboratory-handlers';
 import { radiologyHandlers } from './radiology-handlers';
 
@@ -175,6 +176,9 @@ export const handlers = [
   // FEFO dispense write that advances a prescription. See
   // ./inventory-handlers.ts.
   ...inventoryHandlers(),
+  // F7 billing (invoices desk): invoice list/detail, the issue/cancel/refund
+  // lifecycle, and desk payments with their refunds. See ./billing-handlers.ts.
+  ...billingHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).
@@ -304,6 +308,7 @@ export const handlers = [
           id: 'org_example_0001',
           name: 'EXAMPLE Health Services',
           status: 'ACTIVE',
+          currency: 'KES',
           featureFlags: {},
         },
         roles: ['TRIAGE_NURSE'],

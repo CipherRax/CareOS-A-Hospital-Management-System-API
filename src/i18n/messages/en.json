@@ -1411,5 +1411,135 @@
       "FLUOROSCOPY": "Fluoroscopy",
       "OTHER": "Imaging"
     }
+  },
+  "billing": {
+    "pageTitle": "Billing",
+    "pageIntro": "Invoices raised across the facility, newest first.",
+    "filterStatus": "Status",
+    "allStatuses": "All statuses",
+    "tableCaption": "Invoices",
+    "columnInvoice": "Invoice",
+    "columnPatient": "Patient",
+    "columnTotal": "Total",
+    "columnBalance": "Balance due",
+    "columnIssued": "Issued",
+    "notIssued": "Not issued",
+    "unknownPatient": "Unknown patient",
+    "empty": "No invoices match this filter.",
+    "unavailableTitle": "Invoices unavailable",
+    "unavailableBody": "The invoice list could not be loaded. Try again shortly.",
+    "openInvoice": "Open invoice {number}",
+    "status": {
+      "DRAFT": "Draft",
+      "ISSUED": "Issued",
+      "PARTIALLY_PAID": "Partially paid",
+      "PAID": "Paid",
+      "CANCELLED": "Cancelled",
+      "REFUNDED": "Refunded"
+    },
+    "method": {
+      "CASH": "Cash",
+      "CARD": "Card",
+      "MOBILE_MONEY": "Mobile money",
+      "BANK_TRANSFER": "Bank transfer",
+      "CHEQUE": "Cheque",
+      "INSURANCE": "Insurance",
+      "OTHER": "Other"
+    },
+    "paymentStatus": {
+      "PENDING": "Pending",
+      "COMPLETED": "Completed",
+      "FAILED": "Failed",
+      "REFUNDED": "Refunded"
+    },
+    "workspace": {
+      "back": "Back to billing",
+      "loading": "Loading invoice…",
+      "unavailableTitle": "Invoice unavailable",
+      "unavailableBody": "This invoice could not be loaded. Try again shortly.",
+      "notFoundTitle": "Invoice not found",
+      "notFoundBody": "That invoice does not exist, or you no longer have access to it.",
+      "summaryHeading": "Invoice",
+      "patient": "Patient",
+      "issued": "Issued",
+      "notIssued": "Not issued",
+      "due": "Due",
+      "noDueDate": "No due date",
+      "cancelReason": "Cancellation reason",
+      "refundReason": "Refund reason",
+      "openPatient": "Open patient record",
+      "totalsHeading": "Totals",
+      "subtotal": "Subtotal",
+      "discount": "Discount",
+      "tax": "Tax",
+      "total": "Total",
+      "balance": "Balance due",
+      "actionsHeading": "Actions",
+      "noActions": "No further action is available for this invoice.",
+      "version": "Version {version}",
+      "itemsHeading": "Line items",
+      "itemsCaption": "Invoice line items",
+      "noItems": "No line items.",
+      "columnDescription": "Description",
+      "columnQuantity": "Qty",
+      "columnUnitPrice": "Unit price",
+      "columnLineTotal": "Line total",
+      "paymentsHeading": "Payments",
+      "noPayments": "No payments recorded.",
+      "recorded": "recorded {date}"
+    },
+    "action": {
+      "issue": "Issue invoice",
+      "cancel": "Cancel invoice",
+      "refund": "Refund invoice",
+      "recordPayment": "Record payment",
+      "refundPayment": "Refund"
+    },
+    "confirm": {
+      "issueTitle": "Issue this invoice?",
+      "issueBody": "Issuing makes the invoice payable and cannot be undone."
+    },
+    "reason": {
+      "cancelTitle": "Cancel this invoice",
+      "cancelBody": "A cancelled invoice cannot be reopened. Record why it is being cancelled.",
+      "refundTitle": "Refund this invoice",
+      "refundBody": "Refunding reverses the whole payment and restores the balance. Record why.",
+      "label": "Reason",
+      "hint": "Recorded against your account, with the time and the action taken.",
+      "placeholder": "For example: duplicate of an earlier invoice raised in error."
+    },
+    "payment": {
+      "title": "Record a payment",
+      "body": "A recorded payment settles immediately.",
+      "outstanding": "Outstanding balance:",
+      "amount": "Amount",
+      "amountHint": "Decimal amount, for example 1500.00.",
+      "method": "Method",
+      "chooseMethod": "Choose a method",
+      "reference": "External reference",
+      "referenceHint": "Optional transaction or slip number.",
+      "note": "Note",
+      "submit": "Record payment",
+      "amountRequired": "Enter an amount.",
+      "amountInvalid": "Enter a positive amount, for example 1500.00.",
+      "methodRequired": "Choose a payment method."
+    },
+    "refund": {
+      "title": "Refund this payment",
+      "body": "Refunding {receipt} restores the invoice balance.",
+      "reasonLabel": "Reason",
+      "submit": "Refund payment"
+    },
+    "dialog": {
+      "cancel": "Cancel"
+    },
+    "errors": {
+      "failedTitle": "Action failed",
+      "failedBody": "The action could not be completed. Try again.",
+      "staleTitle": "This invoice moved",
+      "staleBody": "Someone else changed this invoice. Reload to see the current state.",
+      "paymentProcessedTitle": "Payment already processed",
+      "paymentProcessedBody": "Only a completed payment can be refunded, and only once."
+    }
   }
 }

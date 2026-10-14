@@ -44,6 +44,7 @@ const USER = {
     id: 'org-example-1',
     name: 'EXAMPLE Teaching Hospital',
     status: 'ACTIVE',
+    currency: 'KES',
     featureFlags: {},
   },
   security: { passwordChangeRequired: false, mfaEnrolmentRequired: false, staging: [] },
@@ -448,6 +449,76 @@ function inventoryBatchIdFor(branchId, medicationId, batchNumber) {
   INVENTORY_BATCH_IDS.set(key, id);
   return id;
 }
+
+// --- billing (F7 invoices desk) ------------------------------------------
+// Same contract and records as the MSW handlers. Money is handled in integer
+// cents so a mock balance cannot drift; invoices are mutable so an issue,
+// payment, cancel or refund lands on the next read.
+const BILLING_BRANCH_ID = 'br_example_0001';
+function billingItem(id, description, unitPrice, referenceType = null, referenceId = null) {
+  return { id, organizationId: 'org_example_0001', invoiceId: null, billableItemId: null, medicationId: null, description, quantity: 1, unitPrice, lineTotal: unitPrice, referenceType, referenceId, createdById: null, createdAt: '2026-10-01T08:00:00.000Z' };
+}
+function billingPayment(id, receiptNumber, amount, method, status, recordedAt, { refundedAt = null, refundReason = null, externalReference = null, note = null } = {}) {
+  return { id, organizationId: 'org_example_0001', invoiceId: null, patientId: null, receiptNumber, amount, method, status, externalReference, note, recordedById: 'usr_example_9001', recordedAt, refundedById: null, refundedAt, refundReason, createdAt: recordedAt, updatedAt: recordedAt };
+}
+function billingInvoice({ id, patientId, invoiceNumber, status, total, balanceDue, issuedAt = null, dueAt = null, cancelledAt = null, cancelReason = null, refundedAt = null, refundReason = null, version = 1, items = [], payments = [] }) {
+  const stamp = issuedAt ?? '2026-10-01T08:00:00.000Z';
+  return { id, organizationId: 'org_example_0001', branchId: BILLING_BRANCH_ID, patientId, invoiceNumber, status, visitId: null, encounterId: null, subtotal: total, discountAmount: '0.00', taxAmount: '0.00', total, balanceDue, dueAt, notes: null, issuedById: null, issuedAt, cancelledById: null, cancelledAt, cancelReason, refundedById: null, refundedAt, refundReason, version, createdAt: stamp, updatedAt: stamp, items, payments };
+}
+const LIVE_INVOICES = [
+  billingInvoice({
+    id: 'inv_example_8001', patientId: 'pat_example_1001', invoiceNumber: 'INV-2026-000001', status: 'ISSUED', total: '1500.00', balanceDue: '1500.00', issuedAt: '2026-10-01T09:00:00.000Z', dueAt: '2026-10-20T00:00:00.000Z', version: 2,
+    items: [billingItem('item_example_80011', 'Consultation — general', '1500.00', 'ENCOUNTER', 'enc_example_1')],
+  }),
+  billingInvoice({
+    id: 'inv_example_8002', patientId: 'pat_example_1002', invoiceNumber: 'INV-2026-000002', status: 'PARTIALLY_PAID', total: '4200.00', balanceDue: '2200.00', issuedAt: '2026-10-02T11:30:00.000Z', dueAt: '2026-10-25T00:00:00.000Z', version: 3,
+    items: [billingItem('item_example_80021', 'Consultation — specialist', '1500.00', 'ENCOUNTER', 'enc_example_2'), billingItem('item_example_80022', 'Laboratory — full blood count', '2700.00', 'LAB_ORDER', 'lab_example_5001')],
+    payments: [billingPayment('pay_example_9001', 'RCP-2026-000101', '2000.00', 'MOBILE_MONEY', 'COMPLETED', '2026-10-02T12:05:00.000Z', { externalReference: 'MPESA-XY12' })],
+  }),
+  billingInvoice({
+    id: 'inv_example_8003', patientId: 'pat_example_1003', invoiceNumber: 'INV-2026-000003', status: 'PAID', total: '800.00', balanceDue: '0.00', issuedAt: '2026-10-03T08:15:00.000Z',
+    items: [billingItem('item_example_80031', 'Pharmacy — dispensed medication', '800.00', 'PRESCRIPTION', 'rx_example_4001')],
+    payments: [billingPayment('pay_example_9002', 'RCP-2026-000102', '800.00', 'CASH', 'COMPLETED', '2026-10-03T08:20:00.000Z', { note: 'Paid at the front desk.' })],
+  }),
+  billingInvoice({
+    id: 'inv_example_8004', patientId: 'pat_example_1004', invoiceNumber: 'INV-2026-000004', status: 'DRAFT', total: '3500.00', balanceDue: '3500.00',
+    items: [billingItem('item_example_80041', 'Procedure — wound dressing', '3500.00', 'PROCEDURE', null)],
+  }),
+  billingInvoice({
+    id: 'inv_example_8005', patientId: 'pat_example_1001', invoiceNumber: 'INV-2026-000005', status: 'CANCELLED', total: '1200.00', balanceDue: '0.00', issuedAt: '2026-10-04T10:00:00.000Z', cancelledAt: '2026-10-04T10:30:00.000Z', cancelReason: 'EXAMPLE duplicate of INV-2026-000001.', version: 2,
+    items: [billingItem('item_example_80051', 'Radiology — chest X-ray', '1200.00', 'RADIOLOGY_ORDER', null)],
+  }),
+  billingInvoice({
+    id: 'inv_example_8006', patientId: 'pat_example_1002', invoiceNumber: 'INV-2026-000006', status: 'REFUNDED', total: '900.00', balanceDue: '900.00', issuedAt: '2026-10-05T13:00:00.000Z', refundedAt: '2026-10-06T09:45:00.000Z', refundReason: 'EXAMPLE test cancelled after payment.', version: 3,
+    items: [billingItem('item_example_80061', 'Laboratory — malaria screen', '900.00', 'LAB_ORDER', 'lab_example_5002')],
+    payments: [billingPayment('pay_example_9003', 'RCP-2026-000103', '900.00', 'CARD', 'REFUNDED', '2026-10-05T13:10:00.000Z', { refundedAt: '2026-10-06T09:45:00.000Z', refundReason: 'EXAMPLE test cancelled after payment.' })],
+  }),
+].map((invoice) => ({
+  ...invoice,
+  items: invoice.items.map((item) => ({ ...item, invoiceId: invoice.id })),
+  payments: invoice.payments.map((payment) => ({ ...payment, invoiceId: invoice.id, patientId: invoice.patientId })),
+}));
+let billingReceiptSeq = 104;
+let billingPaymentSeq = 9004;
+function billingCents(value) {
+  const negative = value.startsWith('-');
+  const [whole, frac = ''] = (negative ? value.slice(1) : value).split('.');
+  const cents = Number(whole) * 100 + Number((frac + '00').slice(0, 2));
+  return negative ? -cents : cents;
+}
+function billingFromCents(cents) {
+  const negative = cents < 0;
+  const abs = Math.abs(cents);
+  const text = `${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, '0')}`;
+  return negative ? `-${text}` : text;
+}
+function billingFind(id) {
+  return LIVE_INVOICES.find((invoice) => invoice.id === id);
+}
+function billingListRow(invoice) {
+  return { ...invoice, payments: [] };
+}
+
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
   DRAFT: ['issue', 'cancel'],
   ISSUED: ['cancel'],
@@ -1879,9 +1950,111 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  // --- laboratory results (F4 doctor results view) -----------------------
-  if (url.pathname === '/lab/orders' && request.method === 'POST') {
+  // --- billing (F7 invoices desk) -----------------------------------------
+  if (url.pathname === '/invoices' && request.method === 'GET') {
+    const branchId = url.searchParams.get('branchId');
+    const patientId = url.searchParams.get('patientId');
+    const status = url.searchParams.get('status');
+    const page = Math.max(1, Number(url.searchParams.get('page') || '1') || 1);
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || '20') || 20));
+    const filtered = LIVE_INVOICES.filter((invoice) =>
+      (!branchId || invoice.branchId === branchId) &&
+      (!patientId || invoice.patientId === patientId) &&
+      (!status || invoice.status === status));
+    const start = (page - 1) * limit;
+    const rows = filtered.slice(start, start + limit).map(billingListRow);
+    send(response, 200, { success: true, data: rows, meta: { page, limit, total: filtered.length, totalPages: Math.max(1, Math.ceil(filtered.length / limit)) } });
+    return;
+  }
+
+  const invoiceAction = url.pathname.match(/^\/invoices\/([^/]+)\/(issue|cancel|refund)$/);
+  if (invoiceAction && request.method === 'POST') {
+    const [, id, action] = invoiceAction;
+    const invoice = billingFind(id);
+    if (!invoice) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
     let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { body = {}; }
+    const reason = typeof body.reason === 'string' && body.reason.length > 0 ? body.reason : null;
+    const now = new Date().toISOString();
+    if (action === 'issue') {
+      if (invoice.status !== 'DRAFT') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+      invoice.status = 'ISSUED'; invoice.issuedAt = now; invoice.version += 1;
+    } else if (action === 'cancel') {
+      if (invoice.status !== 'DRAFT' && invoice.status !== 'ISSUED') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+      invoice.status = 'CANCELLED'; invoice.cancelledAt = now; invoice.cancelReason = reason; invoice.version += 1;
+    } else {
+      if (invoice.status !== 'PAID') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+      for (const payment of invoice.payments) {
+        if (payment.status !== 'COMPLETED') continue;
+        payment.status = 'REFUNDED'; payment.refundedAt = now; payment.refundReason = reason || 'Invoice refunded';
+      }
+      invoice.status = 'REFUNDED'; invoice.balanceDue = invoice.total; invoice.refundedAt = now; invoice.refundReason = reason; invoice.version += 1;
+    }
+    send(response, 200, { success: true, data: { invoice } });
+    return;
+  }
+
+  const invoicePayments = url.pathname.match(/^\/invoices\/([^/]+)\/payments$/);
+  if (invoicePayments && request.method === 'POST') {
+    const invoice = billingFind(invoicePayments[1]);
+    if (!invoice) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    if (invoice.status !== 'ISSUED' && invoice.status !== 'PARTIALLY_PAID') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const amount = typeof body.amount === 'string' ? body.amount : null;
+    const method = typeof body.method === 'string' ? body.method : null;
+    if (!amount || !/^\d+(\.\d{1,2})?$/.test(amount) || billingCents(amount) <= 0 || !method) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (billingCents(amount) > billingCents(invoice.balanceDue)) { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    const payment = billingPayment(`pay_example_${billingPaymentSeq++}`, `RCP-2026-${String(billingReceiptSeq++).padStart(6, '0')}`, amount, method, 'COMPLETED', new Date().toISOString(), { externalReference: typeof body.externalReference === 'string' ? body.externalReference : null, note: typeof body.note === 'string' ? body.note : null });
+    payment.invoiceId = invoice.id; payment.patientId = invoice.patientId;
+    invoice.payments.push(payment);
+    invoice.balanceDue = billingFromCents(billingCents(invoice.balanceDue) - billingCents(amount));
+    invoice.status = billingCents(invoice.balanceDue) === 0 ? 'PAID' : 'PARTIALLY_PAID';
+    invoice.version += 1;
+    send(response, 201, { success: true, data: { payment } });
+    return;
+  }
+
+  const invoicePaymentsList = url.pathname.match(/^\/invoices\/([^/]+)\/payments$/);
+  if (invoicePaymentsList && request.method === 'GET') {
+    const invoice = billingFind(invoicePaymentsList[1]);
+    if (!invoice) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, listEnvelope(invoice.payments));
+    return;
+  }
+
+  const invoiceOne = url.pathname.match(/^\/invoices\/([^/]+)$/);
+  if (invoiceOne && request.method === 'GET') {
+    const invoice = billingFind(invoiceOne[1]);
+    if (!invoice) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { invoice } });
+    return;
+  }
+
+  const paymentRefund = url.pathname.match(/^\/payments\/([^/]+)\/refund$/);
+  if (paymentRefund && request.method === 'POST') {
+    const id = paymentRefund[1];
+    let found = null;
+    let invoice = null;
+    for (const candidate of LIVE_INVOICES) {
+      const payment = candidate.payments.find((row) => row.id === id);
+      if (payment) { found = payment; invoice = candidate; break; }
+    }
+    if (!found || !invoice) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    if (found.status !== 'COMPLETED') { send(response, 409, { success: false, error: { code: 'PAYMENT_ALREADY_PROCESSED' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { body = {}; }
+    const now = new Date().toISOString();
+    found.status = 'REFUNDED'; found.refundedAt = now; found.refundReason = typeof body.reason === 'string' && body.reason.length > 0 ? body.reason : null;
+    invoice.balanceDue = billingFromCents(billingCents(invoice.balanceDue) + billingCents(found.amount));
+    invoice.status = billingCents(invoice.balanceDue) === 0 ? 'PAID' : 'PARTIALLY_PAID';
+    invoice.version += 1;
+    send(response, 200, { success: true, data: { payment: found } });
+    return;
+  }
+
+  // --- laboratory results (F4 doctor results view) -----------------------
+  if (url.pathname === '/lab/orders' && request.method === 'POST') {    let body;
     try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
     const testIds = Array.isArray(body.testIds) ? body.testIds.filter((id) => typeof id === 'string') : [];
     const firstTest = LIVE_LAB_TESTS.find((t) => t.id === testIds[0]);
