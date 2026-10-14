@@ -643,6 +643,49 @@ function bedAssignable(bedId) {
   return !LIVE_ADMISSIONS.some((admission) => admission.status === 'ADMITTED' && admission.assignments.some((row) => row.bedId === bedId && row.releasedAt === null));
 }
 
+// Emergency visits seeded across the whole workflow, mirroring
+// src/mocks/fixtures/emergency-registry.ts. Admitting from the ED creates an
+// admission against the same LIVE_ADMISSIONS and LIVE_WARDS state above.
+function stubEmergencyVisit(id, visitNumber, patientId, overrides = {}) {
+  return {
+    id, organizationId: 'org_example_1', visitNumber, branchId: INPATIENT_BRANCH_ID, patientId,
+    status: 'ARRIVED', priority: null, registeredById: 'usr_example_0001', arrivedById: 'usr_example_0001',
+    arrivedAt: '2026-10-10T06:30:00.000Z', chiefComplaint: null, triagedById: null, triagedAt: null,
+    assessedAt: null, assessment: null, treatmentStartedAt: null, treatment: null, observedAt: null,
+    dispositionAt: null, disposition: null, admittedAdmissionId: null, referredTo: null, referralNotes: null,
+    version: 2, createdAt: '2026-10-10T06:30:00.000Z', updatedAt: '2026-10-10T06:30:00.000Z', ...overrides,
+  };
+}
+const LIVE_EMERGENCY_VISITS = [
+  stubEmergencyVisit('erv_example_7001', 'ER-2026-000001', 'pat_example_1001', { status: 'ARRIVED', arrivedAt: '2026-10-10T06:05:00.000Z', version: 1, createdAt: '2026-10-10T06:05:00.000Z', updatedAt: '2026-10-10T06:05:00.000Z' }),
+  stubEmergencyVisit('erv_example_7002', 'ER-2026-000002', 'pat_example_1002', { status: 'TRIAGED', priority: 'URGENT', arrivedAt: '2026-10-10T06:40:00.000Z', chiefComplaint: 'EXAMPLE severe abdominal pain and vomiting.', triagedById: 'usr_example_0001', triagedAt: '2026-10-10T06:52:00.000Z', updatedAt: '2026-10-10T06:52:00.000Z' }),
+  stubEmergencyVisit('erv_example_7003', 'ER-2026-000003', 'pat_example_1003', { status: 'ASSESSED', priority: 'EMERGENT', arrivedAt: '2026-10-10T07:10:00.000Z', chiefComplaint: 'EXAMPLE shortness of breath at rest.', triagedById: 'usr_example_0001', triagedAt: '2026-10-10T07:15:00.000Z', assessedAt: '2026-10-10T07:35:00.000Z', assessment: 'EXAMPLE hypoxia; suspected pneumonia, oxygen started.', version: 4, updatedAt: '2026-10-10T07:35:00.000Z' }),
+  stubEmergencyVisit('erv_example_7004', 'ER-2026-000004', 'pat_example_1004', { status: 'IN_TREATMENT', priority: 'URGENT', arrivedAt: '2026-10-10T08:00:00.000Z', chiefComplaint: 'EXAMPLE deep laceration to the left forearm.', triagedById: 'usr_example_0001', triagedAt: '2026-10-10T08:08:00.000Z', assessedAt: '2026-10-10T08:20:00.000Z', assessment: 'EXAMPLE no tendon involvement; needs irrigation and sutures.', treatmentStartedAt: '2026-10-10T08:30:00.000Z', treatment: 'EXAMPLE local anaesthetic, wound irrigation and suturing.', version: 5, updatedAt: '2026-10-10T08:30:00.000Z' }),
+  stubEmergencyVisit('erv_example_7005', 'ER-2026-000005', 'pat_example_1001', { status: 'OBSERVATION', priority: 'SEMI_URGENT', arrivedAt: '2026-10-10T09:15:00.000Z', chiefComplaint: 'EXAMPLE dizziness on standing.', triagedById: 'usr_example_0001', triagedAt: '2026-10-10T09:22:00.000Z', assessedAt: '2026-10-10T09:40:00.000Z', assessment: 'EXAMPLE postural drop; observing after fluids.', treatmentStartedAt: '2026-10-10T09:50:00.000Z', treatment: 'EXAMPLE intravenous fluids given.', observedAt: '2026-10-10T10:30:00.000Z', version: 6, updatedAt: '2026-10-10T10:30:00.000Z' }),
+  stubEmergencyVisit('erv_example_7006', 'ER-2026-000006', 'pat_example_1002', { status: 'DISCHARGED', priority: 'NON_URGENT', arrivedAt: '2026-10-10T10:00:00.000Z', chiefComplaint: 'EXAMPLE minor ankle sprain.', triagedById: 'usr_example_0001', triagedAt: '2026-10-10T10:05:00.000Z', assessedAt: '2026-10-10T10:20:00.000Z', assessment: 'EXAMPLE stable sprain, no fracture on X-ray.', treatmentStartedAt: '2026-10-10T10:30:00.000Z', treatment: 'EXAMPLE supportive bandage and analgesia.', dispositionAt: '2026-10-10T11:00:00.000Z', disposition: 'DISCHARGED', version: 7, updatedAt: '2026-10-10T11:00:00.000Z' }),
+  stubEmergencyVisit('erv_example_7007', 'ER-2026-000007', 'pat_example_1002', { status: 'ADMITTED', priority: 'EMERGENT', arrivedAt: '2026-10-10T11:10:00.000Z', chiefComplaint: 'EXAMPLE displaced ankle fracture.', triagedById: 'usr_example_0001', triagedAt: '2026-10-10T11:15:00.000Z', assessedAt: '2026-10-10T11:30:00.000Z', assessment: 'EXAMPLE fracture requiring surgery; admitted orthopaedics.', treatmentStartedAt: '2026-10-10T11:40:00.000Z', treatment: 'EXAMPLE splinted and analgesia.', dispositionAt: '2026-10-10T12:20:00.000Z', disposition: 'ADMITTED', admittedAdmissionId: 'adm_example_9002', version: 8, updatedAt: '2026-10-10T12:20:00.000Z' }),
+  stubEmergencyVisit('erv_example_7008', 'ER-2026-000008', 'pat_example_1004', { status: 'REFERRED', priority: 'URGENT', arrivedAt: '2026-10-10T12:00:00.000Z', chiefComplaint: 'EXAMPLE suspected transient ischaemic attack.', triagedById: 'usr_example_0001', triagedAt: '2026-10-10T12:05:00.000Z', assessedAt: '2026-10-10T12:25:00.000Z', assessment: 'EXAMPLE neurology review required urgently.', dispositionAt: '2026-10-10T12:50:00.000Z', disposition: 'REFERRED', referredTo: 'EXAMPLE Regional Neurology Unit', referralNotes: 'EXAMPLE referred for immediate specialist assessment.', version: 6, updatedAt: '2026-10-10T12:50:00.000Z' }),
+];
+let emergencyVisitSeq = 7009;
+const EMERGENCY_TERMINAL = ['DISCHARGED', 'ADMITTED', 'REFERRED'];
+const EMERGENCY_SOURCES = {
+  triage: ['ARRIVED'], assess: ['TRIAGED'], treat: ['ASSESSED'], observe: ['ASSESSED', 'IN_TREATMENT'],
+  admit: ['ASSESSED', 'IN_TREATMENT', 'OBSERVATION'], refer: ['ASSESSED', 'IN_TREATMENT', 'OBSERVATION'],
+  discharge: ['ASSESSED', 'IN_TREATMENT', 'OBSERVATION'],
+};
+const EMERGENCY_PRIORITIES = ['RESUSCITATION', 'EMERGENT', 'URGENT', 'SEMI_URGENT', 'NON_URGENT'];
+function findEmergencyVisit(id) { return LIVE_EMERGENCY_VISITS.find((visit) => visit.id === id); }
+function stubCreateAdmission(patientId, bedId, source, departmentId, provisionalDiagnosis, expectedDischargeAt) {
+  const now = new Date().toISOString();
+  const id = `adm_example_${admissionSeq++}`;
+  const admission = { id, admissionNumber: `ADM-${now.slice(0, 4)}-${String(admissionSeq - 1).padStart(6, '0')}`, patientId, branchId: INPATIENT_BRANCH_ID, departmentId, encounterId: null, source, status: 'ADMITTED', admittedById: 'usr_example_0001', admittedAt: now, expectedDischargeAt, provisionalDiagnosis, version: 1, assignments: [{ id: `asg_example_${assignmentSeq++}`, bedId, admissionId: id, assignedById: 'usr_example_0001', assignedAt: now, releasedById: null, releasedAt: null, reason: null }], discharge: null };
+  LIVE_ADMISSIONS.push(admission);
+  const found = findBed(bedId);
+  if (found) { found.bed.status = 'OCCUPIED'; found.bed.version += 1; found.bed.updatedAt = now; }
+  return admission;
+}
+
+
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
   DRAFT: ['issue', 'cancel'],
   ISSUED: ['cancel'],
@@ -2467,6 +2510,113 @@ const server = createServer(async (request, response) => {
     const admission = findAdmission(admissionOne[1]);
     if (!admission) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
     send(response, 200, { success: true, data: { admission } });
+    return;
+  }
+
+  // --- emergency: ED desk (F8 slice 3) -----------------------------------
+  if (url.pathname === '/emergency/visits' && request.method === 'GET') {
+    const branchId = url.searchParams.get('branchId');
+    const patientId = url.searchParams.get('patientId');
+    const status = url.searchParams.get('status');
+    const priority = url.searchParams.get('priority');
+    const page = Math.max(1, Number(url.searchParams.get('page') || '1') || 1);
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || '20') || 20));
+    const filtered = LIVE_EMERGENCY_VISITS.filter((visit) =>
+      (!branchId || visit.branchId === branchId) &&
+      (!patientId || visit.patientId === patientId) &&
+      (!status || visit.status === status) &&
+      (!priority || visit.priority === priority)).sort((a, b) => b.arrivedAt.localeCompare(a.arrivedAt));
+    const start = (page - 1) * limit;
+    const rows = filtered.slice(start, start + limit);
+    send(response, 200, { success: true, data: rows, meta: { page, limit, total: filtered.length, totalPages: Math.max(1, Math.ceil(filtered.length / limit)) } });
+    return;
+  }
+
+  if (url.pathname === '/emergency/summary' && request.method === 'GET') {
+    const terminal = LIVE_EMERGENCY_VISITS.filter((visit) => EMERGENCY_TERMINAL.includes(visit.status));
+    const byPriority = {};
+    for (const visit of LIVE_EMERGENCY_VISITS) if (visit.priority) byPriority[visit.priority] = (byPriority[visit.priority] ?? 0) + 1;
+    const byDisposition = {};
+    for (const visit of LIVE_EMERGENCY_VISITS) if (visit.disposition) byDisposition[visit.disposition] = (byDisposition[visit.disposition] ?? 0) + 1;
+    const minutes = (from, to) => (to ? (new Date(to).getTime() - new Date(from).getTime()) / 60000 : 0);
+    const avg = (rows, pick) => (rows.length === 0 ? 0 : Math.round((rows.reduce((sum, visit) => sum + pick(visit), 0) / rows.length) * 10) / 10);
+    const triaged = LIVE_EMERGENCY_VISITS.filter((visit) => visit.triagedAt);
+    const disposed = LIVE_EMERGENCY_VISITS.filter((visit) => visit.dispositionAt);
+    send(response, 200, { success: true, data: { period: 'TODAY', arrivals: LIVE_EMERGENCY_VISITS.length, active: LIVE_EMERGENCY_VISITS.length - terminal.length, avgMinutesToTriage: avg(triaged, (visit) => minutes(visit.arrivedAt, visit.triagedAt)), avgMinutesToDisposition: avg(disposed, (visit) => minutes(visit.arrivedAt, visit.dispositionAt)), byPriority, byDisposition } });
+    return;
+  }
+
+  if (url.pathname === '/emergency/visits' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const patientId = typeof body.patientId === 'string' && body.patientId.length > 0 ? body.patientId : null;
+    if (!patientId) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A patient is required.' } }); return; }
+    if (body.branchId !== INPATIENT_BRANCH_ID) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Branch not found' } }); return; }
+    const now = new Date().toISOString();
+    const id = `erv_example_${emergencyVisitSeq++}`;
+    const visit = stubEmergencyVisit(id, `ER-${now.slice(0, 4)}-${String(emergencyVisitSeq - 1).padStart(6, '0')}`, patientId, { arrivedAt: typeof body.arrivedAt === 'string' && body.arrivedAt ? body.arrivedAt : now, version: 1, createdAt: now, updatedAt: now });
+    LIVE_EMERGENCY_VISITS.push(visit);
+    send(response, 201, { success: true, data: { visit } });
+    return;
+  }
+
+  const emergencyAction = url.pathname.match(/^\/emergency\/visits\/([^/]+)\/(triage|assess|treat|observe|admit|refer|discharge)$/);
+  if (emergencyAction && request.method === 'POST') {
+    const visit = findEmergencyVisit(emergencyAction[1]);
+    if (!visit) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Emergency visit not found' } }); return; }
+    if (EMERGENCY_TERMINAL.includes(visit.status)) { send(response, 409, { success: false, error: { code: 'EMERGENCY_VISIT_CLOSED' } }); return; }
+    const action = emergencyAction[2];
+    if (!EMERGENCY_SOURCES[action].includes(visit.status)) { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    let body = {};
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { /* optional body */ }
+    const now = new Date().toISOString();
+    if (action === 'triage') {
+      if (!EMERGENCY_PRIORITIES.includes(body.priority)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A valid priority is required.' } }); return; }
+      visit.status = 'TRIAGED'; visit.priority = body.priority; visit.chiefComplaint = typeof body.complaint === 'string' && body.complaint ? body.complaint : null; visit.triagedById = 'usr_example_0001'; visit.triagedAt = now;
+    } else if (action === 'assess') {
+      visit.status = 'ASSESSED'; visit.assessment = typeof body.assessment === 'string' && body.assessment ? body.assessment : null; visit.assessedAt = now;
+    } else if (action === 'treat') {
+      visit.status = 'IN_TREATMENT'; visit.treatment = typeof body.treatment === 'string' && body.treatment ? body.treatment : null; visit.treatmentStartedAt = now;
+    } else if (action === 'observe') {
+      visit.status = 'OBSERVATION'; visit.observedAt = now;
+    } else if (action === 'admit') {
+      const bedId = typeof body.bedId === 'string' && body.bedId.length > 0 ? body.bedId : null;
+      if (!bedId) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A bed is required.' } }); return; }
+      if (!findBed(bedId)) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Bed not found' } }); return; }
+      if (LIVE_ADMISSIONS.some((a) => a.patientId === visit.patientId && a.status === 'ADMITTED')) { send(response, 409, { success: false, error: { code: 'ADMISSION_ALREADY_ACTIVE' } }); return; }
+      if (!bedAssignable(bedId)) { send(response, 409, { success: false, error: { code: 'BED_UNAVAILABLE' } }); return; }
+      const admission = stubCreateAdmission(visit.patientId, bedId, 'EMERGENCY', typeof body.departmentId === 'string' && body.departmentId ? body.departmentId : null, typeof body.provisionalDiagnosis === 'string' && body.provisionalDiagnosis ? body.provisionalDiagnosis : null, typeof body.expectedDischargeAt === 'string' && body.expectedDischargeAt ? body.expectedDischargeAt : null);
+      visit.status = 'ADMITTED'; visit.disposition = 'ADMITTED'; visit.dispositionAt = now; visit.admittedAdmissionId = admission.id;
+    } else if (action === 'refer') {
+      const referredTo = typeof body.referredTo === 'string' && body.referredTo.length > 0 ? body.referredTo : null;
+      if (!referredTo) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A referral destination is required.' } }); return; }
+      visit.status = 'REFERRED'; visit.disposition = 'REFERRED'; visit.dispositionAt = now; visit.referredTo = referredTo; visit.referralNotes = typeof body.referralNotes === 'string' && body.referralNotes ? body.referralNotes : null;
+    } else if (action === 'discharge') {
+      visit.status = 'DISCHARGED'; visit.disposition = 'DISCHARGED'; visit.dispositionAt = now;
+    }
+    visit.version += 1; visit.updatedAt = now;
+    send(response, 201, { success: true, data: { visit } });
+    return;
+  }
+
+  const emergencyPriority = url.pathname.match(/^\/emergency\/visits\/([^/]+)\/priority$/);
+  if (emergencyPriority && request.method === 'PATCH') {
+    const visit = findEmergencyVisit(emergencyPriority[1]);
+    if (!visit) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Emergency visit not found' } }); return; }
+    if (EMERGENCY_TERMINAL.includes(visit.status)) { send(response, 409, { success: false, error: { code: 'EMERGENCY_VISIT_CLOSED' } }); return; }
+    let body = {};
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { /* optional body */ }
+    if (!EMERGENCY_PRIORITIES.includes(body.priority)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A valid priority is required.' } }); return; }
+    visit.priority = body.priority; visit.version += 1; visit.updatedAt = new Date().toISOString();
+    send(response, 200, { success: true, data: { visit } });
+    return;
+  }
+
+  const emergencyOne = url.pathname.match(/^\/emergency\/visits\/([^/]+)$/);
+  if (emergencyOne && request.method === 'GET') {
+    const visit = findEmergencyVisit(emergencyOne[1]);
+    if (!visit) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { visit } });
     return;
   }
 

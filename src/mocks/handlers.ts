@@ -12,6 +12,7 @@ import { medicationsHandlers } from './medications-handlers';
 import { prescriptionsHandlers } from './prescriptions-handlers';
 import { inventoryHandlers } from './inventory-handlers';
 import { billingHandlers } from './billing-handlers';
+import { emergencyHandlers } from './emergency-handlers';
 import { insuranceHandlers } from './insurance-handlers';
 import { inpatientHandlers } from './inpatient-handlers';
 import { laboratoryHandlers } from './laboratory-handlers';
@@ -188,6 +189,11 @@ export const handlers = [
   // creation and the optimistic-locked bed status write. See
   // ./inpatient-handlers.ts.
   ...inpatientHandlers(),
+  // F8 emergency (emergency desk): the visit list/summary, registration, and the
+  // triage → assess → treat/observe → admit/refer/discharge workflow. Admit
+  // shares the ward and admission state the inpatient handlers hold. See
+  // ./emergency-handlers.ts.
+  ...emergencyHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).

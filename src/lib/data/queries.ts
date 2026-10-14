@@ -209,6 +209,25 @@ import {
   type WardQuery,
   type WardRow,
 } from '@/lib/data/inpatient';
+import {
+  EMERGENCY_BRANCH_ID,
+  extractEmergencyVisitRecord,
+  fetchEmergencySummary,
+  fetchEmergencyVisit,
+  fetchEmergencyVisits,
+  type AdmitFromEmergencyInput,
+  type AssessEmergencyVisitInput,
+  type EmergencyCallError,
+  type EmergencySummaryRow,
+  type EmergencyVisitPage,
+  type EmergencyVisitQuery,
+  type EmergencyVisitRow,
+  type ReferEmergencyVisitInput,
+  type RegisterEmergencyVisitInput,
+  type SetEmergencyPriorityInput,
+  type TreatEmergencyVisitInput,
+  type TriageEmergencyVisitInput,
+} from '@/lib/data/emergency';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
@@ -356,7 +375,8 @@ function toQueryError(
     | InventoryCallError
     | BillingCallError
     | InsuranceCallError
-    | InpatientCallError,
+    | InpatientCallError
+    | EmergencyCallError,
 ): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
@@ -1850,6 +1870,286 @@ export function useDischargeAdmission(): UseMutationResult<
       queryClient.invalidateQueries({ queryKey: ['wards'] });
     },
   });
+}
+
+// --- emergency: ED desk (F8 slice 3) ----------------------------------------
+
+/** A record body that fails structural validation is an internal contract break. */
+function emergencyWriteError(status = 201): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+/**
+ * Emergency visit list `GET /emergency/visits?{filters}`. The export types the
+ * 200 as the request DTO while the service answers a paginated envelope (GAP-020
+ * family), so it rides the raw-fetch path.
+ */
+export function useEmergencyVisits(
+  query: EmergencyVisitQuery = {},
+): UseQueryResult<Fetched<EmergencyVisitPage>, QueryError> {
+  return useQuery<Fetched<EmergencyVisitPage>, QueryError>({
+    queryKey: [
+      'emergency',
+      'visits',
+      query.patientId ?? null,
+      query.status ?? null,
+      query.priority ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchEmergencyVisits(query, signal);
+        return {
+          data: page,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<EmergencyVisitPage>;
+      } catch (call) {
+        throw toQueryError(call as EmergencyCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Single emergency visit `GET /emergency/visits/{id}`. The service answers
+ * `{ visit }` while the export types the bare entity (GAP-020), so the unwrapped
+ * body is validated structurally.
+ */
+export function useEmergencyVisit(id: string): UseQueryResult<Fetched<EmergencyVisitRow>, QueryError> {
+  return useQuery<Fetched<EmergencyVisitRow>, QueryError>({
+    queryKey: ['emergency', 'visits', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const visit = await fetchEmergencyVisit(id, signal);
+        return {
+          data: visit,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<EmergencyVisitRow>;
+      } catch (call) {
+        throw toQueryError(call as EmergencyCallError);
+      }
+    },
+    enabled: id.length > 0,
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Today's ED metrics `GET /emergency/summary`. The service answers the metrics
+ * body; the export types it as the response DTO, so the body is validated
+ * structurally.
+ */
+export function useEmergencySummary(): UseQueryResult<Fetched<EmergencySummaryRow>, QueryError> {
+  return useQuery<Fetched<EmergencySummaryRow>, QueryError>({
+    queryKey: ['emergency', 'summary'],
+    queryFn: async ({ signal }) => {
+      try {
+        const summary = await fetchEmergencySummary(signal);
+        return {
+          data: summary,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<EmergencySummaryRow>;
+      } catch (call) {
+        throw toQueryError(call as EmergencyCallError);
+      }
+    },
+    staleTime: 30_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/** A visit write that shares the emergency invalidation. */
+function useEmergencyVisitWrite<TInput>(
+  mutationFn: (input: TInput) => Promise<EmergencyVisitRow>,
+  extraInvalidation?: readonly string[],
+): UseMutationResult<EmergencyVisitRow, QueryError, TInput> {
+  const queryClient = useQueryClient();
+  return useMutation<EmergencyVisitRow, QueryError, TInput>({
+    mutationFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['emergency'] });
+      if (extraInvalidation) {
+        for (const key of extraInvalidation) {
+          queryClient.invalidateQueries({ queryKey: [key] });
+        }
+      }
+    },
+  });
+}
+
+async function emergencyVisitWrite(
+  call: PromiseLike<ApiCallResult> | ApiCallResult,
+  status = 201,
+): Promise<EmergencyVisitRow> {
+  const fetched = await unwrap<unknown>(call);
+  const parsed = extractEmergencyVisitRecord(fetched.data);
+  if (!parsed.ok) throw emergencyWriteError(status);
+  return parsed.visit;
+}
+
+/**
+ * Registers an ED arrival `POST /emergency/visits` (201 `{ visit }`). The branch
+ * is the EXAMPLE branch (GAP-018) unless one is supplied.
+ */
+export function useRegisterEmergencyVisit(): UseMutationResult<
+  EmergencyVisitRow,
+  QueryError,
+  RegisterEmergencyVisitInput
+> {
+  return useEmergencyVisitWrite((input) =>
+    emergencyVisitWrite(
+      api.POST('/emergency/visits', {
+        body: {
+          patientId: input.patientId,
+          branchId: input.branchId ?? EMERGENCY_BRANCH_ID,
+          arrivedAt: input.arrivedAt,
+        },
+      }),
+    ),
+  );
+}
+
+/** Triages an arrival `POST /emergency/visits/{id}/triage` (201 `{ visit }`). */
+export function useTriageEmergencyVisit(): UseMutationResult<
+  EmergencyVisitRow,
+  QueryError,
+  TriageEmergencyVisitInput
+> {
+  return useEmergencyVisitWrite((input) =>
+    emergencyVisitWrite(
+      api.POST('/emergency/visits/{id}/triage', {
+        params: { path: { id: input.id } },
+        body: { priority: input.priority, complaint: input.complaint },
+      }),
+    ),
+  );
+}
+
+/**
+ * Re-records triage priority `PATCH /emergency/visits/{id}/priority` (200
+ * `{ visit }`), for a priority that changes later in the visit.
+ */
+export function useSetEmergencyPriority(): UseMutationResult<
+  EmergencyVisitRow,
+  QueryError,
+  SetEmergencyPriorityInput
+> {
+  return useEmergencyVisitWrite((input) =>
+    emergencyVisitWrite(
+      api.PATCH('/emergency/visits/{id}/priority', {
+        params: { path: { id: input.id } },
+        body: { priority: input.priority },
+      }),
+      200,
+    ),
+  );
+}
+
+/** Records the assessment `POST /emergency/visits/{id}/assess` (201 `{ visit }`). */
+export function useAssessEmergencyVisit(): UseMutationResult<
+  EmergencyVisitRow,
+  QueryError,
+  AssessEmergencyVisitInput
+> {
+  return useEmergencyVisitWrite((input) =>
+    emergencyVisitWrite(
+      api.POST('/emergency/visits/{id}/assess', {
+        params: { path: { id: input.id } },
+        body: { assessment: input.assessment },
+      }),
+    ),
+  );
+}
+
+/** Starts treatment `POST /emergency/visits/{id}/treat` (201 `{ visit }`). */
+export function useTreatEmergencyVisit(): UseMutationResult<
+  EmergencyVisitRow,
+  QueryError,
+  TreatEmergencyVisitInput
+> {
+  return useEmergencyVisitWrite((input) =>
+    emergencyVisitWrite(
+      api.POST('/emergency/visits/{id}/treat', {
+        params: { path: { id: input.id } },
+        body: { treatment: input.treatment },
+      }),
+    ),
+  );
+}
+
+/** Moves a visit into observation `POST /emergency/visits/{id}/observe` (201). */
+export function useObserveEmergencyVisit(): UseMutationResult<
+  EmergencyVisitRow,
+  QueryError,
+  { id: string }
+> {
+  return useEmergencyVisitWrite((input) =>
+    emergencyVisitWrite(
+      api.POST('/emergency/visits/{id}/observe', {
+        params: { path: { id: input.id } },
+      }),
+    ),
+  );
+}
+
+/**
+ * Admits from the ED `POST /emergency/visits/{id}/admit` (201 `{ visit }`). The
+ * service creates the inpatient admission in the same transaction and row-locks
+ * the bed, so the admission and ward reads are invalidated too.
+ */
+export function useAdmitFromEmergency(): UseMutationResult<
+  EmergencyVisitRow,
+  QueryError,
+  AdmitFromEmergencyInput
+> {
+  return useEmergencyVisitWrite(
+    (input) =>
+      emergencyVisitWrite(
+        api.POST('/emergency/visits/{id}/admit', {
+          params: { path: { id: input.id } },
+          body: {
+            bedId: input.bedId,
+            departmentId: input.departmentId,
+            provisionalDiagnosis: input.provisionalDiagnosis,
+            expectedDischargeAt: input.expectedDischargeAt,
+          },
+        }),
+      ),
+    ['admissions', 'wards'],
+  );
+}
+
+/** Refers onward `POST /emergency/visits/{id}/refer` (201 `{ visit }`). */
+export function useReferEmergencyVisit(): UseMutationResult<
+  EmergencyVisitRow,
+  QueryError,
+  ReferEmergencyVisitInput
+> {
+  return useEmergencyVisitWrite((input) =>
+    emergencyVisitWrite(
+      api.POST('/emergency/visits/{id}/refer', {
+        params: { path: { id: input.id } },
+        body: { referredTo: input.referredTo, referralNotes: input.referralNotes },
+      }),
+    ),
+  );
+}
+
+/** Discharges from the ED `POST /emergency/visits/{id}/discharge` (201). */
+export function useDischargeEmergencyVisit(): UseMutationResult<
+  EmergencyVisitRow,
+  QueryError,
+  { id: string }
+> {
+  return useEmergencyVisitWrite((input) =>
+    emergencyVisitWrite(
+      api.POST('/emergency/visits/{id}/discharge', {
+        params: { path: { id: input.id } },
+      }),
+    ),
+  );
 }
 
 /** Declines a waitlist offer, re-offering the slot (`POST .../entries/{id}/decline`). */

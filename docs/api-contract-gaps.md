@@ -612,5 +612,30 @@ path), so the ward, room, admission and emergency routes sit at the API root:
   admission is a 409 `INVALID_WORKFLOW_TRANSITION`); a discharge is final and
   releases the bed to `CLEANING`. `POST /admissions` posts to the EXAMPLE branch
   (`INPATIENT_BRANCH_ID`, GAP-018).
-- **Not built this slice:** the emergency desk (`/emergency/visits…`), slice 3.
+- **Not built this slice:** the emergency desk (`/emergency/visits…`), slice 3
+  (built — see below).
+
+**Emergency (F8 slice 3).** Same GAP-020 family under `src/modules/emergency`:
+
+- `GET /emergency/visits` types its 200 as the request DTO
+  (`ListEmergencyVisitsQueryDto`) while the service answers a `PageResult`; the
+  client rides the raw-fetch path (`fetchEmergencyVisits`/`extractEmergencyVisitPage`/
+  `readEmergencyVisit`), validating each row so a drift fails closed.
+- `GET /emergency/visits/{id}` is typed as the bare `EmergencyVisitResponseDto`
+  but answers `{ visit }`; every write — `POST /emergency/visits`,
+  `POST /emergency/visits/{id}/{triage|assess|treat|observe|admit|refer|discharge}`
+  — answers **201** with `{ visit }`, and `PATCH /emergency/visits/{id}/priority`
+  answers **200** with `{ visit }`. All go through `extractEmergencyVisitRecord`
+  on the unwrapped body; the summary body is read by `extractEmergencySummary`.
+- The visit is one row that accumulates the whole encounter; the workflow guards
+  mirror `assertEmergencyAction` — a terminal status
+  (`DISCHARGED | ADMITTED | REFERRED`) is closed to every action
+  (`EMERGENCY_VISIT_CLOSED`) and a wrong source status is a 409
+  `INVALID_WORKFLOW_TRANSITION`. Admit creates the inpatient admission in the
+  same transaction and row-locks the bed, so the client invalidates the
+  admission and ward reads too and the admission appears on the admissions desk.
+  Registering posts to the EXAMPLE branch (`EMERGENCY_BRANCH_ID`, GAP-018).
+- `serializeVisit` exposes only `patientId`; the desk resolves names on demand
+  (`usePatientName`, GAP-018). The admitted admission is linked by id.
+
 

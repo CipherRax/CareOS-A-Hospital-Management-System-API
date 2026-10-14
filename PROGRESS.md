@@ -20,7 +20,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F5 Laboratory & radiology      | **complete** — laboratory worklist + order workspace, radiology worklist + imaging workspace, and order entry from the encounter | billing |
 | F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) and wastage write-offs | transfers/counts/POs have no read endpoint (GAP-020) |
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
-| F8 Inpatient & emergency       | in progress — ward & bed board (slice 1), admissions desk (slice 2)                        | emergency desk                                         |
+| F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
 | F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                     |
 | F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                          |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
@@ -1090,5 +1090,64 @@ history, transfer and discharge.
 
 Gate: lint clean, `tsc --noEmit` 0, unit 467 (`inpatient.test.ts` + 11),
 `build:prod` OK, e2e/a11y 171. Contract note appended to GAP-020.
+
+
+## F8 — Inpatient, slice 3: emergency desk
+
+**Status:** complete. The live ED board, and one emergency visit from arrival
+through triage, assessment, treatment and one final disposition.
+
+- **Worklist** (`src/components/staff/emergency-worklist.tsx`, `/emergency`).
+  Every emergency visit (number, patient, priority, arrival time, status) newest
+  first, with status and priority filters, a today's-metrics strip
+  (`GET /emergency/summary`) and a *Register arrival* dialog.
+  `GET /emergency/visits` types its 200 as the request DTO while the service
+  answers a `PageResult` (GAP-020), so rows are validated structurally in
+  `src/lib/data/emergency.ts`. Rows carry only `patientId`, so names resolve on
+  demand (`usePatientName`, GAP-018). Registering posts to
+  `POST /emergency/visits`; the app has no branch picker, so the EXAMPLE branch
+  is used (GAP-018).
+- **Workspace** (`src/components/staff/emergency-workspace.tsx`,
+  `/emergency/[id]`). One visit: its summary (arrival, complaint, priority,
+  assessment, treatment, disposition, admission link, referral) and a timeline of
+  the recorded phases. The action bar offers only the moves the service allows —
+  triage from `ARRIVED`, assess from `TRIAGED`, treat from `ASSESSED`, observe
+  from `ASSESSED`/`IN_TREATMENT`, and one final disposition (admit, refer or
+  discharge) from `ASSESSED`/`IN_TREATMENT`/`OBSERVATION` — plus a re-record of
+  triage priority until the visit closes. A terminal visit is closed to every
+  action (`EMERGENCY_VISIT_CLOSED`); a wrong source status is a 409
+  `INVALID_WORKFLOW_TRANSITION`, both stated explicitly rather than generic.
+- **Admit shares the ward state.** An *Admit* dialog picks from the available
+  beds grouped by ward and posts to `POST /emergency/visits/{id}/admit`. The
+  service creates the inpatient admission in the same transaction and row-locks
+  the bed, so the admission and ward reads are invalidated too, and the new
+  admission appears on the admissions desk and the ward board.
+- **Data layer** (`src/lib/data/emergency.ts`). The status/priority/disposition
+  enums, `isEmergencyTerminal`, `readEmergencyVisit`, the
+  `extractEmergencyVisitPage`/`extractEmergencyVisitRecord`/`extractEmergencySummary`
+  readers and the `fetchEmergencyVisits`/`fetchEmergencyVisit`/`fetchEmergencySummary`
+  raw reads. A body that drifts fails closed rather than showing a visit with the
+  wrong status or priority.
+- **Hooks** (`src/lib/data/queries.ts`). `useEmergencyVisits`, `useEmergencyVisit`,
+  `useEmergencySummary` and the visit writes — `useRegisterEmergencyVisit`,
+  `useTriageEmergencyVisit`, `useSetEmergencyPriority`,
+  `useAssessEmergencyVisit`, `useTreatEmergencyVisit`,
+  `useObserveEmergencyVisit`, `useAdmitFromEmergency`, `useReferEmergencyVisit`
+  and `useDischargeEmergencyVisit` — through one shared write path that
+  invalidates the emergency reads (and the admission/ward reads on admit).
+- **Mocks/stub.** `src/mocks/fixtures/emergency-registry.ts` added eight EXAMPLE
+  visits covering the whole workflow (one per status) with a re-recorded
+  priority; `src/mocks/emergency-handlers.ts` mirrors the service's
+  `assertEmergencyAction` guards (closed visit, wrong transition) and shares the
+  inpatient handlers' bed and admission state through an exported
+  `admitFromEmergency`, which the admissions `POST` now also flows through.
+  Mirrored in `e2e/stub-api.mjs`.
+- **Nav + i18n + a11y.** An *Emergency* entry sits under the Clinical section; the
+  emergency copy is its own `emergency` namespace (`en.json` and `sw.json`);
+  `/emergency` and `/emergency/erv_example_7001` joined the a11y route sweep.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 483 (`emergency.test.ts` + 16),
+`build:prod` OK, e2e/a11y 179. Contract note appended to GAP-020.
+
 
 

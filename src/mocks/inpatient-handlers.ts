@@ -116,6 +116,90 @@ function bedAssignable(bedId: string): boolean {
   );
 }
 
+interface AdmissionCreateInput {
+  patientId: string;
+  bedId: string;
+  departmentId?: string | null;
+  encounterId?: string | null;
+  provisionalDiagnosis?: string | null;
+  expectedDischargeAt?: string | null;
+}
+
+type AdmissionCreateResult =
+  | { ok: true; admission: MutableAdmission }
+  | { ok: false; reason: 'BED_UNAVAILABLE' | 'ADMISSION_ALREADY_ACTIVE' };
+
+/**
+ * Creates an admission against the shared mutable state. Both the admissions desk
+ * (`POST /admissions`, source `OUTPATIENT_CLINIC`) and the emergency desk (admit,
+ * source `EMERGENCY`) go through here, so the bed and admission state the ward
+ * board reads is the same one either desk moves.
+ */
+function createAdmissionRecord(
+  input: AdmissionCreateInput,
+  source: RegistryAdmission['source'],
+): AdmissionCreateResult {
+  if (admissions.some((a) => a.patientId === input.patientId && a.status === 'ADMITTED')) {
+    return { ok: false, reason: 'ADMISSION_ALREADY_ACTIVE' };
+  }
+  if (!bedAssignable(input.bedId)) return { ok: false, reason: 'BED_UNAVAILABLE' };
+  const bed = findBed(input.bedId);
+  if (!bed) return { ok: false, reason: 'BED_UNAVAILABLE' };
+
+  const now = new Date().toISOString();
+  const id = `adm_example_${admissionSeq++}`;
+  const admission: MutableAdmission = {
+    id,
+    admissionNumber: `ADM-${now.slice(0, 4)}-${String(admissionSeq - 1).padStart(6, '0')}`,
+    patientId: input.patientId,
+    branchId: INPATIENT_BRANCH_ID,
+    departmentId: input.departmentId ?? null,
+    encounterId: input.encounterId ?? null,
+    source,
+    status: 'ADMITTED',
+    admittedById: 'usr_example_0001',
+    admittedAt: now,
+    expectedDischargeAt: input.expectedDischargeAt ?? null,
+    provisionalDiagnosis: input.provisionalDiagnosis ?? null,
+    version: 1,
+    assignments: [
+      {
+        id: `asg_example_${assignmentSeq++}`,
+        bedId: input.bedId,
+        admissionId: id,
+        assignedById: 'usr_example_0001',
+        assignedAt: now,
+        releasedById: null,
+        releasedAt: null,
+        reason: null,
+      },
+    ],
+    discharge: null,
+  };
+  admissions.push(admission);
+  bed.bed.status = 'OCCUPIED';
+  bed.bed.version += 1;
+  bed.bed.updatedAt = now;
+  return { ok: true, admission };
+}
+
+export type EmergencyAdmitResult =
+  | { ok: true; admissionId: string }
+  | { ok: false; reason: 'BED_NOT_FOUND' | 'BED_UNAVAILABLE' | 'ADMISSION_ALREADY_ACTIVE' };
+
+/**
+ * Admits a patient from the emergency desk, sharing the ward and admission state
+ * the admissions desk reads. Returns a failure reason the caller maps to the
+ * service's status codes rather than a generic error.
+ */
+export function admitFromEmergency(input: AdmissionCreateInput): EmergencyAdmitResult {
+  if (!findBed(input.bedId)) return { ok: false, reason: 'BED_NOT_FOUND' };
+  const created = createAdmissionRecord(input, 'EMERGENCY');
+  return created.ok
+    ? { ok: true, admissionId: created.admission.id }
+    : { ok: false, reason: created.reason };
+}
+
 function notFound(message: string) {
   return HttpResponse.json(apiError('RESOURCE_NOT_FOUND', message), { status: 404 });
 }
@@ -291,56 +375,33 @@ export function inpatientHandlers() {
       const bedId = stringField(body?.bedId);
       if (!patientId || !bedId) return validationError('A patient and a bed are required.');
       if (body?.branchId !== INPATIENT_BRANCH_ID) return notFound('Branch not found');
-      const bed = findBed(bedId);
-      if (!bed) return notFound('Bed not found');
-      if (admissions.some((a) => a.patientId === patientId && a.status === 'ADMITTED')) {
-        return HttpResponse.json(
-          apiError('ADMISSION_ALREADY_ACTIVE', 'The patient already has an active admission.'),
-          { status: 409 },
-        );
-      }
-      if (!bedAssignable(bedId)) {
-        return HttpResponse.json(
-          apiError('BED_UNAVAILABLE', 'The selected bed is not available.'),
-          { status: 409 },
-        );
-      }
+      if (!findBed(bedId)) return notFound('Bed not found');
 
-      const now = new Date().toISOString();
-      const id = `adm_example_${admissionSeq++}`;
-      const admission: MutableAdmission = {
-        id,
-        admissionNumber: `ADM-${now.slice(0, 4)}-${String(admissionSeq - 1).padStart(6, '0')}`,
-        patientId,
-        branchId: INPATIENT_BRANCH_ID,
-        departmentId: stringField(body?.departmentId),
-        encounterId: stringField(body?.encounterId),
-        source: 'OUTPATIENT_CLINIC',
-        status: 'ADMITTED',
-        admittedById: 'usr_example_0001',
-        admittedAt: now,
-        expectedDischargeAt: stringField(body?.expectedDischargeAt),
-        provisionalDiagnosis: stringField(body?.provisionalDiagnosis),
-        version: 1,
-        assignments: [
-          {
-            id: `asg_example_${assignmentSeq++}`,
-            bedId,
-            admissionId: id,
-            assignedById: 'usr_example_0001',
-            assignedAt: now,
-            releasedById: null,
-            releasedAt: null,
-            reason: null,
-          },
-        ],
-        discharge: null,
-      };
-      admissions.push(admission);
-      bed.bed.status = 'OCCUPIED';
-      bed.bed.version += 1;
-      bed.bed.updatedAt = now;
-      return HttpResponse.json(apiOk({ admission }, 'req_mock_admission_create'), { status: 201 });
+      const created = createAdmissionRecord(
+        {
+          patientId,
+          bedId,
+          departmentId: stringField(body?.departmentId),
+          encounterId: stringField(body?.encounterId),
+          provisionalDiagnosis: stringField(body?.provisionalDiagnosis),
+          expectedDischargeAt: stringField(body?.expectedDischargeAt),
+        },
+        'OUTPATIENT_CLINIC',
+      );
+      if (!created.ok) {
+        return HttpResponse.json(
+          apiError(
+            created.reason,
+            created.reason === 'ADMISSION_ALREADY_ACTIVE'
+              ? 'The patient already has an active admission.'
+              : 'The selected bed is not available.',
+          ),
+          { status: 409 },
+        );
+      }
+      return HttpResponse.json(apiOk({ admission: created.admission }, 'req_mock_admission_create'), {
+        status: 201,
+      });
     }),
 
     http.post('*/api/v1/admissions/:id/transfer', async ({ request, params }) => {
