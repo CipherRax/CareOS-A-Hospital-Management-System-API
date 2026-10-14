@@ -19,7 +19,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F4 Doctor workspace            | encounters + clinical notes + prescriptions + results **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), the clinical-notes panel (structured DRAFT → Finalize → Amend with version history), the prescriptions panel (medication orders: DRAFT → issue → pharmacy dispense, cancel while un-/partially-dispensed), and the read-only results panel (released laboratory results + imaging reports); MSW fixtures + stub + e2e swept | live API round-trip Docker-gated; GAP-020 documented |
 | F5 Laboratory & radiology      | **complete** — laboratory worklist + order workspace, radiology worklist + imaging workspace, and order entry from the encounter | billing |
 | F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) and wastage write-offs | transfers/counts/POs have no read endpoint (GAP-020) |
-| F7 Billing & insurance         | in progress — invoices desk (slice 1) and insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay, and raise-claim from the invoice workspace | create-invoice needs a branch picker; M-PESA; payers/policies CRUD |
+| F7 Billing & insurance         | in progress — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
 | F8 Inpatient & emergency       | not started                                                                                | wards, beds, admissions                                |
 | F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                     |
 | F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                          |
@@ -952,4 +952,45 @@ against an issued invoice.
 
 Gate: lint clean, `tsc --noEmit` 0, unit 441 (`insurance.test.ts` + 11),
 `build:prod` OK, e2e/a11y 151. Contract note appended to GAP-020.
+
+## F7 — Insurance, slice 3: administration (payers and patient policies)
+
+**Status:** complete. The registry the claims desk bills against: the facility's
+insurers, and the policies that tie a patient to one.
+
+- **Payers** (`src/components/staff/payers-worklist.tsx`, `/insurance/payers`). A
+  list of payers (name, contact phone, email, active state) with an *Add payer*
+  dialog. `GET /insurance/payers` types its 200 as the bare entity while the
+  service answers a `PageResult` (GAP-020), so rows are validated structurally in
+  `src/lib/data/insurance.ts`. Creating posts to `POST /insurance/payers`, which
+  answers `{ payer }` and 409 `CONFLICT` on a duplicate name — the conflict is
+  rendered in the dialog, not as a generic failure.
+- **Patient policies** (`src/components/staff/patient-insurance.tsx`). A new
+  *Insurance* tab on the patient master record (`src/components/staff/patient-master.tsx`)
+  lists the patient's policies — policy number, payer name (resolved from the payer
+  list), coverage, validity window and active state — with an *Enrol in a plan*
+  dialog. Enrolling picks an active payer, a policy number, full/partial cover (a
+  partial policy needs a coverage percent) and a validity window, and posts to
+  `POST /insurance/policies` (`{ policy }`); an unknown payer or patient is a 404
+  and a partial policy without a percent a 400, both surfaced in the dialog.
+- **Data layer** (`src/lib/data/insurance.ts`). Added `CreateInsurancePayerInput`,
+  `CreateInsurancePolicyInput` and the `extractPayerRecord`/`extractPolicyRecord`
+  readers, which validate the `{ payer }`/`{ policy }` envelopes the service answers
+  while the export types the bare entity (GAP-020). Coverage stays a number; money
+  is untouched here.
+- **Hooks** (`src/lib/data/queries.ts`). `useCreatePayer` and `useCreatePolicy`,
+  each invalidating the payer/policy reads on success. The payer reader feeds the
+  patient panel's payer-name resolution through `useInsurancePayers`.
+- **Mocks/stub.** `src/mocks/insurance-handlers.ts` now mutates cloned payer and
+  policy lists so a created payer is selectable when enrolling and a created policy
+  is claimable (the claim-create guard reads the mutable policy list); duplicate
+  names conflict and a partial policy needs a percent, mirroring the service.
+  Mirrored in `e2e/stub-api.mjs`.
+- **Nav + i18n + a11y.** An *Insurance payers* entry sits under Administration
+  after *Insurance*; the `payers` and `policies` copy joined the `insurance`
+  namespace and the tab label joined `record` (`en.json` and `sw.json`);
+  `/insurance/payers` joined the a11y route sweep.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 445 (`insurance.test.ts` + 4),
+`build:prod` OK, e2e/a11y 155. Contract note appended to GAP-020.
 

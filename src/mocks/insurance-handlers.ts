@@ -4,7 +4,10 @@ import {
   INSURANCE_CLAIMS,
   INSURANCE_PAYERS,
   INSURANCE_POLICIES,
+  INSURANCE_ORGANIZATION_ID,
   type RegistryInsuranceClaim,
+  type RegistryInsurancePayer,
+  type RegistryInsurancePolicy,
 } from '@/mocks/fixtures/insurance-registry';
 import { BILLING_INVOICES } from '@/mocks/fixtures/billing-registry';
 import { apiError, apiOk, apiPage, delay, MOCK_LATENCY_MS } from '@/mocks/handlers';
@@ -31,7 +34,13 @@ import { apiError, apiOk, apiPage, delay, MOCK_LATENCY_MS } from '@/mocks/handle
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 const claims: Mutable<RegistryInsuranceClaim>[] = INSURANCE_CLAIMS.map((claim) => ({ ...claim }));
+const payers: Mutable<RegistryInsurancePayer>[] = INSURANCE_PAYERS.map((payer) => ({ ...payer }));
+const policies: Mutable<RegistryInsurancePolicy>[] = INSURANCE_POLICIES.map((policy) => ({
+  ...policy,
+}));
 let claimSeq = 7;
+let payerSeq = 3;
+let policySeq = 4;
 
 function notFound(message = 'Insurance claim not found') {
   return HttpResponse.json(apiError('RESOURCE_NOT_FOUND', message), { status: 404 });
@@ -72,7 +81,33 @@ export function insuranceHandlers() {
   return [
     http.get('*/api/v1/insurance/payers', async () => {
       await delay(MOCK_LATENCY_MS);
-      return HttpResponse.json(apiPage(INSURANCE_PAYERS.map((payer) => ({ ...payer }))));
+      return HttpResponse.json(apiPage(payers.map((payer) => ({ ...payer }))));
+    }),
+
+    http.post('*/api/v1/insurance/payers', async ({ request }) => {
+      await delay(MOCK_LATENCY_MS);
+      const body = await readJson(request);
+      const name = stringField(body?.name);
+      if (!name) return validationError('A payer name is required.');
+      if (payers.some((payer) => payer.name === name)) {
+        return HttpResponse.json(apiError('CONFLICT', 'A payer with this name already exists.'), {
+          status: 409,
+        });
+      }
+      const now = new Date().toISOString();
+      const payer: Mutable<RegistryInsurancePayer> = {
+        id: `payer_example_${6000 + payerSeq}`,
+        organizationId: INSURANCE_ORGANIZATION_ID,
+        name,
+        contactPhone: stringField(body?.contactPhone),
+        email: stringField(body?.email),
+        isActive: body?.isActive === false ? false : true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      payerSeq += 1;
+      payers.push(payer);
+      return HttpResponse.json(apiOk({ payer }, 'req_mock_payer_create'), { status: 201 });
     }),
 
     http.get('*/api/v1/insurance/policies', async ({ request }) => {
@@ -80,12 +115,51 @@ export function insuranceHandlers() {
       const url = new URL(request.url);
       const patientId = url.searchParams.get('patientId');
       const payerId = url.searchParams.get('payerId');
-      const filtered = INSURANCE_POLICIES.filter((policy) => {
+      const filtered = policies.filter((policy) => {
         if (patientId && policy.patientId !== patientId) return false;
         if (payerId && policy.payerId !== payerId) return false;
         return true;
       });
       return HttpResponse.json(apiPage(filtered.map((policy) => ({ ...policy }))));
+    }),
+
+    http.post('*/api/v1/insurance/policies', async ({ request }) => {
+      await delay(MOCK_LATENCY_MS);
+      const body = await readJson(request);
+      const patientId = stringField(body?.patientId);
+      const payerId = stringField(body?.payerId);
+      const policyNumber = stringField(body?.policyNumber);
+      if (!patientId || !payerId || !policyNumber) return validationError('Invalid policy.');
+      const payer = payers.find((row) => row.id === payerId && row.isActive);
+      if (!payer) return notFound('Payer not found');
+
+      const coverageType = body?.coverageType === 'FULL' ? 'FULL' : 'PARTIAL';
+      const rawPercent = body?.coveragePercent;
+      if (coverageType === 'PARTIAL' && typeof rawPercent !== 'number') {
+        return validationError('coveragePercent is required for a PARTIAL coverage policy.');
+      }
+      const coveragePercent =
+        typeof rawPercent === 'number' ? rawPercent : coverageType === 'FULL' ? 100 : 0;
+
+      const now = new Date().toISOString();
+      const policy: Mutable<RegistryInsurancePolicy> = {
+        id: `pol_example_${7000 + policySeq}`,
+        organizationId: INSURANCE_ORGANIZATION_ID,
+        patientId,
+        payerId,
+        policyNumber,
+        coverageType,
+        coveragePercent,
+        validityStart: stringField(body?.validityStart),
+        validityEnd: stringField(body?.validityEnd),
+        isActive: body?.isActive === false ? false : true,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      policySeq += 1;
+      policies.push(policy);
+      return HttpResponse.json(apiOk({ policy }, 'req_mock_policy_create'), { status: 201 });
     }),
 
     http.get('*/api/v1/insurance/claims', async ({ request }) => {
@@ -110,7 +184,7 @@ export function insuranceHandlers() {
       const policyId = stringField(body?.policyId);
       const invoice = BILLING_INVOICES.find((row) => row.id === invoiceId);
       if (!invoice) return notFound('Invoice not found');
-      const policy = INSURANCE_POLICIES.find((row) => row.id === policyId && row.isActive);
+      const policy = policies.find((row) => row.id === policyId && row.isActive);
       if (!policy) return notFound('Insurance policy not found');
       if (policy.patientId !== invoice.patientId) {
         return validationError('The policy belongs to a different patient than the invoice.');

@@ -115,6 +115,25 @@ export interface ClaimQuery {
 
 export type InsuranceCallError = EnvelopeCallError;
 
+export interface CreateInsurancePayerInput {
+  readonly name: string;
+  readonly contactPhone?: string;
+  readonly email?: string;
+  readonly isActive?: boolean;
+}
+
+export interface CreateInsurancePolicyInput {
+  readonly patientId: string;
+  readonly payerId: string;
+  readonly policyNumber: string;
+  /** Defaults to `PARTIAL` server-side; `PARTIAL` requires `coveragePercent`. */
+  readonly coverageType?: CoverageType;
+  readonly coveragePercent?: number;
+  readonly validityStart?: string;
+  readonly validityEnd?: string;
+  readonly isActive?: boolean;
+}
+
 /** Reads a money field; a non-string is drift, so it fails closed. */
 function money(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
@@ -236,6 +255,24 @@ export function extractClaimRecord(
   if (!isRecord(payload)) return { ok: false };
   const claim = readClaim(payload.claim);
   return claim ? { ok: true, claim } : { ok: false };
+}
+
+/** Reads a single-payer body: the service answers `{ payer }`. */
+export function extractPayerRecord(
+  payload: unknown,
+): { ok: true; payer: InsurancePayerRow } | { ok: false } {
+  if (!isRecord(payload)) return { ok: false };
+  const payer = readPayer(payload.payer);
+  return payer ? { ok: true, payer } : { ok: false };
+}
+
+/** Reads a single-policy body: the service answers `{ policy }`. */
+export function extractPolicyRecord(
+  payload: unknown,
+): { ok: true; policy: InsurancePolicyRow } | { ok: false } {
+  if (!isRecord(payload)) return { ok: false };
+  const policy = readPolicy(payload.policy);
+  return policy ? { ok: true, policy } : { ok: false };
 }
 
 /** Raw read against `GET /insurance/payers` (the 200 is typed as the bare entity). */

@@ -48,6 +48,7 @@ const ROUTES = [
   { path: '/billing', name: 'Billing' },
   { path: '/billing/inv_example_8001', name: 'INV-2026-000001' },
   { path: '/insurance', name: 'Insurance' },
+  { path: '/insurance/payers', name: 'Insurance payers' },
   { path: '/insurance/claim_example_5001', name: 'CLM-2026-000001' },
   { path: '/schedules', name: 'Schedules' },
   // Named by their real h1, not by what the route is called. On a patient record

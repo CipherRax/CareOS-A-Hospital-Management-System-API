@@ -550,6 +550,8 @@ const LIVE_CLAIMS = [
   insuranceClaim({ id: 'claim_example_5006', claimNumber: 'CLM-2026-000006', invoiceId: 'inv_example_8002', policyId: 'pol_example_7002', patientId: 'pat_example_1002', amount: '4200.00', status: 'APPROVED', submittedAt: '2026-10-06T11:00:00.000Z', approvedAt: '2026-10-07T11:00:00.000Z', approvedAmount: '4200.00', version: 3 }),
 ];
 let claimSeq = 7;
+let payerSeq = 3;
+let policySeq = 4;
 function insuranceFindClaim(id) {
   return LIVE_CLAIMS.find((claim) => claim.id === id);
 }
@@ -2094,6 +2096,21 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (url.pathname === '/insurance/payers' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const name = typeof body.name === 'string' && body.name.length > 0 ? body.name : null;
+    if (!name) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A payer name is required.' } }); return; }
+    if (LIVE_PAYERS.some((payer) => payer.name === name)) { send(response, 409, { success: false, error: { code: 'CONFLICT', message: 'A payer with this name already exists.' } }); return; }
+    const now = new Date().toISOString();
+    const payer = insurancePayer(`payer_example_${6000 + payerSeq}`, name, typeof body.contactPhone === 'string' && body.contactPhone.length > 0 ? body.contactPhone : null, typeof body.email === 'string' && body.email.length > 0 ? body.email : null);
+    payer.isActive = body.isActive === false ? false : true; payer.createdAt = now; payer.updatedAt = now;
+    payerSeq += 1;
+    LIVE_PAYERS.push(payer);
+    send(response, 201, { success: true, data: { payer } });
+    return;
+  }
+
   if (url.pathname === '/insurance/policies' && request.method === 'GET') {
     const patientId = url.searchParams.get('patientId');
     const payerId = url.searchParams.get('payerId');
@@ -2101,6 +2118,25 @@ const server = createServer(async (request, response) => {
       (!patientId || policy.patientId === patientId) &&
       (!payerId || policy.payerId === payerId));
     send(response, 200, listEnvelope(items.map((policy) => ({ ...policy }))));
+    return;
+  }
+
+  if (url.pathname === '/insurance/policies' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const payer = LIVE_PAYERS.find((row) => row.id === body.payerId && row.isActive);
+    if (!payer) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Payer not found' } }); return; }
+    if (typeof body.patientId !== 'string' || typeof body.policyNumber !== 'string' || body.policyNumber.length === 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid policy.' } }); return; }
+    const coverageType = body.coverageType === 'FULL' ? 'FULL' : 'PARTIAL';
+    if (coverageType === 'PARTIAL' && typeof body.coveragePercent !== 'number') { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'coveragePercent is required for a PARTIAL coverage policy.' } }); return; }
+    const coveragePercent = typeof body.coveragePercent === 'number' ? body.coveragePercent : (coverageType === 'FULL' ? 100 : 0);
+    const now = new Date().toISOString();
+    const policy = insurancePolicy(`pol_example_${7000 + policySeq}`, body.patientId, payer.id, body.policyNumber, coverageType, coveragePercent, typeof body.validityEnd === 'string' && body.validityEnd.length > 0 ? body.validityEnd : null);
+    policy.validityStart = typeof body.validityStart === 'string' && body.validityStart.length > 0 ? body.validityStart : null;
+    policy.isActive = body.isActive === false ? false : true; policy.createdAt = now; policy.updatedAt = now;
+    policySeq += 1;
+    LIVE_POLICIES.push(policy);
+    send(response, 201, { success: true, data: { policy } });
     return;
   }
 

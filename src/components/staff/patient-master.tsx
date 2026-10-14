@@ -13,6 +13,7 @@ import { KeyValueGrid, type KeyValueItem } from '@/components/clinical/key-value
 import { Skeleton } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/clinical/empty-state';
+import { PatientInsurancePanel } from '@/components/staff/patient-insurance';
 import {
   usePatientAccessLog,
   usePatientMaster,
@@ -38,7 +39,7 @@ import { cn } from '@/lib/cn';
  * The data comes from the patient registry fixtures, marked EXAMPLE.
  */
 
-type TabId = 'summary' | 'timeline' | 'access-log';
+type TabId = 'summary' | 'timeline' | 'insurance' | 'access-log';
 
 const TONE_BY_STATUS: Record<string, StatusTone> = {
   ACTIVE: 'success',
@@ -85,6 +86,7 @@ export function PatientMasterScreen({ id }: { id: string }) {
         {tab === 'timeline' ? (
           <TimelineTab events={timelineEvents(timeline.data?.data ?? [])} />
         ) : null}
+        {tab === 'insurance' ? <PatientInsurancePanel patientId={record.patient.id} /> : null}
         {tab === 'access-log' ? (
           <AccessLogTab rows={accessLog.data?.data ?? []} loading={accessLog.isPending} />
         ) : null}
@@ -120,6 +122,7 @@ function TabNav({ tab, onChange }: { tab: TabId; onChange: (next: TabId) => void
   const tabs: readonly { id: TabId; label: string }[] = [
     { id: 'summary', label: t('tabSummary') },
     { id: 'timeline', label: t('tabTimeline') },
+    { id: 'insurance', label: t('tabInsurance') },
     { id: 'access-log', label: t('tabAccessLog') },
   ];
   return (

@@ -548,6 +548,14 @@ sit at the API root):
   requires a reason. `pay` settles an INSURANCE-method payment against the invoice
   (invoice must be `ISSUED|PARTIALLY_PAID`, payout within the balance), so a `pay`
   invalidates the invoice reads as well as the claim's.
-- **Not built this slice:** the insurance *management* surface (creating payers and
-  policies — `POST /insurance/payers`, `POST /insurance/policies`) and M-PESA.
-  `POST /invoices` (create) still needs the branch picker.
+- `POST /insurance/payers` (`CreateInsurancePayerDto`) and `POST
+  /insurance/policies` (`CreatePatientInsurancePolicyDto`) are typed as the bare
+  response entity but answer `{ payer }` / `{ policy }` and answer **201**
+  (GAP-020 family). The client validates the unwrapped body through
+  `extractPayerRecord`/`extractPolicyRecord`. Create guards mirror the service: a
+  duplicate payer name is a 409 `CONFLICT`; a policy's payer must be active (404
+  otherwise) and a `PARTIAL` coverage policy without a `coveragePercent` is a 400.
+  `POST /insurance/policies` is the `GET /insurance/policies` counterpart, still a
+  `PageResult` read.
+- **Not built:** M-PESA; and `POST /invoices` (create), which still needs the
+  branch picker.

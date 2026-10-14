@@ -4,7 +4,9 @@ import {
   extractClaimPage,
   extractClaimRecord,
   extractPayerPage,
+  extractPayerRecord,
   extractPolicyPage,
+  extractPolicyRecord,
   readClaim,
 } from '@/lib/data/insurance';
 
@@ -135,5 +137,33 @@ describe('extractClaimRecord', () => {
     expect(extractClaimRecord(claim)).toEqual({ ok: false });
     expect(extractClaimRecord({ claim: {} })).toEqual({ ok: false });
     expect(extractClaimRecord(null)).toEqual({ ok: false });
+  });
+});
+
+describe('extractPayerRecord', () => {
+  it('unwraps the { payer } body', () => {
+    const parsed = extractPayerRecord({ payer });
+    expect(parsed.ok && parsed.payer.name).toBe('EXAMPLE Jubilee Health');
+  });
+
+  it('fails closed on a bare payer or a broken body', () => {
+    expect(extractPayerRecord(payer)).toEqual({ ok: false });
+    expect(extractPayerRecord({ payer: { id: 'x' } })).toEqual({ ok: false });
+    expect(extractPayerRecord(null)).toEqual({ ok: false });
+  });
+});
+
+describe('extractPolicyRecord', () => {
+  it('unwraps the { policy } body, keeping coverage a number', () => {
+    const parsed = extractPolicyRecord({ policy });
+    expect(parsed.ok && parsed.policy.coveragePercent).toBe(80);
+  });
+
+  it('fails closed on a drifted coverage type or a broken body', () => {
+    expect(extractPolicyRecord({ policy: { ...policy, coverageType: 'SOME' } })).toEqual({
+      ok: false,
+    });
+    expect(extractPolicyRecord(policy)).toEqual({ ok: false });
+    expect(extractPolicyRecord(null)).toEqual({ ok: false });
   });
 });

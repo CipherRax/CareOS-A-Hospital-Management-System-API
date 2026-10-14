@@ -164,16 +164,22 @@ import {
 } from '@/lib/data/inventory';
 import {
   extractClaimRecord,
+  extractPayerRecord,
+  extractPolicyRecord,
   fetchClaim,
   fetchClaims,
   fetchPayers,
   fetchPolicies,
   type ClaimQuery,
+  type CreateInsurancePayerInput,
+  type CreateInsurancePolicyInput,
   type InsuranceCallError,
   type InsuranceClaimPage,
   type InsuranceClaimRow,
   type InsurancePayerPage,
+  type InsurancePayerRow,
   type InsurancePolicyPage,
+  type InsurancePolicyRow,
   type PolicyQuery,
 } from '@/lib/data/insurance';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
@@ -1433,6 +1439,77 @@ export function useClaimAction(): UseMutationResult<InsuranceClaimRow, QueryErro
       queryClient.invalidateQueries({ queryKey: ['claims', variables.id] });
       queryClient.invalidateQueries({ queryKey: ['claims', 'list'] });
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
+  });
+}
+
+/**
+ * Registers a payer `POST /insurance/payers`. The service answers `{ payer }`
+ * while the export types the bare entity (GAP-020), so the unwrapped body is
+ * validated structurally. A duplicate name answers 409 `CONFLICT`.
+ */
+export function useCreatePayer(): UseMutationResult<
+  InsurancePayerRow,
+  QueryError,
+  CreateInsurancePayerInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<InsurancePayerRow, QueryError, CreateInsurancePayerInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/insurance/payers', {
+          body: {
+            name: input.name,
+            contactPhone: input.contactPhone,
+            email: input.email,
+            isActive: input.isActive,
+          },
+        }),
+      );
+      const parsed = extractPayerRecord(fetched.data);
+      if (!parsed.ok) throw insuranceWriteError();
+      return parsed.payer;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['insurance', 'payers'] });
+    },
+  });
+}
+
+/**
+ * Enrols a patient on a payer's plan `POST /insurance/policies`. The service
+ * answers `{ policy }` while the export types the bare entity (GAP-020), so the
+ * unwrapped body is validated structurally. An unknown patient or payer answers
+ * 404; a `PARTIAL` policy without a `coveragePercent` answers 400.
+ */
+export function useCreatePolicy(): UseMutationResult<
+  InsurancePolicyRow,
+  QueryError,
+  CreateInsurancePolicyInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<InsurancePolicyRow, QueryError, CreateInsurancePolicyInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/insurance/policies', {
+          body: {
+            patientId: input.patientId,
+            payerId: input.payerId,
+            policyNumber: input.policyNumber,
+            coverageType: input.coverageType,
+            coveragePercent: input.coveragePercent,
+            validityStart: input.validityStart,
+            validityEnd: input.validityEnd,
+            isActive: input.isActive,
+          },
+        }),
+      );
+      const parsed = extractPolicyRecord(fetched.data);
+      if (!parsed.ok) throw insuranceWriteError();
+      return parsed.policy;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['insurance', 'policies'] });
     },
   });
 }
