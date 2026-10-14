@@ -232,3 +232,269 @@ export async function fetchWard(id: string, signal?: AbortSignal): Promise<WardR
     signal,
   );
 }
+
+// --- admissions (F8 slice 2) -----------------------------------------------
+
+export const ADMISSION_SOURCES = [
+  'EMERGENCY',
+  'OUTPATIENT_CLINIC',
+  'REFERRAL',
+  'PLANNED',
+  'DIRECT',
+] as const;
+export type AdmissionSource = (typeof ADMISSION_SOURCES)[number];
+
+export const ADMISSION_STATUSES = ['ADMITTED', 'DISCHARGED'] as const;
+export type AdmissionStatus = (typeof ADMISSION_STATUSES)[number];
+
+export interface BedAssignmentRow {
+  readonly id: string;
+  readonly bedId: string;
+  readonly assignedAt: string;
+  readonly releasedById: string | null;
+  readonly releasedAt: string | null;
+  readonly reason: string | null;
+}
+
+export interface DischargeFollowUp {
+  readonly type: string;
+  readonly date: string | null;
+  readonly notes: string | null;
+}
+
+export interface DischargeRow {
+  readonly id: string;
+  readonly admissionId: string;
+  readonly dischargedAt: string;
+  readonly summary: string | null;
+  readonly instructions: string | null;
+  readonly followUp: DischargeFollowUp | null;
+  readonly hasOutstandingBilling: boolean;
+}
+
+export interface AdmissionRow {
+  readonly id: string;
+  readonly admissionNumber: string;
+  readonly patientId: string;
+  readonly branchId: string;
+  readonly departmentId: string | null;
+  readonly encounterId: string | null;
+  readonly source: AdmissionSource;
+  readonly status: AdmissionStatus;
+  readonly admittedById: string | null;
+  readonly admittedAt: string;
+  readonly expectedDischargeAt: string | null;
+  readonly provisionalDiagnosis: string | null;
+  readonly version: number;
+  readonly assignments: readonly BedAssignmentRow[];
+  readonly discharge: DischargeRow | null;
+}
+
+export interface AdmissionPage {
+  readonly rows: readonly AdmissionRow[];
+  readonly total: number;
+}
+
+export interface AdmissionQuery {
+  readonly patientId?: string;
+  readonly branchId?: string;
+  readonly status?: AdmissionStatus;
+  readonly page?: number;
+  readonly limit?: number;
+}
+
+/**
+ * Admit a patient. The service assigns the source (`OUTPATIENT_CLINIC` for this
+ * desk; the emergency desk admits with `EMERGENCY` in the same transaction), so
+ * the client cannot choose it. `branchId` is the EXAMPLE branch (GAP-018).
+ */
+export interface CreateAdmissionInput {
+  readonly patientId: string;
+  readonly bedId: string;
+  readonly branchId?: string;
+  readonly departmentId?: string;
+  readonly encounterId?: string;
+  readonly provisionalDiagnosis?: string;
+  readonly expectedDischargeAt?: string;
+}
+
+export interface TransferAdmissionInput {
+  readonly id: string;
+  readonly toBedId: string;
+  readonly reason?: string;
+}
+
+export interface DischargeAdmissionInput {
+  readonly id: string;
+  readonly summary?: string;
+  readonly instructions?: string;
+  readonly followUp?: { type: string; date?: string; notes?: string };
+  readonly hasOutstandingBilling?: boolean;
+  readonly dischargedAt?: string;
+}
+
+/** The admission's current (unreleased) bed assignment, if any. */
+export function activeAssignment(admission: AdmissionRow): BedAssignmentRow | null {
+  return admission.assignments.find((assignment) => assignment.releasedAt === null) ?? null;
+}
+
+/** A bed flattened out of the ward tree, with the names needed to label it. */
+export interface BedOption {
+  readonly id: string;
+  readonly wardName: string;
+  readonly roomName: string;
+  readonly bedNumber: string;
+  readonly status: BedStatus;
+}
+
+/** Flattens the nested ward tree into a flat bed list for lookups and pickers. */
+export function collectBeds(wards: readonly WardRow[]): readonly BedOption[] {
+  return wards.flatMap((ward) =>
+    ward.rooms.flatMap((room) =>
+      room.beds.map((bed) => ({
+        id: bed.id,
+        wardName: ward.name,
+        roomName: room.name,
+        bedNumber: bed.bedNumber,
+        status: bed.status,
+      })),
+    ),
+  );
+}
+
+function readFollowUp(value: unknown): DischargeFollowUp | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.type !== 'string') return null;
+  return {
+    type: value.type,
+    date: nullableString(value.date),
+    notes: nullableString(value.notes),
+  };
+}
+
+function readDischarge(value: unknown): DischargeRow | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== 'string' || typeof value.admissionId !== 'string') return null;
+  if (typeof value.dischargedAt !== 'string') return null;
+  return {
+    id: value.id,
+    admissionId: value.admissionId,
+    dischargedAt: value.dischargedAt,
+    summary: nullableString(value.summary),
+    instructions: nullableString(value.instructions),
+    followUp: readFollowUp(value.followUp),
+    hasOutstandingBilling: value.hasOutstandingBilling === true,
+  };
+}
+
+function readAssignment(value: unknown): BedAssignmentRow | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== 'string' || typeof value.bedId !== 'string') return null;
+  if (typeof value.assignedAt !== 'string') return null;
+  return {
+    id: value.id,
+    bedId: value.bedId,
+    assignedAt: value.assignedAt,
+    releasedById: nullableString(value.releasedById),
+    releasedAt: nullableString(value.releasedAt),
+    reason: nullableString(value.reason),
+  };
+}
+
+/** Reads one serialized admission; returns null when a required field has drifted. */
+export function readAdmission(value: unknown): AdmissionRow | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== 'string' || typeof value.admissionNumber !== 'string') return null;
+  if (typeof value.patientId !== 'string' || typeof value.branchId !== 'string') return null;
+  if (typeof value.status !== 'string' || !ADMISSION_STATUSES.includes(value.status as AdmissionStatus)) {
+    return null;
+  }
+  if (typeof value.source !== 'string' || !ADMISSION_SOURCES.includes(value.source as AdmissionSource)) {
+    return null;
+  }
+  if (typeof value.admittedAt !== 'string') return null;
+
+  const rawAssignments = Array.isArray(value.assignments) ? value.assignments : [];
+  const assignments = rawAssignments.map(readAssignment);
+  if (assignments.some((assignment) => assignment === null)) return null;
+
+  const discharge = value.discharge == null ? null : readDischarge(value.discharge);
+  if (value.discharge != null && discharge === null) return null;
+
+  return {
+    id: value.id,
+    admissionNumber: value.admissionNumber,
+    patientId: value.patientId,
+    branchId: value.branchId,
+    departmentId: nullableString(value.departmentId),
+    encounterId: nullableString(value.encounterId),
+    source: value.source as AdmissionSource,
+    status: value.status as AdmissionStatus,
+    admittedById: nullableString(value.admittedById),
+    admittedAt: value.admittedAt,
+    expectedDischargeAt: nullableString(value.expectedDischargeAt),
+    provisionalDiagnosis: nullableString(value.provisionalDiagnosis),
+    version: typeof value.version === 'number' ? value.version : 0,
+    assignments: assignments as readonly BedAssignmentRow[],
+    discharge,
+  };
+}
+
+/** Reads the admission page from the unwrapped `data` plus the sibling `meta`. */
+export function extractAdmissionPage(
+  data: unknown,
+  meta: unknown,
+): { ok: true; page: AdmissionPage } | { ok: false } {
+  if (!Array.isArray(data)) return { ok: false };
+  const rows = data.map(readAdmission);
+  if (rows.some((row) => row === null)) return { ok: false };
+  return {
+    ok: true,
+    page: { rows: rows as readonly AdmissionRow[], total: pageTotal(meta, rows.length) },
+  };
+}
+
+/** Reads a single-admission body: reads and writes answer `{ admission }`. */
+export function extractAdmissionRecord(
+  payload: unknown,
+): { ok: true; admission: AdmissionRow } | { ok: false } {
+  if (!isRecord(payload)) return { ok: false };
+  const admission = readAdmission(payload.admission);
+  return admission ? { ok: true, admission } : { ok: false };
+}
+
+/** Raw read against `GET /admissions?{filters}` (GAP-020: the 200 is the query DTO). */
+export async function fetchAdmissions(
+  query: AdmissionQuery = {},
+  signal?: AbortSignal,
+): Promise<AdmissionPage> {
+  const suffix = queryString({
+    patientId: query.patientId,
+    branchId: query.branchId,
+    status: query.status,
+    page: query.page !== undefined ? String(query.page) : undefined,
+    limit: query.limit !== undefined ? String(query.limit) : undefined,
+  });
+  const url = `${publicEnv.apiBasePath}/admissions${suffix}`;
+  return readEnvelope<AdmissionPage>(
+    url,
+    (data, meta) => {
+      const page = extractAdmissionPage(data, meta);
+      return page.ok ? { ok: true, value: page.page } : { ok: false };
+    },
+    signal,
+  );
+}
+
+/** Raw read against `GET /admissions/{id}` (the service answers `{ admission }`). */
+export async function fetchAdmission(id: string, signal?: AbortSignal): Promise<AdmissionRow> {
+  const url = `${publicEnv.apiBasePath}/admissions/${encodeURIComponent(id)}`;
+  return readEnvelope<AdmissionRow>(
+    url,
+    (data) => {
+      const parsed = extractAdmissionRecord(data);
+      return parsed.ok ? { ok: true, value: parsed.admission } : { ok: false };
+    },
+    signal,
+  );
+}

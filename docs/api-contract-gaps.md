@@ -587,3 +587,30 @@ path), so the ward, room, admission and emergency routes sit at the API root:
   EXAMPLE branch (`INPATIENT_BRANCH_ID`) because the session still reports no
   current branch (GAP-018); a real deployment reads it from the session.
 
+**Admissions (F8 slice 2).** Same GAP-020 family under `src/modules/inpatient`:
+
+- `GET /admissions` carries `query: never` and types the 200 as the request DTO
+  (`ListAdmissionsQueryDto`) while the service answers a `PageResult`; each row is
+  an admission that nests its `assignments` and its `discharge`. The client rides
+  the raw-fetch path (`fetchAdmissions`/`extractAdmissionPage`/`readAdmission`),
+  validating the whole nested shape so a drift fails closed.
+- `GET /admissions/{id}` is typed as the bare `AdmissionResponseDto` but answers
+  `{ admission }`; `POST /admissions`, `POST /admissions/{id}/transfer` and
+  `POST /admissions/{id}/discharge` are typed the same bare way and answer
+  **201** with `{ admission }`. All go through `extractAdmissionRecord` on the
+  unwrapped body.
+- `serializeAssignment` exposes only `bedId` — not the bed number, room or ward —
+  so the desk resolves a bed's label from the ward tree (`GET /wards`) rather than
+  a second admission sub-resource. The assignment history is the admission's own
+  list, newest first.
+- Create/transfer/discharge guards mirror the service: `POST /admissions` assigns
+  the source (`OUTPATIENT_CLINIC` for this desk — the emergency desk admits with
+  `EMERGENCY` in the same transaction) and row-locks the bed, so the source is not
+  in `CreateAdmissionDto`; an already-active patient is a 409
+  `ADMISSION_ALREADY_ACTIVE` and an unavailable bed a 409 `BED_UNAVAILABLE`. A
+  transfer moves the active assignment and never changes the status (a discharged
+  admission is a 409 `INVALID_WORKFLOW_TRANSITION`); a discharge is final and
+  releases the bed to `CLEANING`. `POST /admissions` posts to the EXAMPLE branch
+  (`INPATIENT_BRANCH_ID`, GAP-018).
+- **Not built this slice:** the emergency desk (`/emergency/visits…`), slice 3.
+

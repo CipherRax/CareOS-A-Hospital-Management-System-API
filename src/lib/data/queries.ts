@@ -183,19 +183,28 @@ import {
   type PolicyQuery,
 } from '@/lib/data/insurance';
 import {
+  extractAdmissionRecord,
   extractBedRecord,
   extractRoomRecord,
   extractWardRecord,
+  fetchAdmission,
+  fetchAdmissions,
   fetchWard,
   fetchWards,
   INPATIENT_BRANCH_ID,
+  type AdmissionPage,
+  type AdmissionQuery,
+  type AdmissionRow,
   type BedRow,
+  type CreateAdmissionInput,
   type CreateBedInput,
   type CreateRoomInput,
   type CreateWardInput,
+  type DischargeAdmissionInput,
   type InpatientCallError,
   type ManualBedStatus,
   type RoomRow,
+  type TransferAdmissionInput,
   type WardPage,
   type WardQuery,
   type WardRow,
@@ -1683,6 +1692,161 @@ export function useSetBedStatus(): UseMutationResult<BedRow, QueryError, SetBedS
       return parsed.bed;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['wards'] });
+    },
+  });
+}
+
+// --- inpatient: admissions (F8 slice 2) -------------------------------------
+
+/**
+ * Admission list `GET /admissions?{filters}`. The export types the 200 as the
+ * request DTO while the service answers a paginated envelope (GAP-020 family),
+ * so it rides the raw-fetch path.
+ */
+export function useAdmissions(
+  query: AdmissionQuery = {},
+): UseQueryResult<Fetched<AdmissionPage>, QueryError> {
+  return useQuery<Fetched<AdmissionPage>, QueryError>({
+    queryKey: ['admissions', 'list', query.patientId ?? null, query.status ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchAdmissions(query, signal);
+        return {
+          data: page,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<AdmissionPage>;
+      } catch (call) {
+        throw toQueryError(call as InpatientCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Single admission `GET /admissions/{id}` — its bed-assignment history and
+ * discharge. The service answers `{ admission }` while the export types the bare
+ * entity (GAP-020), so the unwrapped body is validated structurally.
+ */
+export function useAdmission(id: string): UseQueryResult<Fetched<AdmissionRow>, QueryError> {
+  return useQuery<Fetched<AdmissionRow>, QueryError>({
+    queryKey: ['admissions', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const admission = await fetchAdmission(id, signal);
+        return {
+          data: admission,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<AdmissionRow>;
+      } catch (call) {
+        throw toQueryError(call as InpatientCallError);
+      }
+    },
+    enabled: id.length > 0,
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Admits a patient `POST /admissions` (201 `{ admission }`). The bed is
+ * row-locked and marked `OCCUPIED` server-side, so both the admission reads and
+ * the ward board are invalidated. A patient already admitted or an unavailable
+ * bed answers 409.
+ */
+export function useAdmitPatient(): UseMutationResult<AdmissionRow, QueryError, CreateAdmissionInput> {
+  const queryClient = useQueryClient();
+  return useMutation<AdmissionRow, QueryError, CreateAdmissionInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/admissions', {
+          body: {
+            patientId: input.patientId,
+            branchId: input.branchId ?? INPATIENT_BRANCH_ID,
+            bedId: input.bedId,
+            departmentId: input.departmentId,
+            encounterId: input.encounterId,
+            provisionalDiagnosis: input.provisionalDiagnosis,
+            expectedDischargeAt: input.expectedDischargeAt,
+          },
+        }),
+      );
+      const parsed = extractAdmissionRecord(fetched.data);
+      if (!parsed.ok) throw inpatientWriteError();
+      return parsed.admission;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admissions'] });
+      queryClient.invalidateQueries({ queryKey: ['wards'] });
+    },
+  });
+}
+
+/**
+ * Transfers an admission to another bed `POST /admissions/{id}/transfer` (201
+ * `{ admission }`). The status is unchanged — the active assignment moves — and
+ * the vacated bed and target bed change status, so the ward reads are invalidated
+ * too. An unavailable target or a discharged admission answers 409.
+ */
+export function useTransferAdmission(): UseMutationResult<
+  AdmissionRow,
+  QueryError,
+  TransferAdmissionInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<AdmissionRow, QueryError, TransferAdmissionInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/admissions/{id}/transfer', {
+          params: { path: { id: input.id } },
+          body: { toBedId: input.toBedId, reason: input.reason },
+        }),
+      );
+      const parsed = extractAdmissionRecord(fetched.data);
+      if (!parsed.ok) throw inpatientWriteError();
+      return parsed.admission;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admissions'] });
+      queryClient.invalidateQueries({ queryKey: ['wards'] });
+    },
+  });
+}
+
+/**
+ * Discharges an admission `POST /admissions/{id}/discharge` (201
+ * `{ admission }`). The active bed is released to `CLEANING` server-side, so the
+ * ward reads are invalidated as well. An already-discharged admission answers 409
+ * `INVALID_WORKFLOW_TRANSITION`.
+ */
+export function useDischargeAdmission(): UseMutationResult<
+  AdmissionRow,
+  QueryError,
+  DischargeAdmissionInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<AdmissionRow, QueryError, DischargeAdmissionInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/admissions/{id}/discharge', {
+          params: { path: { id: input.id } },
+          body: {
+            summary: input.summary,
+            instructions: input.instructions,
+            followUp: input.followUp,
+            hasOutstandingBilling: input.hasOutstandingBilling,
+            dischargedAt: input.dischargedAt,
+          },
+        }),
+      );
+      const parsed = extractAdmissionRecord(fetched.data);
+      if (!parsed.ok) throw inpatientWriteError();
+      return parsed.admission;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admissions'] });
       queryClient.invalidateQueries({ queryKey: ['wards'] });
     },
   });

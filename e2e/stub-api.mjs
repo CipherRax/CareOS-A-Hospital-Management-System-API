@@ -622,6 +622,27 @@ function findBed(id) {
   return null;
 }
 
+// Admissions seeded against the beds above: two ADMITTED holding the two
+// occupied beds and one DISCHARGED with a released assignment and a discharge.
+function stubAssignment(id, bedId, admissionId, assignedAt, releasedAt = null) {
+  return { id, bedId, admissionId, assignedById: 'usr_example_0001', assignedAt, releasedById: releasedAt ? 'usr_example_0001' : null, releasedAt, reason: null };
+}
+const LIVE_ADMISSIONS = [
+  { id: 'adm_example_9001', admissionNumber: 'ADM-2026-000001', patientId: 'pat_example_1001', branchId: INPATIENT_BRANCH_ID, departmentId: null, encounterId: null, source: 'OUTPATIENT_CLINIC', status: 'ADMITTED', admittedById: 'usr_example_0001', admittedAt: '2026-10-05T09:15:00.000Z', expectedDischargeAt: '2026-10-12T09:00:00.000Z', provisionalDiagnosis: 'EXAMPLE community-acquired pneumonia.', version: 1, assignments: [stubAssignment('asg_example_9501', 'bed_example_4101', 'adm_example_9001', '2026-10-05T09:15:00.000Z')], discharge: null },
+  { id: 'adm_example_9002', admissionNumber: 'ADM-2026-000002', patientId: 'pat_example_1002', branchId: INPATIENT_BRANCH_ID, departmentId: null, encounterId: null, source: 'EMERGENCY', status: 'ADMITTED', admittedById: 'usr_example_0001', admittedAt: '2026-10-07T22:40:00.000Z', expectedDischargeAt: null, provisionalDiagnosis: 'EXAMPLE fractured right tibia, post-operative.', version: 1, assignments: [stubAssignment('asg_example_9502', 'bed_example_4201', 'adm_example_9002', '2026-10-07T22:40:00.000Z')], discharge: null },
+  { id: 'adm_example_9003', admissionNumber: 'ADM-2026-000003', patientId: 'pat_example_1003', branchId: INPATIENT_BRANCH_ID, departmentId: null, encounterId: null, source: 'REFERRAL', status: 'DISCHARGED', admittedById: 'usr_example_0001', admittedAt: '2026-09-20T10:00:00.000Z', expectedDischargeAt: null, provisionalDiagnosis: 'EXAMPLE diabetic foot ulcer.', version: 2, assignments: [stubAssignment('asg_example_9503', 'bed_example_4102', 'adm_example_9003', '2026-09-20T10:00:00.000Z', '2026-09-27T11:30:00.000Z')], discharge: { id: 'dsc_example_9601', admissionId: 'adm_example_9003', dischargedById: 'usr_example_0001', dischargedAt: '2026-09-27T11:30:00.000Z', summary: 'EXAMPLE wound healed; discharged on oral antibiotics.', instructions: 'EXAMPLE keep the dressing dry; review in clinic.', followUp: { type: 'EXAMPLE Outpatient review', date: '2026-10-04T09:00:00.000Z', notes: null }, hasOutstandingBilling: false } },
+];
+let admissionSeq = 9004;
+let assignmentSeq = 9504;
+let dischargeSeq = 9602;
+function findAdmission(id) { return LIVE_ADMISSIONS.find((admission) => admission.id === id); }
+function activeAssignment(admission) { return admission.assignments.find((row) => row.releasedAt === null); }
+function bedAssignable(bedId) {
+  const found = findBed(bedId);
+  if (!found || found.bed.status !== 'AVAILABLE') return false;
+  return !LIVE_ADMISSIONS.some((admission) => admission.status === 'ADMITTED' && admission.assignments.some((row) => row.bedId === bedId && row.releasedAt === null));
+}
+
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
   DRAFT: ['issue', 'cancel'],
   ISSUED: ['cancel'],
@@ -2357,6 +2378,95 @@ const server = createServer(async (request, response) => {
     const ward = findWard(wardOne[1]);
     if (!ward) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
     send(response, 200, { success: true, data: { ward } });
+    return;
+  }
+
+  // --- inpatient: admissions (F8 slice 2) --------------------------------
+  if (url.pathname === '/admissions' && request.method === 'GET') {
+    const patientId = url.searchParams.get('patientId');
+    const status = url.searchParams.get('status');
+    const page = Math.max(1, Number(url.searchParams.get('page') || '1') || 1);
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || '20') || 20));
+    const filtered = LIVE_ADMISSIONS.filter((admission) =>
+      (!patientId || admission.patientId === patientId) &&
+      (!status || admission.status === status)).sort((a, b) => b.admittedAt.localeCompare(a.admittedAt));
+    const start = (page - 1) * limit;
+    const rows = filtered.slice(start, start + limit);
+    send(response, 200, { success: true, data: rows, meta: { page, limit, total: filtered.length, totalPages: Math.max(1, Math.ceil(filtered.length / limit)) } });
+    return;
+  }
+
+  if (url.pathname === '/admissions' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const patientId = typeof body.patientId === 'string' && body.patientId.length > 0 ? body.patientId : null;
+    const bedId = typeof body.bedId === 'string' && body.bedId.length > 0 ? body.bedId : null;
+    if (!patientId || !bedId) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A patient and a bed are required.' } }); return; }
+    if (body.branchId !== INPATIENT_BRANCH_ID) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Branch not found' } }); return; }
+    const bed = findBed(bedId);
+    if (!bed) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Bed not found' } }); return; }
+    if (LIVE_ADMISSIONS.some((a) => a.patientId === patientId && a.status === 'ADMITTED')) { send(response, 409, { success: false, error: { code: 'ADMISSION_ALREADY_ACTIVE' } }); return; }
+    if (!bedAssignable(bedId)) { send(response, 409, { success: false, error: { code: 'BED_UNAVAILABLE' } }); return; }
+    const now = new Date().toISOString();
+    const id = `adm_example_${admissionSeq++}`;
+    const admission = { id, admissionNumber: `ADM-${now.slice(0, 4)}-${String(admissionSeq - 1).padStart(6, '0')}`, patientId, branchId: INPATIENT_BRANCH_ID, departmentId: typeof body.departmentId === 'string' && body.departmentId ? body.departmentId : null, encounterId: typeof body.encounterId === 'string' && body.encounterId ? body.encounterId : null, source: 'OUTPATIENT_CLINIC', status: 'ADMITTED', admittedById: 'usr_example_0001', admittedAt: now, expectedDischargeAt: typeof body.expectedDischargeAt === 'string' && body.expectedDischargeAt ? body.expectedDischargeAt : null, provisionalDiagnosis: typeof body.provisionalDiagnosis === 'string' && body.provisionalDiagnosis ? body.provisionalDiagnosis : null, version: 1, assignments: [{ id: `asg_example_${assignmentSeq++}`, bedId, admissionId: id, assignedById: 'usr_example_0001', assignedAt: now, releasedById: null, releasedAt: null, reason: null }], discharge: null };
+    LIVE_ADMISSIONS.push(admission);
+    bed.bed.status = 'OCCUPIED'; bed.bed.version += 1; bed.bed.updatedAt = now;
+    send(response, 201, { success: true, data: { admission } });
+    return;
+  }
+
+  const transferMatch = url.pathname.match(/^\/admissions\/([^/]+)\/transfer$/);
+  if (transferMatch && request.method === 'POST') {
+    const admission = findAdmission(transferMatch[1]);
+    if (!admission) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Admission not found' } }); return; }
+    if (admission.status !== 'ADMITTED') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { body = {}; }
+    const toBedId = typeof body.toBedId === 'string' && body.toBedId.length > 0 ? body.toBedId : null;
+    if (!toBedId) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A target bed is required.' } }); return; }
+    const active = activeAssignment(admission);
+    if (!active) { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    if (active.bedId === toBedId) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (!bedAssignable(toBedId)) { send(response, 409, { success: false, error: { code: 'BED_UNAVAILABLE' } }); return; }
+    const now = new Date().toISOString();
+    const previous = findBed(active.bedId);
+    active.releasedById = 'usr_example_0001'; active.releasedAt = now; active.reason = typeof body.reason === 'string' && body.reason ? body.reason : null;
+    if (previous) { previous.bed.status = 'AVAILABLE'; previous.bed.version += 1; previous.bed.updatedAt = now; }
+    const target = findBed(toBedId);
+    if (target) { target.bed.status = 'OCCUPIED'; target.bed.version += 1; target.bed.updatedAt = now; }
+    admission.assignments.push({ id: `asg_example_${assignmentSeq++}`, bedId: toBedId, admissionId: admission.id, assignedById: 'usr_example_0001', assignedAt: now, releasedById: null, releasedAt: null, reason: null });
+    admission.version += 1;
+    send(response, 201, { success: true, data: { admission } });
+    return;
+  }
+
+  const dischargeMatch = url.pathname.match(/^\/admissions\/([^/]+)\/discharge$/);
+  if (dischargeMatch && request.method === 'POST') {
+    const admission = findAdmission(dischargeMatch[1]);
+    if (!admission) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Admission not found' } }); return; }
+    if (admission.status !== 'ADMITTED') { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { body = {}; }
+    const now = new Date().toISOString();
+    admission.discharge = { id: `dsc_example_${dischargeSeq++}`, admissionId: admission.id, dischargedById: 'usr_example_0001', dischargedAt: typeof body.dischargedAt === 'string' && body.dischargedAt ? body.dischargedAt : now, summary: typeof body.summary === 'string' && body.summary ? body.summary : null, instructions: typeof body.instructions === 'string' && body.instructions ? body.instructions : null, followUp: body.followUp && typeof body.followUp === 'object' && typeof body.followUp.type === 'string' ? body.followUp : null, hasOutstandingBilling: body.hasOutstandingBilling === true };
+    admission.status = 'DISCHARGED';
+    admission.version += 1;
+    const active = activeAssignment(admission);
+    if (active) {
+      active.releasedById = 'usr_example_0001'; active.releasedAt = now;
+      const bed = findBed(active.bedId);
+      if (bed) { bed.bed.status = 'CLEANING'; bed.bed.version += 1; bed.bed.updatedAt = now; }
+    }
+    send(response, 201, { success: true, data: { admission } });
+    return;
+  }
+
+  const admissionOne = url.pathname.match(/^\/admissions\/([^/]+)$/);
+  if (admissionOne && request.method === 'GET') {
+    const admission = findAdmission(admissionOne[1]);
+    if (!admission) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { admission } });
     return;
   }
 

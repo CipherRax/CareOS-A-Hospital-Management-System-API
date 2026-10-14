@@ -20,7 +20,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F5 Laboratory & radiology      | **complete** — laboratory worklist + order workspace, radiology worklist + imaging workspace, and order entry from the encounter | billing |
 | F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) and wastage write-offs | transfers/counts/POs have no read endpoint (GAP-020) |
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
-| F8 Inpatient & emergency       | in progress — ward & bed board (slice 1)                                                   | admissions, emergency desk                             |
+| F8 Inpatient & emergency       | in progress — ward & bed board (slice 1), admissions desk (slice 2)                        | emergency desk                                         |
 | F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                     |
 | F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                          |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
@@ -1039,5 +1039,56 @@ one ward's rooms and beds laid out for management.
 
 Gate: lint clean, `tsc --noEmit` 0, unit 456 (`inpatient.test.ts` + 11),
 `build:prod` OK, e2e/a11y 163. Contract note appended to GAP-020.
+
+## F8 — Inpatient, slice 2: admissions desk
+
+**Status:** complete. Every inpatient admission, and one admission's bed
+history, transfer and discharge.
+
+- **Worklist** (`src/components/staff/admissions-worklist.tsx`, `/admissions`).
+  Every admission (number, patient, current bed, source, admitted date, status)
+  newest first, with a status filter and an *Admit patient* dialog.
+  `GET /admissions` types its 200 as the request DTO while the service answers a
+  `PageResult` (GAP-020), so rows are validated structurally in
+  `src/lib/data/inpatient.ts`. Rows carry only `patientId`, so names resolve on
+  demand (`usePatientName`, GAP-018), and the current bed is resolved from the
+  admission's own assignment history against the ward tree rather than a second
+  read.
+- **Admit.** The dialog searches patients (`usePatientSearch`) and picks from the
+  *available* beds, grouped by ward, then posts to `POST /admissions`. The
+  service assigns the source (`OUTPATIENT_CLINIC` for this desk) and row-locks the
+  bed, so the client cannot choose it. An already-admitted patient
+  (`ADMISSION_ALREADY_ACTIVE`) or a taken bed (`BED_UNAVAILABLE`) is a 409 the
+  dialog states explicitly rather than a generic failure.
+- **Workspace** (`src/components/staff/admission-workspace.tsx`,
+  `/admissions/[id]`). One admission: its summary, its bed-assignment history
+  newest first, and any discharge record. A *Transfer bed* dialog moves the
+  active assignment to another available bed; a *Discharge* dialog records
+  summary, instructions, follow-up and outstanding billing. A transfer keeps the
+  status (it moves the assignment) and a discharge is final, so the action bar
+  offers only the moves the service allows. A released bed returns to `AVAILABLE`
+  and a discharged bed to `CLEANING`, reflected on the ward board.
+- **Data layer** (`src/lib/data/inpatient.ts`). `readAdmission` (with nested
+  `readAssignment`/`readDischarge`/`readFollowUp`), `activeAssignment`,
+  `collectBeds`, the `extractAdmissionPage`/`extractAdmissionRecord` readers and
+  the `fetchAdmissions`/`fetchAdmission` raw reads. A body that drifts fails
+  closed rather than showing a bed against the wrong patient.
+- **Hooks** (`src/lib/data/queries.ts`). `useAdmissions`, `useAdmission`,
+  `useAdmitPatient`, `useTransferAdmission` and `useDischargeAdmission`. Every
+  admission write invalidates both the admission reads and the ward reads,
+  because the write moves a bed the board shows.
+- **Mocks/stub.** `src/mocks/fixtures/inpatient-registry.ts` added three EXAMPLE
+  admissions (two ADMITTED holding the occupied beds, one DISCHARGED with a
+  released assignment and a discharge); `src/mocks/inpatient-handlers.ts` mirrors
+  the service's create/transfer/discharge guards (branch and bed checks, active
+  admission conflict, unavailable bed, closed-admission transition) and moves the
+  bed statuses. Mirrored in `e2e/stub-api.mjs`.
+- **Nav + i18n + a11y.** An *Admissions* entry sits under the Ward section after
+  *Ward board*; the admission copy joined the `inpatient` namespace (`en.json`
+  and `sw.json`); `/admissions` and `/admissions/adm_example_9001` joined the
+  a11y route sweep.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 467 (`inpatient.test.ts` + 11),
+`build:prod` OK, e2e/a11y 171. Contract note appended to GAP-020.
 
 
