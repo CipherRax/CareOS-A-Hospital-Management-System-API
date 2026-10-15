@@ -8,6 +8,7 @@ import {
   extractRoleRecord,
   extractUserPage,
   extractUserRecord,
+  isValidRoleKey,
   readRoleCatalog,
   readUser,
 } from '@/lib/data/admin';
@@ -211,5 +212,25 @@ describe('displayName', () => {
     expect(displayName({ firstName: 'Amina', otherNames: null, lastName: 'Odhiambo' })).toBe(
       'Amina Odhiambo',
     );
+  });
+});
+
+describe('isValidRoleKey', () => {
+  it('accepts the service key format', () => {
+    expect(isValidRoleKey('DOCTOR')).toBe(true);
+    expect(isValidRoleKey('LAB_TECHNICIAN')).toBe(true);
+    expect(isValidRoleKey('ROLE_2')).toBe(true);
+  });
+
+  it('rejects a lowercase or punctuated key', () => {
+    expect(isValidRoleKey('doctor')).toBe(false);
+    expect(isValidRoleKey('Lab-Tech')).toBe(false);
+    expect(isValidRoleKey('ROLE 2')).toBe(false);
+    expect(isValidRoleKey('_ROLE')).toBe(false);
+  });
+
+  it('rejects an empty key and one over the length limit', () => {
+    expect(isValidRoleKey('')).toBe(false);
+    expect(isValidRoleKey(`A${'B'.repeat(48)}`)).toBe(false);
   });
 });

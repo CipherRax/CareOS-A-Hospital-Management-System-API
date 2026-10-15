@@ -110,7 +110,7 @@ export interface SetUserRolesInput {
 
 export type AdminCallError = EnvelopeCallError;
 
-// --- roles (read-only in this slice) ----------------------------------------
+// --- roles ------------------------------------------------------------------
 
 export interface RoleRow {
   readonly id: string;
@@ -150,6 +150,28 @@ export interface RoleCatalog {
   readonly groups: readonly RoleTemplate[];
   readonly systemRoles: readonly string[];
   readonly permissionGroups: readonly PermissionGroup[];
+}
+
+export interface CreateRoleInput {
+  readonly name: string;
+  readonly key: string;
+  readonly description?: string;
+  readonly permissions: readonly string[];
+}
+
+export interface UpdateRoleInput {
+  readonly id: string;
+  readonly name?: string;
+  readonly description?: string | null;
+  readonly permissions?: readonly string[];
+}
+
+/** The service's key format: an uppercase identifier, 1–48 characters. */
+export const ROLE_KEY_PATTERN = /^[A-Z][A-Z0-9_]*$/;
+
+/** Mirrors `CreateRoleSchema.key` so the form can reject a bad key before posting. */
+export function isValidRoleKey(key: string): boolean {
+  return key.length >= 1 && key.length <= 48 && ROLE_KEY_PATTERN.test(key);
 }
 
 export function displayName(user: Pick<UserRow, 'firstName' | 'otherNames' | 'lastName'>): string {
@@ -376,6 +398,19 @@ export async function fetchRoleCatalog(signal?: AbortSignal): Promise<RoleCatalo
     (data) => {
       const catalog = readRoleCatalog(data);
       return catalog ? { ok: true, value: catalog } : { ok: false };
+    },
+    signal,
+  );
+}
+
+/** Raw read against `GET /roles/{id}` (the service answers `{ role }`). */
+export async function fetchRole(id: string, signal?: AbortSignal): Promise<RoleRow> {
+  const url = `${publicEnv.apiBasePath}/roles/${encodeURIComponent(id)}`;
+  return readEnvelope<RoleRow>(
+    url,
+    (data) => {
+      const parsed = extractRoleRecord(data);
+      return parsed.ok ? { ok: true, value: parsed.role } : { ok: false };
     },
     signal,
   );

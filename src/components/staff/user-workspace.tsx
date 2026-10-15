@@ -11,6 +11,9 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { Field, Input } from '@/components/ui/field';
 import { CheckboxField } from '@/components/ui/primitives';
+import { AdminActionAlert } from '@/components/staff/admin-alert';
+import { USER_STATUS_TONE } from '@/components/staff/users-worklist';
+import { displayName, type UserRow, type UserStatus } from '@/lib/data/admin';
 import {
   useDeactivateUser,
   useRevokeUserSessions,
@@ -20,9 +23,6 @@ import {
   useUpdateUser,
   useUser,
 } from '@/lib/data/queries';
-import type { QueryError } from '@/lib/data/queries';
-import { displayName, type UserRow, type UserStatus } from '@/lib/data/admin';
-import { USER_STATUS_TONE } from '@/components/staff/users-worklist';
 
 /**
  * User administration workspace (F9 administration).
@@ -152,7 +152,7 @@ function ProfileForm({ user }: { user: UserRow }) {
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
       <h2 className="text-subheading font-semibold text-primary">{t('profileHeading')}</h2>
-      <ActionAlert error={update.error} />
+      <AdminActionAlert error={update.error} />
       <Field id="user-first" label={t('fieldFirstName')} required>
         {({ controlId }) => (
           <Input
@@ -217,7 +217,7 @@ function StatusActions({ user }: { user: UserRow }) {
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
       <h2 className="text-subheading font-semibold text-primary">{t('statusHeading')}</h2>
-      <ActionAlert error={update.error ?? deactivate.error} />
+      <AdminActionAlert error={update.error ?? deactivate.error} />
       <div className="flex flex-wrap gap-2">
         {available.map((option) => (
           <Button
@@ -269,7 +269,7 @@ function SessionsCard({ user }: { user: UserRow }) {
     <section className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
       <h2 className="text-subheading font-semibold text-primary">{t('sessionsHeading')}</h2>
       <p className="text-meta text-secondary">{t('sessionsBody')}</p>
-      <ActionAlert error={revoke.error} />
+      <AdminActionAlert error={revoke.error} />
       {revoke.data ? (
         <p role="status" className="text-meta text-secondary">
           {t('sessionsRevoked', { count: revoke.data.revoked })}
@@ -309,7 +309,7 @@ function RolesForm({ user }: { user: UserRow }) {
     <section className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4 lg:col-span-1">
       <h2 className="text-subheading font-semibold text-primary">{t('rolesHeading')}</h2>
       <p className="text-meta text-secondary">{t('rolesBody')}</p>
-      <ActionAlert error={setRoles.error} />
+      <AdminActionAlert error={setRoles.error} />
       {roles.isLoading ? (
         <p role="status" className="text-meta text-tertiary">
           {t('loadingRoles')}
@@ -338,27 +338,5 @@ function RolesForm({ user }: { user: UserRow }) {
         </Button>
       </div>
     </section>
-  );
-}
-
-function ActionAlert({ error }: { error: QueryError | null | undefined }) {
-  const t = useTranslations('admin');
-  if (!error) return null;
-
-  if (error.code === 'CONFLICT') {
-    return <AlertBlock title={t('conflictTitle')} body={t('conflictBody')} />;
-  }
-  if (error.code === 'VALIDATION_ERROR') {
-    return <AlertBlock title={t('validationTitle')} body={t('validationBody')} />;
-  }
-  return <AlertBlock title={t('writeFailed')} body={t('writeFailedBody')} />;
-}
-
-function AlertBlock({ title, body }: { title: string; body: string }) {
-  return (
-    <div role="alert" className="flex flex-col gap-1 border border-status-critical px-4 py-3">
-      <h3 className="text-body font-semibold text-status-critical">{title}</h3>
-      <p className="text-meta text-secondary">{body}</p>
-    </div>
   );
 }

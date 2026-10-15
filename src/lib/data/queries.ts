@@ -231,18 +231,23 @@ import {
 import {
   extractInvitedUser,
   extractRevoked,
+  extractRoleRecord,
   extractUserRecord,
+  fetchRole,
   fetchRoleCatalog,
   fetchRoles,
   fetchUser,
   fetchUsers,
   type AdminCallError,
+  type CreateRoleInput,
   type InviteUserInput,
   type InvitedUser,
   type RoleCatalog,
   type RolePage,
   type RoleQuery,
+  type RoleRow,
   type SetUserRolesInput,
+  type UpdateRoleInput,
   type UpdateUserInput,
   type UserPage,
   type UserQuery,
@@ -3962,6 +3967,102 @@ export function useDeactivateUser(): UseMutationResult<void, QueryError, { id: s
       unwrapVoid(api.DELETE('/users/{id}', { params: { path: { id: input.id } } })),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+  });
+}
+
+/**
+ * Single role `GET /roles/{id}`. The service answers `{ role }` while the export
+ * types the bare entity (GAP-020), so the unwrapped body is validated.
+ */
+export function useRole(id: string): UseQueryResult<Fetched<RoleRow>, QueryError> {
+  return useQuery<Fetched<RoleRow>, QueryError>({
+    queryKey: ['roles', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const role = await fetchRole(id, signal);
+        return { data: role, response: new Response(null, { status: 200 }) } satisfies Fetched<RoleRow>;
+      } catch (call) {
+        throw toQueryError(call as AdminCallError);
+      }
+    },
+    enabled: id.length > 0,
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Creates a custom role `POST /roles` (201 `{ role }`). The service refuses a role
+ * that would grant permissions beyond the caller's own (403 `PERMISSION_DENIED`)
+ * and a duplicate key or name (409 `CONFLICT`).
+ */
+export function useCreateRole(): UseMutationResult<RoleRow, QueryError, CreateRoleInput> {
+  const queryClient = useQueryClient();
+  return useMutation<RoleRow, QueryError, CreateRoleInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/roles', {
+          body: {
+            name: input.name,
+            key: input.key,
+            ...(input.description ? { description: input.description } : {}),
+            permissions: [...input.permissions],
+          },
+        }),
+      );
+      const parsed = extractRoleRecord(fetched.data);
+      if (!parsed.ok) throw adminWriteError();
+      return parsed.role;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['roles'] });
+    },
+  });
+}
+
+/**
+ * Updates a role `PATCH /roles/{id}` (200 `{ role }`). A change that exceeds the
+ * caller's permissions, or edits a system role without authority, is a 403
+ * `PERMISSION_DENIED`; a name clash is a 409 `CONFLICT`.
+ */
+export function useUpdateRole(): UseMutationResult<RoleRow, QueryError, UpdateRoleInput> {
+  const queryClient = useQueryClient();
+  return useMutation<RoleRow, QueryError, UpdateRoleInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/roles/{id}', {
+          params: { path: { id: input.id } },
+          body: {
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.description !== undefined ? { description: input.description } : {}),
+            ...(input.permissions !== undefined ? { permissions: [...input.permissions] } : {}),
+          },
+        }),
+      );
+      const parsed = extractRoleRecord(fetched.data);
+      if (!parsed.ok) throw adminWriteError(200);
+      return parsed.role;
+    },
+    onSuccess: (_result, input) => {
+      queryClient.invalidateQueries({ queryKey: ['roles'] });
+      queryClient.invalidateQueries({ queryKey: ['roles', input.id] });
+    },
+  });
+}
+
+/**
+ * Deletes a role `DELETE /roles/{id}` (204). The service refuses a role still
+ * assigned to users (409 `CONFLICT`) and a system role without authority (403),
+ * so a 204 is acknowledged with the void unwrap.
+ */
+export function useDeleteRole(): UseMutationResult<void, QueryError, { id: string }> {
+  const queryClient = useQueryClient();
+  return useMutation<void, QueryError, { id: string }>({
+    mutationFn: (input) =>
+      unwrapVoid(api.DELETE('/roles/{id}', { params: { path: { id: input.id } } })),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['roles'] });
     },
   });
 }

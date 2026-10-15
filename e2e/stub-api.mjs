@@ -720,6 +720,8 @@ const LIVE_ADMIN_USERS = [
   { id: 'usr_example_0007', email: 'felix.example@careos.example', firstName: 'Felix', lastName: 'Mutua', otherNames: null, phone: null, status: 'DEACTIVATED', createdAt: '2026-05-06T16:00:00.000Z', roles: [adminRoleRef('PHARMACIST')], staff: null },
 ];
 let adminUserSeq = 8;
+let adminRoleSeq = 10;
+const ADMIN_ROLE_KEY_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 const LIVE_ROLE_CATALOG = {
   groups: LIVE_ADMIN_ROLES.map((entry) => ({ key: entry.key, name: entry.name, permissions: [...entry.permissions] })),
   systemRoles: LIVE_ADMIN_ROLES.filter((entry) => entry.isSystem).map((entry) => entry.key),
@@ -2817,6 +2819,31 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (url.pathname === '/roles' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const name = typeof body.name === 'string' && body.name ? body.name : null;
+    const key = typeof body.key === 'string' && body.key ? body.key : null;
+    const permissions = adminStringList(body.permissions);
+    if (!name || !key) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Name and key are required.' } }); return; }
+    if (!ADMIN_ROLE_KEY_PATTERN.test(key) || key.length > 48) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'The key must be uppercase letters, digits and underscores.' } }); return; }
+    if (permissions.length === 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'At least one permission is required.' } }); return; }
+    if (LIVE_ADMIN_ROLES.some((role) => role.key === key || role.name === name)) { send(response, 409, { success: false, error: { code: 'CONFLICT', message: 'A role with this key or name already exists.' } }); return; }
+    const role = {
+      id: `rol_example_${String(adminRoleSeq).padStart(4, '0')}`,
+      key,
+      name,
+      description: typeof body.description === 'string' && body.description ? body.description : null,
+      isSystem: false,
+      permissions,
+      createdAt: new Date().toISOString(),
+    };
+    LIVE_ADMIN_ROLES.push(role);
+    adminRoleSeq += 1;
+    send(response, 201, { success: true, data: { role } });
+    return;
+  }
+
   if (url.pathname === '/roles/permissions' && request.method === 'GET') {
     send(response, 200, { success: true, data: LIVE_ROLE_CATALOG });
     return;
@@ -2829,6 +2856,38 @@ const server = createServer(async (request, response) => {
     send(response, 200, { success: true, data: { role } });
     return;
   }
+
+  if (adminRoleOne && request.method === 'PATCH') {
+    const role = findAdminRole(adminRoleOne[1]);
+    if (!role) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Role not found' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if ('permissions' in body) {
+      if (role.isSystem) { send(response, 403, { success: false, error: { code: 'PERMISSION_DENIED', message: 'Only an administrator with full authority may edit a system role.' } }); return; }
+      const permissions = adminStringList(body.permissions);
+      if (permissions.length === 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'At least one permission is required.' } }); return; }
+      role.permissions = permissions;
+    }
+    if (typeof body.name === 'string' && body.name && body.name !== role.name) {
+      if (LIVE_ADMIN_ROLES.some((entry) => entry.id !== role.id && entry.name === body.name)) { send(response, 409, { success: false, error: { code: 'CONFLICT', message: 'A role with this name already exists.' } }); return; }
+      role.name = body.name;
+    }
+    if ('description' in body) role.description = typeof body.description === 'string' && body.description ? body.description : null;
+    send(response, 200, { success: true, data: { role } });
+    return;
+  }
+
+  if (adminRoleOne && request.method === 'DELETE') {
+    const role = findAdminRole(adminRoleOne[1]);
+    if (!role) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Role not found' } }); return; }
+    if (role.isSystem) { send(response, 403, { success: false, error: { code: 'PERMISSION_DENIED', message: 'System roles cannot be deleted by this account.' } }); return; }
+    const assigned = LIVE_ADMIN_USERS.some((user) => user.roles.some((ref) => ref.id === role.id));
+    if (assigned) { send(response, 409, { success: false, error: { code: 'CONFLICT', message: 'Role is assigned to users; remove the assignments first.' } }); return; }
+    LIVE_ADMIN_ROLES.splice(LIVE_ADMIN_ROLES.indexOf(role), 1);
+    send(response, 204, undefined);
+    return;
+  }
+
 
   // --- laboratory results (F4 doctor results view) -----------------------
   if (url.pathname === '/lab/orders' && request.method === 'POST') {    let body;

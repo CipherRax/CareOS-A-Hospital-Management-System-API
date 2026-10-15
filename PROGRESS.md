@@ -21,7 +21,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) and wastage write-offs | transfers/counts/POs have no read endpoint (GAP-020) |
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
-| F9 Administration & audit      | in progress — users & roles administration (slice 1)                                      | roles/staff/org profile (later slices); audit-log viewing has no API endpoint |
+| F9 Administration & audit      | in progress — users administration (slice 1), role management (slice 2)                   | staff/org profile (slice 3); audit-log viewing has no API endpoint |
 | F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                          |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
@@ -1194,6 +1194,55 @@ roadmap's blocker column and `docs/api-contract-gaps.md`).
 
 Gate: lint clean, `tsc --noEmit` 0, unit 507 (`admin.test.ts` + 24),
 `build:prod` OK, e2e/a11y 187. Contract note appended to GAP-020.
+
+---
+
+## F9 — Administration, slice 2: role management
+
+**Status:** in progress. The role directory and the custom-role editor built on the
+permission catalogue. Staff profiles and the organization profile follow in slice
+3; the audit-log viewing screen still cannot be built — there is no audit-list
+endpoint.
+
+- **Worklist** (`src/components/staff/roles-worklist.tsx`, `/roles`). Every role
+  (name, description, key, system/custom, permission count) with search (`q`).
+  `GET /roles` types its 200 as the request DTO while the service answers a
+  `PageResult` (GAP-020 family), so rows are validated structurally in
+  `src/lib/data/admin.ts`. Creating and editing happen on their own screens rather
+  than a dialog, because the permission editor needs the whole catalogue.
+- **Create** (`src/components/staff/role-workspace.tsx`, `/roles/new`). Name, key
+  (validated against the service's `^[A-Z][A-Z0-9_]*$`, with an optional template
+  to prefill permissions) and the grouped permission editor, posting to
+  `POST /roles`.
+- **Workspace** (`/roles/[id]`). One role: an editable name and description
+  (`PATCH /roles/{id}`), the permission editor, a system-role notice, and a guarded
+  delete (`DELETE /roles/{id}`). The key is immutable after creation — the service's
+  update DTO does not accept it. The service's guards are surfaced, not hidden: a
+  role that would exceed the caller's own permissions, or a system-role edit
+  without authority, is a 403 `PERMISSION_DENIED`; a duplicate key or name is a
+  409 `CONFLICT`; and deleting a role someone still holds is a 409.
+- **Permission editor** (`src/components/staff/permission-editor.tsx`). Permissions
+  are grouped by the catalogue's own group keys and labelled with the API's
+  vocabulary (`patients.read`, `clinical_notes.create`, …). A friendly paraphrase
+  was deliberately rejected: a permission string is a real capability boundary, and
+  a label that understates it is a safety problem.
+- **Data layer** (`src/lib/data/admin.ts`). `CreateRoleInput`/`UpdateRoleInput`,
+  the `ROLE_KEY_PATTERN` / `isValidRoleKey` guard mirroring `CreateRoleSchema`, and
+  `fetchRole` for `GET /roles/{id}`. The `extractRoleRecord` reader was already in
+  place for the `{ role }` write bodies.
+- **Hooks** (`src/lib/data/queries.ts`). `useRole`, `useCreateRole`,
+  `useUpdateRole` and `useDeleteRole` (a 204 void unwrap), invalidating the role
+  reads.
+- **Mocks/stub.** `src/mocks/admin-handlers.ts` gained the create/update/delete
+  routes with the service's guards (key format, duplicate key/name, system-role
+  protection, assigned-role delete refusal); mirrored in `e2e/stub-api.mjs`.
+- **Nav + i18n + a11y.** A *Roles* entry sits under Administration beside *Users*;
+  the role copy extends the `admin` namespace; `/roles`, `/roles/new` and
+  `/roles/rol_example_0004` joined the a11y route sweep.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 510 (`admin.test.ts` + 3),
+`build:prod` OK, e2e/a11y 199. Contract note appended to GAP-020.
+
 
 
 

@@ -665,10 +665,22 @@ and `src/modules/roles`:
 - `POST /users` posts to no branch or department: the app has no branch picker
   (GAP-018), and both arrays are optional. The invite dialog and the roles picker
   read `GET /roles` rather than a hardcoded list.
-- **Not built this slice:** role management (`POST|PATCH|DELETE /roles`), the
-  staff directory (`/staff…`) and the organization profile (`/organizations/me`).
-  The audit-log viewing screen is **not buildable**: there is no audit-list
-  endpoint (writes happen inside the API via `src/database/audit.service.ts`).
+- **Role writes (F9 slice 2).** `POST /roles` is typed as the bare `RoleDto` but
+  answers **201** with `{ role }`; `PATCH /roles/{id}` answers **200** with
+  `{ role }`; `DELETE /roles/{id}` answers **204**. All go through
+  `extractRoleRecord` on the unwrapped body and the void unwrap for the delete. The
+  service guards are surfaced rather than hidden: `CreateRoleSchema.key` is
+  `^[A-Z][A-Z0-9_]*$` and `permissions` is `min(1)`, a role that would exceed the
+  caller's own permissions (or a system-role permission edit without authority) is
+  a **403 `PERMISSION_DENIED`**, a duplicate key/name is a **409 `CONFLICT`**, and
+  deleting a role still assigned to a user is a **409**. The update DTO has no
+  `key`, so a role's key is immutable; the workspace shows it read-only. The client
+  mirrors the key rule with `ROLE_KEY_PATTERN`/`isValidRoleKey` so the form rejects
+  a bad key before posting.
+- **Not built:** the staff directory (`/staff…`) and the organization profile
+  (`/organizations/me`) follow in slice 3. The audit-log viewing screen is **not
+  buildable**: there is no audit-list endpoint (writes happen inside the API via
+  `src/database/audit.service.ts`).
 
 
 

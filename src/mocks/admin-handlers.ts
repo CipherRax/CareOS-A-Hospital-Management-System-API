@@ -30,6 +30,9 @@ const CALLER_ID = 'usr_example_0001';
 const users: MutableUser[] = ADMIN_USERS.map((user) => ({ ...user }));
 const roles: MutableRole[] = ADMIN_ROLES.map((role) => ({ ...role }));
 let userSeq = 8;
+let roleSeq = 10;
+
+const ROLE_KEY_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 
 const USER_STATUSES: readonly RegistryUserStatus[] = [
   'INVITED',
@@ -56,6 +59,10 @@ function validationError(message: string) {
 
 function conflict(message: string) {
   return HttpResponse.json(apiError('CONFLICT', message), { status: 409 });
+}
+
+function permissionDenied(message: string) {
+  return HttpResponse.json(apiError('PERMISSION_DENIED', message), { status: 403 });
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {
@@ -206,6 +213,74 @@ export function adminHandlers() {
       const role = findRole(String(params.id));
       if (!role) return notFound('Role not found');
       return HttpResponse.json(apiOk({ role }));
+    }),
+
+    http.post('*/api/v1/roles', async ({ request }) => {
+      await delay(MOCK_LATENCY_MS);
+      const body = await readJson(request);
+      const name = stringField(body?.name);
+      const key = stringField(body?.key);
+      const permissions = stringArrayList(body?.permissions);
+      if (!name || !key) return validationError('Name and key are required.');
+      if (!ROLE_KEY_PATTERN.test(key) || key.length > 48) {
+        return validationError('The key must be uppercase letters, digits and underscores.');
+      }
+      if (permissions.length === 0) return validationError('At least one permission is required.');
+      if (roles.some((role) => role.key === key || role.name === name)) {
+        return conflict('A role with this key or name already exists.');
+      }
+      const now = new Date().toISOString();
+      const role: MutableRole = {
+        id: `rol_example_${String(roleSeq).padStart(4, '0')}`,
+        key,
+        name,
+        description: stringField(body?.description),
+        isSystem: false,
+        permissions,
+        createdAt: now,
+      };
+      roles.push(role);
+      roleSeq += 1;
+      return HttpResponse.json(apiOk({ role }), { status: 201 });
+    }),
+
+    http.patch('*/api/v1/roles/:id', async ({ request, params }) => {
+      await delay(MOCK_LATENCY_MS);
+      const id = String(params.id);
+      const role = findRole(id);
+      if (!role) return notFound('Role not found');
+      const body = await readJson(request);
+      if (!body) return validationError('bad json');
+      if ('permissions' in body) {
+        if (role.isSystem) {
+          return permissionDenied('Only an administrator with full authority may edit a system role.');
+        }
+        const permissions = stringArrayList(body.permissions);
+        if (permissions.length === 0) return validationError('At least one permission is required.');
+        role.permissions = permissions;
+      }
+      if (typeof body.name === 'string' && body.name.length > 0 && body.name !== role.name) {
+        if (roles.some((entry) => entry.id !== id && entry.name === body.name)) {
+          return conflict('A role with this name already exists.');
+        }
+        role.name = body.name;
+      }
+      if ('description' in body) role.description = stringField(body.description);
+      return HttpResponse.json(apiOk({ role }));
+    }),
+
+    http.delete('*/api/v1/roles/:id', async ({ params }) => {
+      await delay(MOCK_LATENCY_MS);
+      const id = String(params.id);
+      const role = findRole(id);
+      if (!role) return notFound('Role not found');
+      if (role.isSystem) {
+        return permissionDenied('System roles cannot be deleted by this account.');
+      }
+      const assigned = users.some((user) => user.roles.some((ref) => ref.id === id));
+      if (assigned) return conflict('Role is assigned to users; remove the assignments first.');
+      roles.splice(roles.indexOf(role), 1);
+      return new HttpResponse(null, { status: 204 });
     }),
 
     http.get('*/api/v1/users/:id', async ({ params }) => {
