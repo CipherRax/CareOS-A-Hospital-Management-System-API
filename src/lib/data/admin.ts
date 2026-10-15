@@ -174,7 +174,11 @@ export function isValidRoleKey(key: string): boolean {
   return key.length >= 1 && key.length <= 48 && ROLE_KEY_PATTERN.test(key);
 }
 
-export function displayName(user: Pick<UserRow, 'firstName' | 'otherNames' | 'lastName'>): string {
+export function displayName(user: {
+  readonly firstName: string;
+  readonly otherNames?: string | null;
+  readonly lastName: string;
+}): string {
   return [user.firstName, user.otherNames, user.lastName]
     .filter((part): part is string => typeof part === 'string' && part.length > 0)
     .join(' ')

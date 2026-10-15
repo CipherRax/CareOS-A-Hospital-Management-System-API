@@ -233,7 +233,7 @@ export const ADMIN_USERS: readonly RegistryUser[] = [
     status: 'ACTIVE',
     createdAt: '2026-03-04T11:00:00.000Z',
     roles: [roleRef('RECEPTIONIST')],
-    staff: null,
+    staff: staffProfile('stf_example_0003', 'STF-0003', 'Reception Supervisor', 'Front Office', 'ACTIVE'),
   },
   {
     id: 'usr_example_0004',
@@ -257,7 +257,7 @@ export const ADMIN_USERS: readonly RegistryUser[] = [
     status: 'SUSPENDED',
     createdAt: '2026-04-02T07:45:00.000Z',
     roles: [roleRef('ACCOUNTANT')],
-    staff: null,
+    staff: staffProfile('stf_example_0005', 'STF-0005', 'Accounts Officer', 'Finance', 'ON_LEAVE'),
   },
   {
     id: 'usr_example_0006',

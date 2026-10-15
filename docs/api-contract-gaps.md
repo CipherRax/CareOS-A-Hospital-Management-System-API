@@ -677,8 +677,19 @@ and `src/modules/roles`:
   `key`, so a role's key is immutable; the workspace shows it read-only. The client
   mirrors the key rule with `ROLE_KEY_PATTERN`/`isValidRoleKey` so the form rejects
   a bad key before posting.
-- **Not built:** the staff directory (`/staff…`) and the organization profile
-  (`/organizations/me`) follow in slice 3. The audit-log viewing screen is **not
+- **Staff (F9 slice 3).** Same GAP-020 family under `src/modules/staff`.
+  `GET /staff` is typed as the bare request DTO but answers a `PageResult` (typed
+  `StaffListResponseDto` as `{ staff, meta }`), so the rows are validated
+  structurally in `src/lib/data/staff.ts`. `GET /staff/{id}` answers `{ staff }` and
+  the writes `PATCH /staff/{id}` and `POST /staff/{id}/assignments` answer **200**
+  with `{ staff }`; all three go through `extractStaffRecord` on the unwrapped body.
+  `SetStaffAssignmentsDto` replaces the branch/department set wholesale and the
+  service refuses the whole set with a **400 `VALIDATION_ERROR`** if any id does not
+  exist, so the failure is surfaced rather than hidden. `GET /branches` is typed
+  `BranchListResponseDto` but the service answers `pageOf` (its interceptor unwraps
+  it to `{ data: items }`), so branch options are read with `extractBranchList`.
+- **Not built:** the organization profile (`/organizations/me`) follows in slice 4.
+  The audit-log viewing screen is **not
   buildable**: there is no audit-list endpoint (writes happen inside the API via
   `src/database/audit.service.ts`).
 

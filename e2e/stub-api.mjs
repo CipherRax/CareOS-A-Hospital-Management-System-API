@@ -713,9 +713,9 @@ function adminStaff(id, staffNumber, professionalTitle, specialization, employme
 const LIVE_ADMIN_USERS = [
   { id: 'usr_example_0001', email: 'nurse@example.org', firstName: 'EXAMPLE', lastName: 'Nurse', otherNames: null, phone: null, status: 'ACTIVE', createdAt: '2026-01-02T08:00:00.000Z', roles: [adminRoleRef('NURSE')], staff: null },
   { id: 'usr_example_0002', email: 'amina.example@careos.example', firstName: 'Amina', lastName: 'Odhiambo', otherNames: null, phone: '+254700000002', status: 'ACTIVE', createdAt: '2026-02-10T09:15:00.000Z', roles: [adminRoleRef('DOCTOR')], staff: adminStaff('stf_example_0002', 'STF-0002', 'Consultant Physician', 'Internal Medicine', 'ACTIVE') },
-  { id: 'usr_example_0003', email: 'brian.example@careos.example', firstName: 'Brian', lastName: 'Kimani', otherNames: null, phone: '+254700000003', status: 'ACTIVE', createdAt: '2026-03-04T11:00:00.000Z', roles: [adminRoleRef('RECEPTIONIST')], staff: null },
+  { id: 'usr_example_0003', email: 'brian.example@careos.example', firstName: 'Brian', lastName: 'Kimani', otherNames: null, phone: '+254700000003', status: 'ACTIVE', createdAt: '2026-03-04T11:00:00.000Z', roles: [adminRoleRef('RECEPTIONIST')], staff: adminStaff('stf_example_0003', 'STF-0003', 'Reception Supervisor', 'Front Office', 'ACTIVE') },
   { id: 'usr_example_0004', email: 'cynthia.example@careos.example', firstName: 'Cynthia', lastName: 'Wanjiru', otherNames: 'Njeri', phone: null, status: 'INVITED', createdAt: '2026-03-20T14:30:00.000Z', roles: [adminRoleRef('NURSE')], staff: null },
-  { id: 'usr_example_0005', email: 'daniel.example@careos.example', firstName: 'Daniel', lastName: 'Otieno', otherNames: null, phone: '+254700000005', status: 'SUSPENDED', createdAt: '2026-04-02T07:45:00.000Z', roles: [adminRoleRef('ACCOUNTANT')], staff: null },
+  { id: 'usr_example_0005', email: 'daniel.example@careos.example', firstName: 'Daniel', lastName: 'Otieno', otherNames: null, phone: '+254700000005', status: 'SUSPENDED', createdAt: '2026-04-02T07:45:00.000Z', roles: [adminRoleRef('ACCOUNTANT')], staff: adminStaff('stf_example_0005', 'STF-0005', 'Accounts Officer', 'Finance', 'ON_LEAVE') },
   { id: 'usr_example_0006', email: 'esther.example@careos.example', firstName: 'Esther', lastName: 'Achieng', otherNames: null, phone: '+254700000006', status: 'ACTIVE', createdAt: '2026-04-19T10:10:00.000Z', roles: [adminRoleRef('HOSPITAL_ADMIN'), adminRoleRef('LAB_TECHNICIAN')], staff: adminStaff('stf_example_0006', 'STF-0006', 'Laboratory Manager', 'Haematology', 'ACTIVE') },
   { id: 'usr_example_0007', email: 'felix.example@careos.example', firstName: 'Felix', lastName: 'Mutua', otherNames: null, phone: null, status: 'DEACTIVATED', createdAt: '2026-05-06T16:00:00.000Z', roles: [adminRoleRef('PHARMACIST')], staff: null },
 ];
@@ -774,6 +774,52 @@ function resolveAdminRoles(roleIds) {
 function adminStringList(value) {
   return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [];
 }
+
+// F9 staff directory fixtures, mirroring src/mocks/fixtures/staff-registry.ts.
+// Profiles are derived from LIVE_ADMIN_USERS so identity cannot drift, and
+// assignments are held as id lists resolved to joined refs on read.
+const STAFF_BRANCHES = [
+  { id: 'br_example_0001', name: 'EXAMPLE Main Campus', code: 'MAIN', address: 'EXAMPLE 12 Hospital Road, Nairobi', phone: '+254700100001', email: 'main@example.org', operatingHours: 'Mon–Sat 08:00–20:00', status: 'ACTIVE', createdAt: '2026-01-03T06:00:00.000Z' },
+  { id: 'br_example_0002', name: 'EXAMPLE Westlands Clinic', code: 'WEST', address: 'EXAMPLE 5 Ring Road, Nairobi', phone: '+254700100002', email: 'westlands@example.org', operatingHours: 'Mon–Fri 08:00–17:00', status: 'ACTIVE', createdAt: '2026-02-01T06:00:00.000Z' },
+];
+const STAFF_EMPLOYMENT_STATUSES = ['ACTIVE', 'ON_LEAVE', 'TERMINATED', 'CONTRACT'];
+const ADMIN_STAFF_ASSIGNMENTS = {
+  stf_example_0002: { branchIds: ['br_example_0001'], departmentIds: ['dep_example_outpatient'], licenseNumber: 'KMPDC-1234' },
+  stf_example_0003: { branchIds: ['br_example_0001', 'br_example_0002'], departmentIds: ['dep_example_outpatient'], licenseNumber: null },
+  stf_example_0005: { branchIds: ['br_example_0002'], departmentIds: [], licenseNumber: null },
+  stf_example_0006: { branchIds: ['br_example_0001'], departmentIds: ['dep_example_outpatient', 'dep_example_emergency'], licenseNumber: 'KMLTTB-778' },
+};
+function findStaffBranch(id) { return STAFF_BRANCHES.find((branch) => branch.id === id); }
+function findStaffDepartment(id) { return DEPARTMENTS.find((department) => department.id === id); }
+function findAdminStaff(id) { return LIVE_ADMIN_STAFF.find((entry) => entry.id === id); }
+const LIVE_ADMIN_STAFF = LIVE_ADMIN_USERS.filter((user) => user.staff).map((user) => {
+  const assignment = ADMIN_STAFF_ASSIGNMENTS[user.staff.id] || { branchIds: [], departmentIds: [], licenseNumber: null };
+  return {
+    id: user.staff.id,
+    staffNumber: user.staff.staffNumber,
+    professionalTitle: user.staff.professionalTitle,
+    specialization: user.staff.specialization,
+    employmentStatus: user.staff.employmentStatus,
+    licenseNumber: assignment.licenseNumber,
+    user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, status: user.status },
+    branchIds: [...assignment.branchIds],
+    departmentIds: [...assignment.departmentIds],
+  };
+});
+function serializeStaff(entry) {
+  return {
+    id: entry.id,
+    staffNumber: entry.staffNumber,
+    professionalTitle: entry.professionalTitle,
+    specialization: entry.specialization,
+    employmentStatus: entry.employmentStatus,
+    licenseNumber: entry.licenseNumber,
+    user: { ...entry.user },
+    branches: entry.branchIds.flatMap((id) => { const branch = findStaffBranch(id); return branch ? [{ id: branch.id, name: branch.name, code: branch.code }] : []; }),
+    departments: entry.departmentIds.flatMap((id) => { const department = findStaffDepartment(id); return department ? [{ id: department.id, name: department.name }] : []; }),
+  };
+}
+
 
 
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
@@ -2885,6 +2931,60 @@ const server = createServer(async (request, response) => {
     if (assigned) { send(response, 409, { success: false, error: { code: 'CONFLICT', message: 'Role is assigned to users; remove the assignments first.' } }); return; }
     LIVE_ADMIN_ROLES.splice(LIVE_ADMIN_ROLES.indexOf(role), 1);
     send(response, 204, undefined);
+    return;
+  }
+
+  // --- staff directory (F9) ----------------------------------------------
+  // Mirrors src/mocks/staff-handlers.ts: identity is never editable, and every
+  // branch/department id must exist or the whole assignment set is refused.
+  if (url.pathname === '/staff' && request.method === 'GET') {
+    const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || '20') || 20));
+    const filtered = LIVE_ADMIN_STAFF.filter((entry) => {
+      if (!q) return true;
+      const haystack = `${entry.staffNumber} ${entry.professionalTitle ?? ''} ${entry.specialization ?? ''} ${entry.user.firstName} ${entry.user.lastName} ${entry.user.email}`;
+      return haystack.toLowerCase().includes(q);
+    }).sort((a, b) => a.staffNumber.localeCompare(b.staffNumber));
+    const rows = filtered.slice(0, limit).map(serializeStaff);
+    send(response, 200, { success: true, data: rows, meta: { page: 1, limit, total: filtered.length, totalPages: Math.max(1, Math.ceil(filtered.length / limit)) } });
+    return;
+  }
+
+  const adminStaffAssignments = url.pathname.match(/^\/staff\/([^/]+)\/assignments$/);
+  if (adminStaffAssignments && request.method === 'POST') {
+    const entry = findAdminStaff(adminStaffAssignments[1]);
+    if (!entry) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Staff profile not found' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const branchIds = adminStringList(body.branchIds);
+    const departmentIds = adminStringList(body.departmentIds);
+    if (branchIds.some((id) => !findStaffBranch(id))) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'One or more branches do not exist.' } }); return; }
+    if (departmentIds.some((id) => !findStaffDepartment(id))) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'One or more departments do not exist.' } }); return; }
+    entry.branchIds = branchIds;
+    entry.departmentIds = departmentIds;
+    send(response, 200, { success: true, data: { staff: serializeStaff(entry) } });
+    return;
+  }
+
+  const adminStaffOne = url.pathname.match(/^\/staff\/([^/]+)$/);
+  if (adminStaffOne) {
+    const entry = findAdminStaff(adminStaffOne[1]);
+    if (!entry) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Staff profile not found' } }); return; }
+    if (request.method === 'GET') { send(response, 200, { success: true, data: { staff: serializeStaff(entry) } }); return; }
+    if (request.method === 'PATCH') {
+      let body;
+      try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+      if ('professionalTitle' in body) entry.professionalTitle = typeof body.professionalTitle === 'string' && body.professionalTitle ? body.professionalTitle : null;
+      if ('specialization' in body) entry.specialization = typeof body.specialization === 'string' && body.specialization ? body.specialization : null;
+      if ('licenseNumber' in body) entry.licenseNumber = typeof body.licenseNumber === 'string' && body.licenseNumber ? body.licenseNumber : null;
+      if (typeof body.employmentStatus === 'string' && STAFF_EMPLOYMENT_STATUSES.includes(body.employmentStatus)) entry.employmentStatus = body.employmentStatus;
+      send(response, 200, { success: true, data: { staff: serializeStaff(entry) } });
+      return;
+    }
+  }
+
+  if (url.pathname === '/branches' && request.method === 'GET') {
+    send(response, 200, listEnvelope(STAFF_BRANCHES.map((branch) => ({ ...branch })), 100));
     return;
   }
 

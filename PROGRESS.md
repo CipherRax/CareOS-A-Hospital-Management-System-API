@@ -21,7 +21,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) and wastage write-offs | transfers/counts/POs have no read endpoint (GAP-020) |
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
-| F9 Administration & audit      | in progress — users administration (slice 1), role management (slice 2)                   | staff/org profile (slice 3); audit-log viewing has no API endpoint |
+| F9 Administration & audit      | in progress — users administration (slice 1), role management (slice 2), staff directory (slice 3)                   | organization profile (slice 4); audit-log viewing has no API endpoint |
 | F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                          |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
@@ -1242,6 +1242,54 @@ endpoint.
 
 Gate: lint clean, `tsc --noEmit` 0, unit 510 (`admin.test.ts` + 3),
 `build:prod` OK, e2e/a11y 199. Contract note appended to GAP-020.
+
+## F9 — Administration, slice 3: staff directory
+
+**Status:** in progress. The staff directory built on the admin user registry. The
+organization profile follows in slice 4; the audit-log viewing screen still cannot
+be built — there is no audit-list endpoint.
+
+- **Directory** (`src/components/staff/staff-worklist.tsx`, `/staff`). Every staff
+  profile (person + email, staff number, professional title/specialization, current
+  branch and department assignments, employment-status pill) with a search (`q`) that
+  the service filters by staff number, title, specialization, user name or email.
+  There is no status filter because `GET /staff` accepts none. Staff profiles are
+  created together with a user (the invite dialog), so the directory has no create
+  action. `GET /staff` types its 200 as the request DTO while the service answers a
+  `PageResult` (GAP-020 family), so rows are validated structurally in
+  `src/lib/data/staff.ts`.
+- **Workspace** (`src/components/staff/staff-workspace.tsx`, `/staff/[id]`). The
+  read-only identity block (email, staff number, account status — owned by the user
+  account), an editable professional profile (title, specialization, employment
+  status, licence number; `PATCH /staff/{id}`), and the assignment editor. A read
+  answers `{ staff }`, so the body is validated with `extractStaffRecord`.
+- **Assignments** (`/staff/[id]`, `POST /staff/{id}/assignments`). Branch and
+  department checkboxes replace the set wholesale; the service refuses the entire
+  set (400 `VALIDATION_ERROR`) if any branch or department does not exist, and that
+  outcome is surfaced rather than hidden. Branch options come from
+  `useBranchOptions()` (`GET /branches`, typed `BranchListResponseDto` but answered
+  as `pageOf`), departments from the existing `useDepartmentList()`.
+- **Data layer** (`src/lib/data/staff.ts`, `staff.test.ts`). `StaffCallError`,
+  `StaffRow`/`StaffPage`/`BranchOption`, the readers `readStaff`, `readBranchOption`,
+  `extractStaffPage`, `extractStaffRecord`, `extractBranchList`, and the fetchers
+  `fetchStaff`, `fetchStaffMember`, `fetchBranchOptions`. An unknown employment
+  status falls back to `ACTIVE`; a drifted row fails closed to null. 16 unit tests.
+- **Hooks** (`src/lib/data/queries.ts`). `useStaff`, `useStaffMember`,
+  `useUpdateStaff` (200 `{ staff }`), `useSetStaffAssignments` (full-set replace) and
+  `useBranchOptions`, with `StaffCallError` added to the `toQueryError` union and a
+  `staffWriteError` helper for structurally invalid bodies.
+- **Mocks/stub.** `src/mocks/fixtures/staff-registry.ts` derives `ADMIN_STAFF` from
+  `ADMIN_USERS` so identity cannot drift; `src/mocks/staff-handlers.ts` adds the
+  staff and branch routes with the service's guards (404 unknown staff, 400 unknown
+  assignment ids, full-set replace), mirrored in `e2e/stub-api.mjs`.
+- **Nav + i18n + a11y.** A *Staff* entry sits under Administration after *Roles*;
+  the staff copy extends the `admin` namespace (including an `employmentStatus`
+  block); `/staff` and `/staff/stf_example_0002` joined the a11y route sweep.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 526 (`staff.test.ts` + 16),
+`build:prod` OK (routes `/staff`, `/staff/[id]`), e2e/a11y 207. Contract note
+appended to GAP-020.
+
 
 
 

@@ -14,6 +14,7 @@ import { inventoryHandlers } from './inventory-handlers';
 import { billingHandlers } from './billing-handlers';
 import { emergencyHandlers } from './emergency-handlers';
 import { adminHandlers } from './admin-handlers';
+import { staffHandlers } from './staff-handlers';
 import { insuranceHandlers } from './insurance-handlers';
 import { inpatientHandlers } from './inpatient-handlers';
 import { laboratoryHandlers } from './laboratory-handlers';
@@ -199,6 +200,10 @@ export const handlers = [
   // and status writes, role assignment and session revocation, plus the role list
   // and permission catalog. See ./admin-handlers.ts.
   ...adminHandlers(),
+  // F9 staff directory: the staff list and profile writes, branch/department
+  // assignment replacement, and the branch list the assignment editor reads. See
+  // ./staff-handlers.ts.
+  ...staffHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).

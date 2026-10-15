@@ -253,6 +253,19 @@ import {
   type UserQuery,
   type UserRow,
 } from '@/lib/data/admin';
+import {
+  extractStaffRecord,
+  fetchBranchOptions,
+  fetchStaff,
+  fetchStaffMember,
+  type BranchOption,
+  type SetStaffAssignmentsInput,
+  type StaffCallError,
+  type StaffPage,
+  type StaffQuery,
+  type StaffRow,
+  type UpdateStaffInput,
+} from '@/lib/data/staff';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
@@ -402,7 +415,8 @@ function toQueryError(
     | InsuranceCallError
     | InpatientCallError
     | EmergencyCallError
-    | AdminCallError,
+    | AdminCallError
+    | StaffCallError,
 ): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
@@ -4064,5 +4078,155 @@ export function useDeleteRole(): UseMutationResult<void, QueryError, { id: strin
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['roles'] });
     },
+  });
+}
+
+// --- administration (F9: the staff directory) -------------------------------
+
+function staffWriteError(status = 200): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+/**
+ * Staff roster `GET /staff?{filters}`. The export types the 200 as the request
+ * DTO while the service answers a paginated envelope (GAP-020 family), so it
+ * rides the raw-fetch path. Search (`q`) covers staff number, title,
+ * specialization and the user's name/email; there is no status filter server
+ * side.
+ */
+export function useStaff(query: StaffQuery = {}): UseQueryResult<Fetched<StaffPage>, QueryError> {
+  return useQuery<Fetched<StaffPage>, QueryError>({
+    queryKey: ['staff', 'list', query.q ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchStaff(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<StaffPage>;
+      } catch (call) {
+        throw toQueryError(call as StaffCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Single staff profile `GET /staff/{id}`. The service answers `{ staff }` while
+ * the export types the bare entity (GAP-020), so the unwrapped body is validated.
+ */
+export function useStaffMember(id: string): UseQueryResult<Fetched<StaffRow>, QueryError> {
+  return useQuery<Fetched<StaffRow>, QueryError>({
+    queryKey: ['staff', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const staff = await fetchStaffMember(id, signal);
+        return { data: staff, response: new Response(null, { status: 200 }) } satisfies Fetched<StaffRow>;
+      } catch (call) {
+        throw toQueryError(call as StaffCallError);
+      }
+    },
+    enabled: id.length > 0,
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Updates a staff profile `PATCH /staff/{id}` (200 `{ staff }`). Only the
+ * professional fields move; identity lives on the user and assignments on their
+ * own endpoint.
+ */
+export function useUpdateStaff(): UseMutationResult<StaffRow, QueryError, UpdateStaffInput> {
+  const queryClient = useQueryClient();
+  return useMutation<StaffRow, QueryError, UpdateStaffInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/staff/{id}', {
+          params: { path: { id: input.id } },
+          body: {
+            ...(input.professionalTitle !== undefined
+              ? { professionalTitle: input.professionalTitle }
+              : {}),
+            ...(input.specialization !== undefined
+              ? { specialization: input.specialization }
+              : {}),
+            ...(input.employmentStatus !== undefined
+              ? { employmentStatus: input.employmentStatus }
+              : {}),
+            ...(input.licenseNumber !== undefined ? { licenseNumber: input.licenseNumber } : {}),
+          },
+        }),
+      );
+      const parsed = extractStaffRecord(fetched.data);
+      if (!parsed.ok) throw staffWriteError();
+      return parsed.staff;
+    },
+    onSuccess: (staff) => {
+      queryClient.invalidateQueries({ queryKey: ['staff'] });
+      queryClient.setQueryData(['staff', staff.id], (previous: unknown) =>
+        previous ? { ...(previous as object), data: staff } : previous,
+      );
+    },
+  });
+}
+
+/**
+ * Replaces a staff member's branch/department assignments
+ * `POST /staff/{id}/assignments` (200 `{ staff }`). The service verifies every id
+ * exists and refuses the whole set otherwise, so the editor posts the full
+ * selection rather than a diff.
+ */
+export function useSetStaffAssignments(): UseMutationResult<
+  StaffRow,
+  QueryError,
+  SetStaffAssignmentsInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<StaffRow, QueryError, SetStaffAssignmentsInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/staff/{id}/assignments', {
+          params: { path: { id: input.id } },
+          body: {
+            branchIds: [...input.branchIds],
+            departmentIds: [...input.departmentIds],
+          },
+        }),
+      );
+      const parsed = extractStaffRecord(fetched.data);
+      if (!parsed.ok) throw staffWriteError();
+      return parsed.staff;
+    },
+    onSuccess: (staff) => {
+      queryClient.invalidateQueries({ queryKey: ['staff'] });
+      queryClient.setQueryData(['staff', staff.id], (previous: unknown) =>
+        previous ? { ...(previous as object), data: staff } : previous,
+      );
+    },
+  });
+}
+
+/**
+ * Branch options `GET /branches`, for the assignment editor. The export types the
+ * 200 as a page even though the service unwraps it into `data: [...]` (GAP-020
+ * family), so the rows are read structurally. Branches do not change during a
+ * session, so the list is cached for a while.
+ */
+export function useBranchOptions(): UseQueryResult<Fetched<readonly BranchOption[]>, QueryError> {
+  return useQuery<Fetched<readonly BranchOption[]>, QueryError>({
+    queryKey: ['branches', 'list'],
+    queryFn: async ({ signal }) => {
+      try {
+        const branches = await fetchBranchOptions(signal);
+        return {
+          data: branches,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<readonly BranchOption[]>;
+      } catch (call) {
+        throw toQueryError(call as StaffCallError);
+      }
+    },
+    staleTime: 10 * 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
   });
 }
