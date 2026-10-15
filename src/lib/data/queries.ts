@@ -228,6 +228,26 @@ import {
   type TreatEmergencyVisitInput,
   type TriageEmergencyVisitInput,
 } from '@/lib/data/emergency';
+import {
+  extractInvitedUser,
+  extractRevoked,
+  extractUserRecord,
+  fetchRoleCatalog,
+  fetchRoles,
+  fetchUser,
+  fetchUsers,
+  type AdminCallError,
+  type InviteUserInput,
+  type InvitedUser,
+  type RoleCatalog,
+  type RolePage,
+  type RoleQuery,
+  type SetUserRolesInput,
+  type UpdateUserInput,
+  type UserPage,
+  type UserQuery,
+  type UserRow,
+} from '@/lib/data/admin';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
@@ -376,7 +396,8 @@ function toQueryError(
     | BillingCallError
     | InsuranceCallError
     | InpatientCallError
-    | EmergencyCallError,
+    | EmergencyCallError
+    | AdminCallError,
 ): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
@@ -3699,6 +3720,248 @@ export function useWriteOffStock(): UseMutationResult<
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory', 'on-hand'] });
       queryClient.invalidateQueries({ queryKey: ['inventory', 'alerts'] });
+    },
+  });
+}
+
+// --- administration (F9: users and roles) -----------------------------------
+
+function adminWriteError(status = 201): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+/**
+ * User roster `GET /users?{filters}`. The export types the 200 as the request DTO
+ * while the service answers a paginated envelope (GAP-020 family), so it rides
+ * the raw-fetch path.
+ */
+export function useUsers(query: UserQuery = {}): UseQueryResult<Fetched<UserPage>, QueryError> {
+  return useQuery<Fetched<UserPage>, QueryError>({
+    queryKey: ['users', 'list', query.status ?? null, query.q ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchUsers(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<UserPage>;
+      } catch (call) {
+        throw toQueryError(call as AdminCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Single user `GET /users/{id}`. The service answers `{ user }` while the export
+ * types the bare entity (GAP-020), so the unwrapped body is validated.
+ */
+export function useUser(id: string): UseQueryResult<Fetched<UserRow>, QueryError> {
+  return useQuery<Fetched<UserRow>, QueryError>({
+    queryKey: ['users', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const user = await fetchUser(id, signal);
+        return { data: user, response: new Response(null, { status: 200 }) } satisfies Fetched<UserRow>;
+      } catch (call) {
+        throw toQueryError(call as AdminCallError);
+      }
+    },
+    enabled: id.length > 0,
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/** Role roster `GET /roles?{filters}` (GAP-020: the 200 is the query DTO). */
+export function useRoles(query: RoleQuery = {}): UseQueryResult<Fetched<RolePage>, QueryError> {
+  return useQuery<Fetched<RolePage>, QueryError>({
+    queryKey: ['roles', 'list', query.q ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchRoles(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<RolePage>;
+      } catch (call) {
+        throw toQueryError(call as AdminCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Role/permission catalog `GET /roles/permissions`, used to build the role
+ * picker and (later) the custom-role editor.
+ */
+export function useRoleCatalog(): UseQueryResult<Fetched<RoleCatalog>, QueryError> {
+  return useQuery<Fetched<RoleCatalog>, QueryError>({
+    queryKey: ['roles', 'catalog'],
+    queryFn: async ({ signal }) => {
+      try {
+        const catalog = await fetchRoleCatalog(signal);
+        return { data: catalog, response: new Response(null, { status: 200 }) } satisfies Fetched<RoleCatalog>;
+      } catch (call) {
+        throw toQueryError(call as AdminCallError);
+      }
+    },
+    staleTime: 5 * 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Invites a user `POST /users` (201 `{ user, inviteToken? }`). `inviteToken` is
+ * only present in dev/test; a real deployment delivers it out of band. The
+ * caller's own branch is not inferred — none is sent unless one is given
+ * (GAP-018).
+ */
+export function useInviteUser(): UseMutationResult<InvitedUser, QueryError, InviteUserInput> {
+  const queryClient = useQueryClient();
+  return useMutation<InvitedUser, QueryError, InviteUserInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/users', {
+          body: {
+            email: input.email,
+            firstName: input.firstName,
+            lastName: input.lastName,
+            ...(input.otherNames ? { otherNames: input.otherNames } : {}),
+            ...(input.phone ? { phone: input.phone } : {}),
+            ...(input.roleIds && input.roleIds.length > 0 ? { roleIds: [...input.roleIds] } : {}),
+            ...(input.branchIds && input.branchIds.length > 0
+              ? { branchIds: [...input.branchIds] }
+              : {}),
+            ...(input.departmentIds && input.departmentIds.length > 0
+              ? { departmentIds: [...input.departmentIds] }
+              : {}),
+            ...(input.staff
+              ? {
+                  staff: {
+                    staffNumber: input.staff.staffNumber,
+                    ...(input.staff.professionalTitle
+                      ? { professionalTitle: input.staff.professionalTitle }
+                      : {}),
+                    ...(input.staff.specialization
+                      ? { specialization: input.staff.specialization }
+                      : {}),
+                    employmentStatus: input.staff.employmentStatus ?? 'ACTIVE',
+                    ...(input.staff.licenseNumber
+                      ? { licenseNumber: input.staff.licenseNumber }
+                      : {}),
+                  },
+                }
+              : {}),
+          },
+        }),
+      );
+      const parsed = extractInvitedUser(fetched.data);
+      if (!parsed.ok) throw adminWriteError();
+      return parsed.invited;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+  });
+}
+
+/**
+ * Updates a user `PATCH /users/{id}` (200 `{ user }`). A status change that
+ * strips access also revokes the user's sessions server-side.
+ */
+export function useUpdateUser(): UseMutationResult<UserRow, QueryError, UpdateUserInput> {
+  const queryClient = useQueryClient();
+  return useMutation<UserRow, QueryError, UpdateUserInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/users/{id}', {
+          params: { path: { id: input.id } },
+          body: {
+            ...(input.firstName !== undefined ? { firstName: input.firstName } : {}),
+            ...(input.lastName !== undefined ? { lastName: input.lastName } : {}),
+            ...(input.otherNames !== undefined ? { otherNames: input.otherNames } : {}),
+            ...(input.phone !== undefined ? { phone: input.phone } : {}),
+            ...(input.status !== undefined ? { status: input.status } : {}),
+          },
+        }),
+      );
+      const parsed = extractUserRecord(fetched.data);
+      if (!parsed.ok) throw adminWriteError(200);
+      return parsed.user;
+    },
+    onSuccess: (user) => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.setQueryData(['users', user.id], (previous: unknown) =>
+        previous ? { ...(previous as object), data: user } : previous,
+      );
+    },
+  });
+}
+
+/**
+ * Replaces a user's role set `POST /users/{id}/roles` (200 `{ user }`). The
+ * service rejects privilege escalation beyond the caller's own permissions.
+ */
+export function useSetUserRoles(): UseMutationResult<UserRow, QueryError, SetUserRolesInput> {
+  const queryClient = useQueryClient();
+  return useMutation<UserRow, QueryError, SetUserRolesInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/users/{id}/roles', {
+          params: { path: { id: input.id } },
+          body: { roleIds: [...input.roleIds] },
+        }),
+      );
+      const parsed = extractUserRecord(fetched.data);
+      if (!parsed.ok) throw adminWriteError(200);
+      return parsed.user;
+    },
+    onSuccess: (user) => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.setQueryData(['users', user.id], (previous: unknown) =>
+        previous ? { ...(previous as object), data: user } : previous,
+      );
+    },
+  });
+}
+
+/**
+ * Revokes every session of a user `POST /users/{id}/sessions/revoke` (200
+ * `{ revoked }`). Returns the number of sessions ended.
+ */
+export function useRevokeUserSessions(): UseMutationResult<
+  { revoked: number },
+  QueryError,
+  { id: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation<{ revoked: number }, QueryError, { id: string }>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/users/{id}/sessions/revoke', {
+          params: { path: { id: input.id } },
+        }),
+      );
+      const parsed = extractRevoked(fetched.data);
+      if (!parsed.ok) throw adminWriteError(200);
+      return { revoked: parsed.revoked };
+    },
+    onSuccess: (_result, input) => {
+      queryClient.invalidateQueries({ queryKey: ['users', input.id] });
+    },
+  });
+}
+
+/**
+ * Deactivates a user `DELETE /users/{id}` (204, soft delete; sessions revoked).
+ * A 204 carries no envelope, so the void unwrap acknowledges it.
+ */
+export function useDeactivateUser(): UseMutationResult<void, QueryError, { id: string }> {
+  const queryClient = useQueryClient();
+  return useMutation<void, QueryError, { id: string }>({
+    mutationFn: (input) =>
+      unwrapVoid(api.DELETE('/users/{id}', { params: { path: { id: input.id } } })),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
     },
   });
 }

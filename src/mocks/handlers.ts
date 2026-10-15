@@ -13,6 +13,7 @@ import { prescriptionsHandlers } from './prescriptions-handlers';
 import { inventoryHandlers } from './inventory-handlers';
 import { billingHandlers } from './billing-handlers';
 import { emergencyHandlers } from './emergency-handlers';
+import { adminHandlers } from './admin-handlers';
 import { insuranceHandlers } from './insurance-handlers';
 import { inpatientHandlers } from './inpatient-handlers';
 import { laboratoryHandlers } from './laboratory-handlers';
@@ -194,6 +195,10 @@ export const handlers = [
   // shares the ward and admission state the inpatient handlers hold. See
   // ./emergency-handlers.ts.
   ...emergencyHandlers(),
+  // F9 administration (users and roles): the user directory, invitation, profile
+  // and status writes, role assignment and session revocation, plus the role list
+  // and permission catalog. See ./admin-handlers.ts.
+  ...adminHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).

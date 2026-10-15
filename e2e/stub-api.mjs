@@ -686,6 +686,94 @@ function stubCreateAdmission(patientId, bedId, source, departmentId, provisional
 }
 
 
+// F9 administration fixtures, mirroring src/mocks/fixtures/admin-registry.ts.
+// The roster walks every user status so each tone and action is reachable, and
+// the permission catalog is the body GET /roles/permissions answers.
+function adminRole(id, key, name, isSystem, permissions, description = null) {
+  return { id, key, name, description, isSystem, permissions, createdAt: '2026-01-02T08:00:00.000Z' };
+}
+const LIVE_ADMIN_ROLES = [
+  adminRole('rol_example_0001', 'SUPER_ADMIN', 'Super administrator', true, ['organizations.read', 'organizations.manage', 'users.read', 'users.manage', 'roles.read', 'roles.manage', 'sessions.manage', 'staff.read', 'staff.manage']),
+  adminRole('rol_example_0002', 'OWNER', 'Owner', true, ['organizations.read', 'users.read', 'users.manage', 'roles.read', 'roles.manage', 'reports.read']),
+  adminRole('rol_example_0003', 'HOSPITAL_ADMIN', 'Hospital administrator', true, ['users.read', 'users.manage', 'roles.read', 'staff.read', 'staff.manage', 'reports.read']),
+  adminRole('rol_example_0004', 'DOCTOR', 'Doctor', false, ['patients.read', 'encounters.read', 'encounters.create', 'clinical_notes.read', 'clinical_notes.create', 'prescriptions.read', 'prescription.create', 'lab.read', 'radiology.read'], 'EXAMPLE clinical role.'),
+  adminRole('rol_example_0005', 'NURSE', 'Nurse', false, ['patients.read', 'vitals.read', 'vitals.record', 'queue.read', 'beds.read'], 'EXAMPLE nursing role.'),
+  adminRole('rol_example_0006', 'RECEPTIONIST', 'Receptionist', false, ['patients.read', 'patients.create', 'appointments.read', 'appointments.create', 'queue.read', 'queue.create'], 'EXAMPLE front-desk role.'),
+  adminRole('rol_example_0007', 'PHARMACIST', 'Pharmacist', false, ['prescription.read', 'pharmacy.dispense', 'pharmacy.inventory'], 'EXAMPLE pharmacy role.'),
+  adminRole('rol_example_0008', 'ACCOUNTANT', 'Accountant', false, ['billing.read', 'billing.manage', 'insurance.read'], 'EXAMPLE finance role.'),
+  adminRole('rol_example_0009', 'LAB_TECHNICIAN', 'Laboratory technician', false, ['lab.read', 'lab.process', 'lab.verify', 'lab.release'], 'EXAMPLE laboratory role.'),
+];
+function adminRoleRef(key) {
+  const found = LIVE_ADMIN_ROLES.find((entry) => entry.key === key);
+  return { id: found.id, key: found.key, name: found.name };
+}
+function adminStaff(id, staffNumber, professionalTitle, specialization, employmentStatus) {
+  return { id, staffNumber, professionalTitle, specialization, employmentStatus };
+}
+const LIVE_ADMIN_USERS = [
+  { id: 'usr_example_0001', email: 'nurse@example.org', firstName: 'EXAMPLE', lastName: 'Nurse', otherNames: null, phone: null, status: 'ACTIVE', createdAt: '2026-01-02T08:00:00.000Z', roles: [adminRoleRef('NURSE')], staff: null },
+  { id: 'usr_example_0002', email: 'amina.example@careos.example', firstName: 'Amina', lastName: 'Odhiambo', otherNames: null, phone: '+254700000002', status: 'ACTIVE', createdAt: '2026-02-10T09:15:00.000Z', roles: [adminRoleRef('DOCTOR')], staff: adminStaff('stf_example_0002', 'STF-0002', 'Consultant Physician', 'Internal Medicine', 'ACTIVE') },
+  { id: 'usr_example_0003', email: 'brian.example@careos.example', firstName: 'Brian', lastName: 'Kimani', otherNames: null, phone: '+254700000003', status: 'ACTIVE', createdAt: '2026-03-04T11:00:00.000Z', roles: [adminRoleRef('RECEPTIONIST')], staff: null },
+  { id: 'usr_example_0004', email: 'cynthia.example@careos.example', firstName: 'Cynthia', lastName: 'Wanjiru', otherNames: 'Njeri', phone: null, status: 'INVITED', createdAt: '2026-03-20T14:30:00.000Z', roles: [adminRoleRef('NURSE')], staff: null },
+  { id: 'usr_example_0005', email: 'daniel.example@careos.example', firstName: 'Daniel', lastName: 'Otieno', otherNames: null, phone: '+254700000005', status: 'SUSPENDED', createdAt: '2026-04-02T07:45:00.000Z', roles: [adminRoleRef('ACCOUNTANT')], staff: null },
+  { id: 'usr_example_0006', email: 'esther.example@careos.example', firstName: 'Esther', lastName: 'Achieng', otherNames: null, phone: '+254700000006', status: 'ACTIVE', createdAt: '2026-04-19T10:10:00.000Z', roles: [adminRoleRef('HOSPITAL_ADMIN'), adminRoleRef('LAB_TECHNICIAN')], staff: adminStaff('stf_example_0006', 'STF-0006', 'Laboratory Manager', 'Haematology', 'ACTIVE') },
+  { id: 'usr_example_0007', email: 'felix.example@careos.example', firstName: 'Felix', lastName: 'Mutua', otherNames: null, phone: null, status: 'DEACTIVATED', createdAt: '2026-05-06T16:00:00.000Z', roles: [adminRoleRef('PHARMACIST')], staff: null },
+];
+let adminUserSeq = 8;
+const LIVE_ROLE_CATALOG = {
+  groups: LIVE_ADMIN_ROLES.map((entry) => ({ key: entry.key, name: entry.name, permissions: [...entry.permissions] })),
+  systemRoles: LIVE_ADMIN_ROLES.filter((entry) => entry.isSystem).map((entry) => entry.key),
+  permissionGroups: {
+    organizations: { read: 'organizations.read', manage: 'organizations.manage' },
+    branches: { read: 'branches.read', manage: 'branches.manage' },
+    departments: { read: 'departments.read', manage: 'departments.manage' },
+    users: { read: 'users.read', manage: 'users.manage' },
+    roles: { read: 'roles.read', manage: 'roles.manage' },
+    sessions: { read: 'sessions.read', manage: 'sessions.manage' },
+    staff: { read: 'staff.read', manage: 'staff.manage' },
+    patients: { read: 'patients.read', create: 'patients.create', update: 'patients.update', manage: 'patients.manage' },
+    appointments: { read: 'appointments.read', create: 'appointments.create', manage: 'appointments.manage' },
+    queue: { read: 'queue.read', create: 'queue.create', manage: 'queue.manage' },
+    vitals: { read: 'vitals.read', record: 'vitals.record' },
+    encounters: { read: 'encounters.read', create: 'encounters.create', update: 'encounters.update' },
+    clinicalNotes: { read: 'clinical_notes.read', create: 'clinical_notes.create', update: 'clinical_notes.update' },
+    prescriptions: { read: 'prescription.read', create: 'prescription.create', cancel: 'prescription.cancel' },
+    lab: { read: 'lab.read', order: 'lab.order', process: 'lab.process', verify: 'lab.verify', release: 'lab.release' },
+    radiology: { read: 'radiology.read', order: 'radiology.order', verify: 'radiology.verify', release: 'radiology.release' },
+    pharmacy: { dispense: 'pharmacy.dispense', inventory: 'pharmacy.inventory' },
+    inventory: { read: 'inventory.read', manage: 'inventory.manage', wastage: 'inventory.wastage' },
+    billing: { read: 'billing.read', create: 'billing.create', manage: 'billing.manage' },
+    insurance: { read: 'insurance.read', manage: 'insurance.manage' },
+    wards: { read: 'wards.read', manage: 'wards.manage' },
+    beds: { read: 'beds.read', manage: 'beds.manage' },
+    inpatient: { read: 'inpatient.read', create: 'inpatient.create', transfer: 'inpatient.transfer', discharge: 'inpatient.discharge' },
+    emergency: { read: 'emergency.read', register: 'emergency.register', triage: 'emergency.triage', manage: 'emergency.manage' },
+    reports: { read: 'reports.read' },
+    analytics: { read: 'analytics.read' },
+    audit: { read: 'audit.read' },
+  },
+};
+const ADMIN_CALLER_ID = 'usr_example_0001';
+const ADMIN_USER_STATUSES = ['INVITED', 'ACTIVE', 'SUSPENDED', 'DEACTIVATED'];
+function findAdminUser(id) { return LIVE_ADMIN_USERS.find((user) => user.id === id); }
+function findAdminRole(id) { return LIVE_ADMIN_ROLES.find((role) => role.id === id); }
+function resolveAdminRoles(roleIds) {
+  const refs = [];
+  const seen = new Set();
+  for (const id of roleIds) {
+    if (seen.has(id)) continue;
+    const role = findAdminRole(id);
+    if (!role) return null;
+    refs.push({ id: role.id, key: role.key, name: role.name });
+    seen.add(id);
+  }
+  return refs;
+}
+function adminStringList(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [];
+}
+
+
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
   DRAFT: ['issue', 'cancel'],
   ISSUED: ['cancel'],
@@ -2617,6 +2705,128 @@ const server = createServer(async (request, response) => {
     const visit = findEmergencyVisit(emergencyOne[1]);
     if (!visit) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
     send(response, 200, { success: true, data: { visit } });
+    return;
+  }
+
+  // --- administration (F9 users and roles) -------------------------------
+  // Mirrors src/mocks/admin-handlers.ts and the service: a duplicate email or
+  // staff number is a 409, the calling user cannot manage itself, and a role set
+  // must reference real roles.
+  if (url.pathname === '/users' && request.method === 'GET') {
+    const status = url.searchParams.get('status');
+    const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
+    const page = Math.max(1, Number(url.searchParams.get('page') || '1') || 1);
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || '20') || 20));
+    const filtered = LIVE_ADMIN_USERS.filter((user) => {
+      if (status && user.status !== status) return false;
+      if (q) {
+        const haystack = `${user.email} ${user.firstName} ${user.otherNames ?? ''} ${user.lastName}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const start = (page - 1) * limit;
+    const rows = filtered.slice(start, start + limit);
+    send(response, 200, { success: true, data: rows, meta: { page, limit, total: filtered.length, totalPages: Math.max(1, Math.ceil(filtered.length / limit)) } });
+    return;
+  }
+
+  if (url.pathname === '/users' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const email = typeof body.email === 'string' && body.email ? body.email : null;
+    const firstName = typeof body.firstName === 'string' && body.firstName ? body.firstName : null;
+    const lastName = typeof body.lastName === 'string' && body.lastName ? body.lastName : null;
+    if (!email || !firstName || !lastName) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Email, first name and last name are required.' } }); return; }
+    if (LIVE_ADMIN_USERS.some((user) => user.email.toLowerCase() === email.toLowerCase())) { send(response, 409, { success: false, error: { code: 'CONFLICT', message: 'A user with that email already exists.' } }); return; }
+    let staff = null;
+    if (body.staff && typeof body.staff === 'object') {
+      const staffNumber = typeof body.staff.staffNumber === 'string' && body.staff.staffNumber ? body.staff.staffNumber : null;
+      if (!staffNumber) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A staff number is required.' } }); return; }
+      if (LIVE_ADMIN_USERS.some((user) => user.staff && user.staff.staffNumber === staffNumber)) { send(response, 409, { success: false, error: { code: 'CONFLICT', message: 'A staff member with that number already exists.' } }); return; }
+      staff = adminStaff(`stf_example_${adminUserSeq}`, staffNumber, typeof body.staff.professionalTitle === 'string' ? body.staff.professionalTitle : null, typeof body.staff.specialization === 'string' ? body.staff.specialization : null, typeof body.staff.employmentStatus === 'string' ? body.staff.employmentStatus : 'ACTIVE');
+    }
+    const roleIds = adminStringList(body.roleIds);
+    const resolved = roleIds.length > 0 ? resolveAdminRoles(roleIds) : [];
+    if (resolved === null) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'One or more roles do not exist.' } }); return; }
+    const now = new Date().toISOString();
+    const user = { id: `usr_example_${String(adminUserSeq).padStart(4, '0')}`, email, firstName, lastName, otherNames: typeof body.otherNames === 'string' && body.otherNames ? body.otherNames : null, phone: typeof body.phone === 'string' && body.phone ? body.phone : null, status: 'INVITED', createdAt: now, roles: resolved, staff };
+    LIVE_ADMIN_USERS.push(user);
+    adminUserSeq += 1;
+    send(response, 201, { success: true, data: { user, inviteToken: `tok_example_${adminUserSeq}` } });
+    return;
+  }
+
+  const adminUserRoles = url.pathname.match(/^\/users\/([^/]+)\/roles$/);
+  if (adminUserRoles && request.method === 'POST') {
+    const user = findAdminUser(adminUserRoles[1]);
+    if (!user) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'User not found' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const roleIds = adminStringList(body.roleIds);
+    if (roleIds.length === 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'At least one role is required.' } }); return; }
+    const resolved = resolveAdminRoles(roleIds);
+    if (resolved === null) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'One or more roles do not exist.' } }); return; }
+    user.roles = resolved;
+    send(response, 200, { success: true, data: { user } });
+    return;
+  }
+
+  const adminUserRevoke = url.pathname.match(/^\/users\/([^/]+)\/sessions\/revoke$/);
+  if (adminUserRevoke && request.method === 'POST') {
+    const user = findAdminUser(adminUserRevoke[1]);
+    if (!user) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'User not found' } }); return; }
+    send(response, 200, { success: true, data: { revoked: user.status === 'ACTIVE' ? 2 : 0 } });
+    return;
+  }
+
+  const adminUserOne = url.pathname.match(/^\/users\/([^/]+)$/);
+  if (adminUserOne) {
+    const user = findAdminUser(adminUserOne[1]);
+    if (!user) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'User not found' } }); return; }
+    if (request.method === 'GET') { send(response, 200, { success: true, data: { user } }); return; }
+    if (request.method === 'PATCH') {
+      if (adminUserOne[1] === ADMIN_CALLER_ID) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Cannot self-manage through this endpoint.' } }); return; }
+      let body;
+      try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+      if (typeof body.firstName === 'string') user.firstName = body.firstName;
+      if (typeof body.lastName === 'string') user.lastName = body.lastName;
+      if ('otherNames' in body) user.otherNames = typeof body.otherNames === 'string' && body.otherNames ? body.otherNames : null;
+      if ('phone' in body) user.phone = typeof body.phone === 'string' && body.phone ? body.phone : null;
+      if (typeof body.status === 'string' && ADMIN_USER_STATUSES.includes(body.status)) user.status = body.status;
+      send(response, 200, { success: true, data: { user } });
+      return;
+    }
+    if (request.method === 'DELETE') {
+      if (adminUserOne[1] === ADMIN_CALLER_ID) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Cannot self-manage through this endpoint.' } }); return; }
+      user.status = 'DEACTIVATED';
+      send(response, 204, undefined);
+      return;
+    }
+  }
+
+  if (url.pathname === '/roles' && request.method === 'GET') {
+    const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
+    const page = Math.max(1, Number(url.searchParams.get('page') || '1') || 1);
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || '20') || 20));
+    const filtered = LIVE_ADMIN_ROLES.filter((role) => (!q || `${role.name} ${role.key}`.toLowerCase().includes(q)))
+      .sort((a, b) => (a.isSystem !== b.isSystem ? (a.isSystem ? -1 : 1) : a.name.localeCompare(b.name)));
+    const start = (page - 1) * limit;
+    const rows = filtered.slice(start, start + limit);
+    send(response, 200, { success: true, data: rows, meta: { page, limit, total: filtered.length, totalPages: Math.max(1, Math.ceil(filtered.length / limit)) } });
+    return;
+  }
+
+  if (url.pathname === '/roles/permissions' && request.method === 'GET') {
+    send(response, 200, { success: true, data: LIVE_ROLE_CATALOG });
+    return;
+  }
+
+  const adminRoleOne = url.pathname.match(/^\/roles\/([^/]+)$/);
+  if (adminRoleOne && request.method === 'GET') {
+    const role = findAdminRole(adminRoleOne[1]);
+    if (!role) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Role not found' } }); return; }
+    send(response, 200, { success: true, data: { role } });
     return;
   }
 

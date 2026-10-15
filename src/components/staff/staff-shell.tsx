@@ -59,6 +59,7 @@ const SECTIONS: readonly NavSection[] = [
       { href: '/billing', label: 'Billing' },
       { href: '/insurance', label: 'Insurance' },
       { href: '/insurance/payers', label: 'Insurance payers' },
+      { href: '/users', label: 'Users' },
       { href: '/schedules', label: 'Schedules' },
       { href: '/settings', label: 'Settings' },
       { href: '/design-system', label: 'Design system' },

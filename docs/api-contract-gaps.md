@@ -638,4 +638,37 @@ path), so the ward, room, admission and emergency routes sit at the API root:
 - `serializeVisit` exposes only `patientId`; the desk resolves names on demand
   (`usePatientName`, GAP-018). The admitted admission is linked by id.
 
+**Users and roles (F9 slice 1).** Same GAP-020 family under `src/modules/users`
+and `src/modules/roles`:
+
+- `GET /users` types its 200 as the request DTO (`ListUsersQueryDto`) while the
+  service answers a `PageResult`; the client rides the raw-fetch path
+  (`fetchUsers`/`extractUserPage`/`readUser`), validating each row so a drift
+  fails closed. Search (`q`) covers email/first/last and `status` is an
+  exact-match filter.
+- `GET /users/{id}` is typed as the bare entity but answers `{ user }`;
+  `POST /users` answers **201** with `{ user, inviteToken? }`; `PATCH /users/{id}`
+  and `POST /users/{id}/roles` answer **200** with `{ user }`; `POST
+  /users/{id}/sessions/revoke` answers `{ revoked }`; `DELETE /users/{id}` answers
+  **204** (a soft delete that revokes sessions). All go through
+  `extractUserRecord`/`extractInvitedUser`/`extractRevoked` on the unwrapped body,
+  and the 204 through the void unwrap.
+- `GET /roles` is the same mis-typed `PageResult` (`fetchRoles`/
+  `extractRolePage`/`readRole`); `GET /roles/{id}` is typed as the bare entity but
+  answers `{ role }`. `GET /roles/permissions` answers `{ groups, systemRoles,
+  permissionGroups }` where `permissionGroups` is nested per group and per action;
+  `readRoleCatalog` flattens it into a sorted `{ key, permissions }[]`.
+- `PATCH /users/{id}` refuses self-management (a 400, "Cannot self-manage through
+  this endpoint"), so the workspace disables its own mutation controls for the
+  signed-in account rather than letting the write fail. `SetUserRolesDto.roleIds`
+  is `min(1)` and `UpdateUserDto` refines to at least one field.
+- `POST /users` posts to no branch or department: the app has no branch picker
+  (GAP-018), and both arrays are optional. The invite dialog and the roles picker
+  read `GET /roles` rather than a hardcoded list.
+- **Not built this slice:** role management (`POST|PATCH|DELETE /roles`), the
+  staff directory (`/staff…`) and the organization profile (`/organizations/me`).
+  The audit-log viewing screen is **not buildable**: there is no audit-list
+  endpoint (writes happen inside the API via `src/database/audit.service.ts`).
+
+
 

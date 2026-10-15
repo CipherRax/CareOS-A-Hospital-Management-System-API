@@ -21,7 +21,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) and wastage write-offs | transfers/counts/POs have no read endpoint (GAP-020) |
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
-| F9 Administration & audit      | not started                                                                                | org, users, permissions, audit log                     |
+| F9 Administration & audit      | in progress — users & roles administration (slice 1)                                      | roles/staff/org profile (later slices); audit-log viewing has no API endpoint |
 | F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                          |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
@@ -1148,6 +1148,53 @@ through triage, assessment, treatment and one final disposition.
 
 Gate: lint clean, `tsc --noEmit` 0, unit 483 (`emergency.test.ts` + 16),
 `build:prod` OK, e2e/a11y 179. Contract note appended to GAP-020.
+
+---
+
+## F9 — Administration, slice 1: users administration
+
+**Status:** in progress. The user directory and the single-user workspace. Roles,
+staff profiles and the organization profile follow in later slices; the audit-log
+viewing screen cannot be built — there is no audit-list endpoint (see the
+roadmap's blocker column and `docs/api-contract-gaps.md`).
+
+- **Worklist** (`src/components/staff/users-worklist.tsx`, `/users`). Every staff
+  account (name, email, role pills, status, added date) with a server-side status
+  filter and search (`q`), and an *Invite user* dialog. `GET /users` types its 200
+  as the request DTO while the service answers a `PageResult` (GAP-020 family), so
+  rows are validated structurally in `src/lib/data/admin.ts`. Inviting posts to
+  `POST /users` and shows the returned invitation token; the app has no branch
+  picker, so no branch or department is sent (GAP-018). Roles for the picker come
+  from `GET /roles`.
+- **Workspace** (`src/components/staff/user-workspace.tsx`, `/users/[id]`). One
+  account: its identity, an editable profile (`PATCH /users/{id}`), the account
+  status moves (activate/suspend via `PATCH`, deactivate via `DELETE /users/{id}`,
+  a soft delete), session revocation (`POST /users/{id}/sessions/revoke`, showing
+  how many were revoked) and role assignment (`POST /users/{id}/roles`). The
+  service refuses self-management, so when the record is the signed-in user the
+  mutation controls are replaced with a notice rather than left to fail.
+- **Data layer** (`src/lib/data/admin.ts`). The `USER_STATUSES`/`EMPLOYMENT_STATUSES`
+  enums, `UserRow`/`UserPage`/`RoleRow`/`RolePage`/`RoleCatalog` and their
+  structural readers (`readUser`, `readRole`, `extractUserPage`, `extractRolePage`,
+  `extractUserRecord`, `extractInvitedUser`, `extractRevoked`, `readRoleCatalog`,
+  `extractRoleRecord`) plus the raw reads `fetchUsers`/`fetchUser`/`fetchRoles`/
+  `fetchRoleCatalog`. `readRoleCatalog` flattens the service's nested
+  `permissionGroups` into a sorted `{ key, permissions }[]` for the picker.
+- **Hooks** (`src/lib/data/queries.ts`). `useUsers`, `useUser`, `useRoles`,
+  `useRoleCatalog`, `useInviteUser`, `useUpdateUser`, `useSetUserRoles`,
+  `useRevokeUserSessions` and `useDeactivateUser` (a 204 void unwrap), through one
+  shared write path that invalidates the user reads.
+- **Mocks/stub.** `src/mocks/fixtures/admin-registry.ts` adds nine EXAMPLE roles
+  (system roles plus clinician/admin roles) and seven EXAMPLE users across every
+  status; `src/mocks/admin-handlers.ts` mirrors the service's self-management
+  guard and session-revocation behaviour. Mirrored in `e2e/stub-api.mjs`.
+- **Nav + i18n + a11y.** A *Users* entry sits under Administration; the admin copy
+  is its own `admin` namespace (`en.json` and `sw.json`); `/users` and
+  `/users/usr_example_0002` joined the a11y route sweep.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 507 (`admin.test.ts` + 24),
+`build:prod` OK, e2e/a11y 187. Contract note appended to GAP-020.
+
 
 
 
