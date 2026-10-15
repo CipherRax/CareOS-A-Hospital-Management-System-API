@@ -2224,6 +2224,35 @@
     "loadingDepartments": "Inapakia idara…",
     "staffNoBranches": "Hakuna matawi yanayopatikana.",
     "staffNoDepartments": "Hakuna idara zinazopatikana.",
-    "saveAssignments": "Hifadhi mgawanyo"
+    "saveAssignments": "Hifadhi mgawanyo",
+    "organizationTitle": "Shirika",
+    "organizationIntro": "Shirika ambalo akaunti hii inamilikiwa.",
+    "loadingOrganization": "Inapakia shirika…",
+    "organizationUnavailableTitle": "Shirika haipatikani",
+    "organizationUnavailableBody": "Wasifu wa shirika haukuweza kupakiwa. Jaribu tena baada ya muda mfupi.",
+    "organizationStatus": {
+      "ACTIVE": "Hai",
+      "SUSPENDED": "Imesimamishwa",
+      "CLOSED": "Imefungwa"
+    },
+    "organizationFieldCurrency": "Sarafu",
+    "organizationFieldTimezone": "Eneo la saa",
+    "organizationFieldCountry": "Nchi",
+    "organizationFieldCreated": "Imeundwa",
+    "organizationFieldUpdated": "Ilisasishwa mara ya mwisho",
+    "organizationUnset": "Haijawekwa",
+    "organizationDetailsHeading": "Maelezo ya wasifu",
+    "organizationFieldLegalName": "Jina la kisheria",
+    "organizationFieldTradingName": "Jina la biashara",
+    "organizationFieldRegistrationNumber": "Namba ya usajili",
+    "organizationFieldKraPin": "KRA PIN",
+    "organizationFieldPhone": "Simu",
+    "organizationFieldEmail": "Barua pepe",
+    "organizationFieldWebsite": "Tovuti",
+    "organizationFieldLogoUrl": "URL ya nembo",
+    "organizationFieldCounty": "Kaunti",
+    "organizationFieldTown": "Mji",
+    "organizationFieldAddress": "Anwani",
+    "saveOrganization": "Hifadhi shirika"
   }
 }

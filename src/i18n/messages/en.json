@@ -2209,6 +2209,35 @@
     "loadingDepartments": "Loading departments…",
     "staffNoBranches": "No branches are available.",
     "staffNoDepartments": "No departments are available.",
-    "saveAssignments": "Save assignments"
+    "saveAssignments": "Save assignments",
+    "organizationTitle": "Organization",
+    "organizationIntro": "The organization this account belongs to.",
+    "loadingOrganization": "Loading organization…",
+    "organizationUnavailableTitle": "Organization unavailable",
+    "organizationUnavailableBody": "The organization profile could not be loaded. Try again shortly.",
+    "organizationStatus": {
+      "ACTIVE": "Active",
+      "SUSPENDED": "Suspended",
+      "CLOSED": "Closed"
+    },
+    "organizationFieldCurrency": "Currency",
+    "organizationFieldTimezone": "Time zone",
+    "organizationFieldCountry": "Country",
+    "organizationFieldCreated": "Created",
+    "organizationFieldUpdated": "Last updated",
+    "organizationUnset": "Not set",
+    "organizationDetailsHeading": "Profile details",
+    "organizationFieldLegalName": "Legal name",
+    "organizationFieldTradingName": "Trading name",
+    "organizationFieldRegistrationNumber": "Registration number",
+    "organizationFieldKraPin": "KRA PIN",
+    "organizationFieldPhone": "Phone",
+    "organizationFieldEmail": "Email",
+    "organizationFieldWebsite": "Website",
+    "organizationFieldLogoUrl": "Logo URL",
+    "organizationFieldCounty": "County",
+    "organizationFieldTown": "Town",
+    "organizationFieldAddress": "Address",
+    "saveOrganization": "Save organization"
   }
 }

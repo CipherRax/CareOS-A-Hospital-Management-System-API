@@ -230,9 +230,11 @@ import {
 } from '@/lib/data/emergency';
 import {
   extractInvitedUser,
+  extractOrganizationRecord,
   extractRevoked,
   extractRoleRecord,
   extractUserRecord,
+  fetchOrganization,
   fetchRole,
   fetchRoleCatalog,
   fetchRoles,
@@ -242,11 +244,13 @@ import {
   type CreateRoleInput,
   type InviteUserInput,
   type InvitedUser,
+  type OrganizationRow,
   type RoleCatalog,
   type RolePage,
   type RoleQuery,
   type RoleRow,
   type SetUserRolesInput,
+  type UpdateOrganizationInput,
   type UpdateRoleInput,
   type UpdateUserInput,
   type UserPage,
@@ -4228,5 +4232,76 @@ export function useBranchOptions(): UseQueryResult<Fetched<readonly BranchOption
     },
     staleTime: 10 * 60_000,
     retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+// --- administration (F9: the organization profile) --------------------------
+
+/**
+ * Organization profile `GET /organizations/me`. The service answers
+ * `{ organization }` while the export types the bare entity (GAP-020), so the
+ * unwrapped body is validated. There is exactly one organization, so the read is
+ * cached rather than re-fetched on every navigation.
+ */
+export function useOrganization(): UseQueryResult<Fetched<OrganizationRow>, QueryError> {
+  return useQuery<Fetched<OrganizationRow>, QueryError>({
+    queryKey: ['organization'],
+    queryFn: async ({ signal }) => {
+      try {
+        const organization = await fetchOrganization(signal);
+        return {
+          data: organization,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<OrganizationRow>;
+      } catch (call) {
+        throw toQueryError(call as AdminCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Updates the organization profile `PATCH /organizations/me` (200
+ * `{ organization }`). The DTO refines to at least one field; a change whose email
+ * collides with an existing account is a 409 `CONFLICT`.
+ */
+export function useUpdateOrganization(): UseMutationResult<
+  OrganizationRow,
+  QueryError,
+  UpdateOrganizationInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<OrganizationRow, QueryError, UpdateOrganizationInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/organizations/me', {
+          body: {
+            ...(input.legalName !== undefined ? { legalName: input.legalName } : {}),
+            ...(input.tradingName !== undefined ? { tradingName: input.tradingName } : {}),
+            ...(input.registrationNumber !== undefined
+              ? { registrationNumber: input.registrationNumber }
+              : {}),
+            ...(input.kraPin !== undefined ? { kraPin: input.kraPin } : {}),
+            ...(input.phone !== undefined ? { phone: input.phone } : {}),
+            ...(input.email !== undefined ? { email: input.email } : {}),
+            ...(input.website !== undefined ? { website: input.website } : {}),
+            ...(input.logoUrl !== undefined ? { logoUrl: input.logoUrl } : {}),
+            ...(input.address !== undefined ? { address: input.address } : {}),
+            ...(input.county !== undefined ? { county: input.county } : {}),
+            ...(input.town !== undefined ? { town: input.town } : {}),
+          },
+        }),
+      );
+      const parsed = extractOrganizationRecord(fetched.data);
+      if (!parsed.ok) throw adminWriteError(200);
+      return parsed.organization;
+    },
+    onSuccess: (organization) => {
+      queryClient.setQueryData(['organization'], (previous: unknown) =>
+        previous ? { ...(previous as object), data: organization } : previous,
+      );
+    },
   });
 }

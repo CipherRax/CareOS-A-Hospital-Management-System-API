@@ -820,6 +820,30 @@ function serializeStaff(entry) {
   };
 }
 
+// F9 organization profile, mirroring src/mocks/fixtures/admin-registry.ts ORGANIZATION.
+const LIVE_ORGANIZATION = {
+  id: 'org_example_1',
+  name: 'EXAMPLE CareOS Hospital',
+  status: 'ACTIVE',
+  legalName: 'EXAMPLE CareOS Hospital Limited',
+  tradingName: null,
+  registrationNumber: 'EXAMPLE-CPR-2026-001',
+  kraPin: 'EXAMPLE-P000000000X',
+  phone: '+254700000001',
+  email: 'info@careos.example',
+  website: 'https://careos.example',
+  logoUrl: null,
+  address: 'EXAMPLE 12 Hospital Road',
+  county: 'Nairobi',
+  town: 'Nairobi',
+  currency: 'KES',
+  timezone: 'Africa/Nairobi',
+  country: 'KE',
+  createdAt: '2026-01-01T08:00:00.000Z',
+  updatedAt: '2026-02-01T08:00:00.000Z',
+};
+const ORGANIZATION_EDITABLE = ['legalName', 'tradingName', 'registrationNumber', 'kraPin', 'phone', 'email', 'website', 'logoUrl', 'address', 'county', 'town'];
+
 
 
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
@@ -2985,6 +3009,28 @@ const server = createServer(async (request, response) => {
 
   if (url.pathname === '/branches' && request.method === 'GET') {
     send(response, 200, listEnvelope(STAFF_BRANCHES.map((branch) => ({ ...branch })), 100));
+    return;
+  }
+
+  // --- organization profile (F9) -----------------------------------------
+  // Mirrors src/mocks/admin-handlers.ts: one organization; an email that clashes
+  // with an account is a 409 and an empty patch is a 400.
+  if (url.pathname === '/organizations/me' && request.method === 'GET') {
+    send(response, 200, { success: true, data: { organization: { ...LIVE_ORGANIZATION } } });
+    return;
+  }
+  if (url.pathname === '/organizations/me' && request.method === 'PATCH') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (!ORGANIZATION_EDITABLE.some((field) => field in body)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Nothing to update.' } }); return; }
+    if ('email' in body && typeof body.email === 'string' && body.email && LIVE_ADMIN_USERS.some((user) => user.email.toLowerCase() === body.email.toLowerCase())) {
+      send(response, 409, { success: false, error: { code: 'CONFLICT', message: 'That email is already in use by an account.' } }); return;
+    }
+    for (const field of ORGANIZATION_EDITABLE) {
+      if (field in body) LIVE_ORGANIZATION[field] = typeof body[field] === 'string' && body[field] ? body[field] : null;
+    }
+    LIVE_ORGANIZATION.updatedAt = new Date().toISOString();
+    send(response, 200, { success: true, data: { organization: { ...LIVE_ORGANIZATION } } });
     return;
   }
 

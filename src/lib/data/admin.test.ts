@@ -3,12 +3,14 @@ import { describe, expect, it } from 'vitest';
 import {
   displayName,
   extractInvitedUser,
+  extractOrganizationRecord,
   extractRevoked,
   extractRolePage,
   extractRoleRecord,
   extractUserPage,
   extractUserRecord,
   isValidRoleKey,
+  readOrganization,
   readRoleCatalog,
   readUser,
 } from '@/lib/data/admin';
@@ -232,5 +234,67 @@ describe('isValidRoleKey', () => {
   it('rejects an empty key and one over the length limit', () => {
     expect(isValidRoleKey('')).toBe(false);
     expect(isValidRoleKey(`A${'B'.repeat(48)}`)).toBe(false);
+  });
+});
+
+const organization = {
+  id: 'org_example_1',
+  name: 'CareOS Demo Hospital',
+  status: 'ACTIVE',
+  legalName: 'CareOS Demo Hospital Limited',
+  tradingName: null,
+  registrationNumber: 'PVT-123456',
+  kraPin: 'P000000000X',
+  phone: '+254700000001',
+  email: 'info@careos.example',
+  website: 'https://careos.example',
+  logoUrl: null,
+  address: '1 Health Way',
+  county: 'Nairobi',
+  town: 'Nairobi',
+  currency: 'KES',
+  timezone: 'Africa/Nairobi',
+  country: 'KE',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-02-01T00:00:00.000Z',
+};
+
+describe('readOrganization', () => {
+  it('reads a full organization profile', () => {
+    expect(readOrganization(organization)).toMatchObject({
+      id: 'org_example_1',
+      name: 'CareOS Demo Hospital',
+      status: 'ACTIVE',
+      legalName: 'CareOS Demo Hospital Limited',
+      kraPin: 'P000000000X',
+      currency: 'KES',
+      timezone: 'Africa/Nairobi',
+      updatedAt: '2026-02-01T00:00:00.000Z',
+    });
+  });
+
+  it('defaults an unknown status and nulls absent optional fields', () => {
+    const parsed = readOrganization({ id: 'org_1', name: 'Clinic', status: 'RETIRED' });
+    expect(parsed?.status).toBe('ACTIVE');
+    expect(parsed?.legalName).toBeNull();
+    expect(parsed?.currency).toBe('');
+  });
+
+  it('fails closed when the id or name has drifted', () => {
+    expect(readOrganization({ name: 'Clinic' })).toBeNull();
+    expect(readOrganization({ id: 'org_1' })).toBeNull();
+    expect(readOrganization(null)).toBeNull();
+  });
+});
+
+describe('extractOrganizationRecord', () => {
+  it('reads the `{ organization }` envelope', () => {
+    const parsed = extractOrganizationRecord({ organization });
+    expect(parsed.ok && parsed.organization.id).toBe('org_example_1');
+  });
+
+  it('rejects a bare entity or a drifted inner body', () => {
+    expect(extractOrganizationRecord(organization).ok).toBe(false);
+    expect(extractOrganizationRecord({ organization: { id: 'org_1' } }).ok).toBe(false);
   });
 });

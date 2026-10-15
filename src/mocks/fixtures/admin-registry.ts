@@ -375,3 +375,48 @@ export const ROLE_CATALOG: RegistryRoleCatalog = {
     audit: { read: 'audit.read' },
   },
 };
+
+export interface RegistryOrganization {
+  readonly id: string;
+  readonly name: string;
+  readonly status: 'ACTIVE' | 'SUSPENDED' | 'CLOSED';
+  readonly legalName: string | null;
+  readonly tradingName: string | null;
+  readonly registrationNumber: string | null;
+  readonly kraPin: string | null;
+  readonly phone: string | null;
+  readonly email: string | null;
+  readonly website: string | null;
+  readonly logoUrl: string | null;
+  readonly address: string | null;
+  readonly county: string | null;
+  readonly town: string | null;
+  readonly currency: string;
+  readonly timezone: string;
+  readonly country: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** The single organization the mock session belongs to (`org_example_1`). */
+export const ORGANIZATION: RegistryOrganization = {
+  id: 'org_example_1',
+  name: 'EXAMPLE CareOS Hospital',
+  status: 'ACTIVE',
+  legalName: 'EXAMPLE CareOS Hospital Limited',
+  tradingName: null,
+  registrationNumber: 'EXAMPLE-CPR-2026-001',
+  kraPin: 'EXAMPLE-P000000000X',
+  phone: '+254700000001',
+  email: 'info@careos.example',
+  website: 'https://careos.example',
+  logoUrl: null,
+  address: 'EXAMPLE 12 Hospital Road',
+  county: 'Nairobi',
+  town: 'Nairobi',
+  currency: 'KES',
+  timezone: 'Africa/Nairobi',
+  country: 'KE',
+  createdAt: '2026-01-01T08:00:00.000Z',
+  updatedAt: '2026-02-01T08:00:00.000Z',
+};

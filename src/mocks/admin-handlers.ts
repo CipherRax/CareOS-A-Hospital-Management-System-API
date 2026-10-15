@@ -3,7 +3,9 @@ import { http, HttpResponse } from 'msw';
 import {
   ADMIN_ROLES,
   ADMIN_USERS,
+  ORGANIZATION,
   ROLE_CATALOG,
+  type RegistryOrganization,
   type RegistryRole,
   type RegistryUser,
   type RegistryUserRole,
@@ -23,12 +25,14 @@ import { apiError, apiOk, apiPage, delay, MOCK_LATENCY_MS } from '@/mocks/handle
 
 type MutableUser = { -readonly [K in keyof RegistryUser]: RegistryUser[K] };
 type MutableRole = { -readonly [K in keyof RegistryRole]: RegistryRole[K] };
+type MutableOrganization = { -readonly [K in keyof RegistryOrganization]: RegistryOrganization[K] };
 
 /** The mock session persona; self-management is refused exactly as upstream. */
 const CALLER_ID = 'usr_example_0001';
 
 const users: MutableUser[] = ADMIN_USERS.map((user) => ({ ...user }));
 const roles: MutableRole[] = ADMIN_ROLES.map((role) => ({ ...role }));
+const organization: MutableOrganization = { ...ORGANIZATION };
 let userSeq = 8;
 let roleSeq = 10;
 
@@ -339,6 +343,44 @@ export function adminHandlers() {
       if (id === CALLER_ID) return validationError('Cannot self-manage through this endpoint.');
       user.status = 'DEACTIVATED';
       return new HttpResponse(null, { status: 204 });
+    }),
+
+    http.get('*/api/v1/organizations/me', async () => {
+      await delay(MOCK_LATENCY_MS);
+      return HttpResponse.json(apiOk({ organization }));
+    }),
+
+    http.patch('*/api/v1/organizations/me', async ({ request }) => {
+      await delay(MOCK_LATENCY_MS);
+      const body = await readJson(request);
+      if (!body) return validationError('bad json');
+      const editable = [
+        'legalName',
+        'tradingName',
+        'registrationNumber',
+        'kraPin',
+        'phone',
+        'email',
+        'website',
+        'logoUrl',
+        'address',
+        'county',
+        'town',
+      ] as const;
+      if (!editable.some((field) => field in body)) {
+        return validationError('Nothing to update.');
+      }
+      if ('email' in body) {
+        const email = stringField(body.email);
+        if (email && users.some((user) => user.email.toLowerCase() === email.toLowerCase())) {
+          return conflict('That email is already in use by an account.');
+        }
+      }
+      for (const field of editable) {
+        if (field in body) organization[field] = stringField(body[field]);
+      }
+      organization.updatedAt = new Date().toISOString();
+      return HttpResponse.json(apiOk({ organization }));
     }),
   ];
 }

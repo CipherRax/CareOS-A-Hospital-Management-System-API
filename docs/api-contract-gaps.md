@@ -688,9 +688,15 @@ and `src/modules/roles`:
   exist, so the failure is surfaced rather than hidden. `GET /branches` is typed
   `BranchListResponseDto` but the service answers `pageOf` (its interceptor unwraps
   it to `{ data: items }`), so branch options are read with `extractBranchList`.
-- **Not built:** the organization profile (`/organizations/me`) follows in slice 4.
-  The audit-log viewing screen is **not
-  buildable**: there is no audit-list endpoint (writes happen inside the API via
+- **Organization (F9 slice 4).** Same GAP-020 family under
+  `src/modules/organizations`. `GET /organizations/me` answers `{ organization }`
+  (the export types the bare entity) and `PATCH /organizations/me` answers **200**
+  with `{ organization }`; both go through `extractOrganizationRecord`. The update
+  DTO refines to at least one field; a change whose email collides with another
+  account is a **409 `CONFLICT`**, and a patch that contains no editable keys is a
+  **400 `VALIDATION_ERROR`** ("Nothing to update.").
+- **Not built:** the audit-log viewing screen is **not buildable**: there is no
+  audit-list endpoint (writes happen inside the API via
   `src/database/audit.service.ts`).
 
 

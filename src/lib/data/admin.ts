@@ -419,3 +419,106 @@ export async function fetchRole(id: string, signal?: AbortSignal): Promise<RoleR
     signal,
   );
 }
+
+// --- organization -----------------------------------------------------------
+
+export const ORGANIZATION_STATUSES = ['ACTIVE', 'SUSPENDED', 'CLOSED'] as const;
+export type OrganizationStatus = (typeof ORGANIZATION_STATUSES)[number];
+
+export interface OrganizationRow {
+  readonly id: string;
+  readonly name: string;
+  readonly status: OrganizationStatus;
+  readonly legalName: string | null;
+  readonly tradingName: string | null;
+  readonly registrationNumber: string | null;
+  readonly kraPin: string | null;
+  readonly phone: string | null;
+  readonly email: string | null;
+  readonly website: string | null;
+  readonly logoUrl: string | null;
+  readonly address: string | null;
+  readonly county: string | null;
+  readonly town: string | null;
+  readonly currency: string;
+  readonly timezone: string;
+  readonly country: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/**
+ * Mirrors `UpdateOrganizationDto`: the DTO refines to at least one field, and only
+ * some fields accept `null`. `legalName`, `registrationNumber` and `kraPin` are
+ * plain strings, so clearing them is not offered — the form omits an empty one.
+ */
+export interface UpdateOrganizationInput {
+  readonly legalName?: string;
+  readonly tradingName?: string | null;
+  readonly registrationNumber?: string;
+  readonly kraPin?: string;
+  readonly phone?: string | null;
+  readonly email?: string | null;
+  readonly website?: string | null;
+  readonly logoUrl?: string | null;
+  readonly address?: string | null;
+  readonly county?: string | null;
+  readonly town?: string | null;
+}
+
+/**
+ * Reads one serialized organization; returns null when a required field has
+ * drifted. `name` and `id` are the only fields assumed present, because a
+ * profile that renders a blank name would read as a different organization.
+ */
+export function readOrganization(value: unknown): OrganizationRow | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== 'string' || typeof value.name !== 'string') return null;
+  return {
+    id: value.id,
+    name: value.name,
+    status:
+      typeof value.status === 'string' &&
+      ORGANIZATION_STATUSES.includes(value.status as OrganizationStatus)
+        ? (value.status as OrganizationStatus)
+        : 'ACTIVE',
+    legalName: nullableString(value.legalName),
+    tradingName: nullableString(value.tradingName),
+    registrationNumber: nullableString(value.registrationNumber),
+    kraPin: nullableString(value.kraPin),
+    phone: nullableString(value.phone),
+    email: nullableString(value.email),
+    website: nullableString(value.website),
+    logoUrl: nullableString(value.logoUrl),
+    address: nullableString(value.address),
+    county: nullableString(value.county),
+    town: nullableString(value.town),
+    currency: typeof value.currency === 'string' ? value.currency : '',
+    timezone: typeof value.timezone === 'string' ? value.timezone : '',
+    country: typeof value.country === 'string' ? value.country : '',
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : '',
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : '',
+  };
+}
+
+/** Reads a single-organization body: reads and writes answer `{ organization }`. */
+export function extractOrganizationRecord(
+  payload: unknown,
+): { ok: true; organization: OrganizationRow } | { ok: false } {
+  if (!isRecord(payload)) return { ok: false };
+  const organization = readOrganization(payload.organization);
+  return organization ? { ok: true, organization } : { ok: false };
+}
+
+/** Raw read against `GET /organizations/me` (the service answers `{ organization }`). */
+export async function fetchOrganization(signal?: AbortSignal): Promise<OrganizationRow> {
+  const url = `${publicEnv.apiBasePath}/organizations/me`;
+  return readEnvelope<OrganizationRow>(
+    url,
+    (data) => {
+      const parsed = extractOrganizationRecord(data);
+      return parsed.ok ? { ok: true, value: parsed.organization } : { ok: false };
+    },
+    signal,
+  );
+}

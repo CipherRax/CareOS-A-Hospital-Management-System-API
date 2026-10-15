@@ -21,7 +21,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) and wastage write-offs | transfers/counts/POs have no read endpoint (GAP-020) |
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
-| F9 Administration & audit      | in progress — users administration (slice 1), role management (slice 2), staff directory (slice 3)                   | organization profile (slice 4); audit-log viewing has no API endpoint |
+| F9 Administration & audit      | in progress — users administration (slice 1), role management (slice 2), staff directory (slice 3), organization profile (slice 4)                   | audit-log viewing has no API endpoint |
 | F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                          |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
@@ -1289,6 +1289,34 @@ be built — there is no audit-list endpoint.
 Gate: lint clean, `tsc --noEmit` 0, unit 526 (`staff.test.ts` + 16),
 `build:prod` OK (routes `/staff`, `/staff/[id]`), e2e/a11y 207. Contract note
 appended to GAP-020.
+
+## F9 — Administration, slice 4: organization profile
+
+**Status:** in progress. The single organization profile. Audit-log viewing still
+cannot be built — there is no audit-list endpoint.
+
+- **Profile** (`src/components/staff/organization-workspace.tsx`, `/organization`).
+  Read-only identity fields (name, status, currency, timezone, country, created,
+  last updated, formatted in UTC), and an editable form (legal name, trading name,
+  registration number, KRA PIN, phone, email, website, logo URL, county, town,
+  address). The read answers `{ organization }` (GAP-020), validated in
+  `src/lib/data/admin.ts`. `PATCH /organizations/me` refines to at least one
+  field; an email that collides with an account is a 409 `CONFLICT` and that
+  outcome is surfaced.
+- **Data layer** (`src/lib/data/admin.ts`). `OrganizationRow`, `UpdateOrganizationInput`,
+  `readOrganization`, `extractOrganizationRecord`, `fetchOrganization`, plus tests
+  in `admin.test.ts`.
+- **Hooks** (`src/lib/data/queries.ts`). `useOrganization` and `useUpdateOrganization`.
+- **Mocks/stub.** `src/mocks/fixtures/admin-registry.ts` has `ORGANIZATION`
+  (`org_example_1`), `src/mocks/admin-handlers.ts` adds `GET/PATCH /organizations/me`
+  with guards, mirrored in `e2e/stub-api.mjs`.
+- **Nav + i18n + a11y.** An *Organization* entry sits under Administration after
+  *Staff*; the `admin` namespace gained the organization block; `/organization`
+  joined the a11y route sweep.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 531 (`admin.test.ts` + 5),
+`build:prod` OK (route `/organization`), e2e/a11y 211. Contract note updated in
+GAP-020.
 
 
 
