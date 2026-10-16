@@ -22,7 +22,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
 | F9 Administration & audit      | in progress — users administration (slice 1), role management (slice 2), staff directory (slice 3), organization profile (slice 4)                   | audit-log viewing has no API endpoint |
-| F10 Analytics & reports        | in progress — reports desk (slice 1); analytics metrics dashboard (slice 2): `/analytics` summary, daily series and labelled snapshots | bottleneck/capacity, forecasts, patient-experience/staff analytics |
+| F10 Analytics & reports        | in progress — reports desk (slice 1); analytics metrics dashboard (slice 2): `/analytics` summary, daily series and labelled snapshots; journey bottlenecks + capacity with the embedded appointment-demand forecast (slice 3) | forecast series endpoint, patient-experience/staff analytics |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
 | F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine     |
@@ -1400,6 +1400,49 @@ forecasts and the patient-experience/staff analyses remain for later slices.
   are unchanged.
 
 Gate: lint clean, `tsc --noEmit` 0, unit 545 (`analytics.test.ts` + 4),
+`build:prod` OK (route `/analytics`), e2e/a11y 223. Contract note updated in
+GAP-020.
+
+## F10 — Analytics & reports, slice 3: journey bottlenecks & capacity
+
+**Status:** in progress. Two more panels on `/analytics`: the journey bottleneck
+ranking and capacity planning (with the embedded appointment-demand forecast).
+The standalone forecast-series endpoint and the patient-experience/staff analyses
+remain for later slices.
+
+- **Journey bottlenecks** (`BottleneckSection` in
+  `src/components/analytics/analytics-dashboard.tsx`). A ranked table (rank, stage,
+  average, median, samples) over the same reporting window. The service's
+  interpretation sentence is shown verbatim above it, because it states what the
+  averages are averages *of* — including that LABORATORY/PHARMACY/BILLING use
+  order-level timestamps where per-visit phase timestamps are not recorded.
+- **Capacity** (`CapacitySection`). Peak hours and days, department load with its
+  in-window total, provider booking fill (completed / scheduled-and-not-cancelled
+  per provider, `percent` null when nothing was scheduled), bed occupancy with
+  admissions-per-day, and the appointment-demand forecast. Each block keeps the
+  API's own `label`; the panels fail closed if a critical block drifts, except the
+  forecast.
+- **Labelled forecast** (`ForecastBlock`). Model name and version, the fit period,
+  the horizon, the points with their uncertainty band (`lower`/`upper`), and the
+  service's notes are all rendered — a forecast with its band or caveats withheld
+  reads as a promise, which it is not.
+- **Data layer** (`src/lib/data/analytics.ts`). `AnalyticsBottleneck`,
+  `BottleneckStage`, `AnalyticsCapacity`, `CapacityPeak`, `ForecastResult`,
+  `ForecastPoint`, `readAnalyticsBottleneck`, `readAnalyticsCapacity`,
+  `fetchAnalyticsBottleneck`, `fetchAnalyticsCapacity`, plus tests in
+  `analytics.test.ts`. Bottleneck and capacity fail closed on drift; a malformed
+  embedded forecast leaves the rest of the capacity panel readable with the
+  forecast null.
+- **Hooks** (`src/lib/data/queries.ts`). `useAnalyticsBottleneck` and
+  `useAnalyticsCapacity`, each keyed on the whole window (they ignore granularity).
+- **Mocks/stub.** `ANALYTICS_BOTTLENECK` and `ANALYTICS_CAPACITY` added to
+  `src/mocks/fixtures/analytics-registry.ts`, served by `analytics-handlers.ts`
+  with the requested window echoed back into `period`, mirrored in
+  `e2e/stub-api.mjs` (`LIVE_ANALYTICS_BOTTLENECK`, `LIVE_ANALYTICS_CAPACITY`).
+- **i18n.** The `analytics` namespace (en+sw) gained the bottleneck, capacity and
+  forecast keys.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 552 (`analytics.test.ts` + 11, i.e. +7),
 `build:prod` OK (route `/analytics`), e2e/a11y 223. Contract note updated in
 GAP-020.
 

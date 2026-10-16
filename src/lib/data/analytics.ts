@@ -177,3 +177,291 @@ export async function fetchAnalyticsMetrics(
     signal,
   );
 }
+
+// --- bottleneck, capacity and forecast (F10 slice 3) ------------------------
+
+/** One journey stage's timing. `medianMinutes` is null on a single sample. */
+export interface BottleneckStage {
+  readonly key: string;
+  readonly label: string;
+  readonly avgMinutes: number | null;
+  readonly medianMinutes: number | null;
+  readonly samples: number;
+}
+
+export interface AnalyticsBottleneck {
+  readonly interpretation: string;
+  readonly order: readonly string[];
+  readonly stages: readonly BottleneckStage[];
+  readonly period: MetricsPeriod;
+}
+
+/** A forecast point. `lower`/`upper` are omitted when the band is unavailable. */
+export interface ForecastPoint {
+  readonly date: string;
+  readonly value: number;
+  readonly lower: number | null;
+  readonly upper: number | null;
+}
+
+/**
+ * A labelled forecast: model name and version, the fitted period, a horizon, the
+ * points, and the service's own caveats as `notes`. Every one of those is shown —
+ * a forecast with its uncertainty band and its notes withheld is a promise.
+ */
+export interface ForecastResult {
+  readonly kind: string;
+  readonly model: { readonly name: string; readonly version: string };
+  readonly period: { readonly from: string; readonly to: string };
+  readonly horizon: number;
+  readonly points: readonly ForecastPoint[];
+  readonly notes: readonly string[];
+}
+
+export interface CapacityPeak {
+  readonly label: string;
+  readonly count: number;
+}
+
+export interface AnalyticsCapacity {
+  readonly interpretation: string;
+  readonly period: MetricsPeriod;
+  readonly peakHours: readonly CapacityPeak[];
+  readonly peakDays: readonly CapacityPeak[];
+  readonly departmentLoad: {
+    readonly total: number;
+    readonly label: string;
+    readonly items: readonly { readonly departmentId: string; readonly tickets: number }[];
+  };
+  readonly providerUtilization: {
+    readonly label: string;
+    readonly items: readonly {
+      readonly providerId: string;
+      readonly completedAppointments: number;
+      readonly scheduledNonCancelled: number;
+      readonly percent: number | null;
+    }[];
+  };
+  readonly bedOccupancy: {
+    readonly occupied: number;
+    readonly total: number;
+    readonly percent: number | null;
+    readonly label: string;
+    readonly admissionsPerDay: readonly { readonly date: string; readonly admissions: number }[];
+  };
+  readonly appointmentDemand: {
+    readonly forecast: ForecastResult | null;
+    readonly label: string;
+  };
+}
+
+function readPeriod(value: unknown): MetricsPeriod | null {
+  if (!isRecord(value) || typeof value.from !== 'string' || typeof value.to !== 'string') {
+    return null;
+  }
+  return { from: value.from, to: value.to };
+}
+
+function readForecast(data: unknown): ForecastResult | null {
+  if (!isRecord(data)) return null;
+  const model = isRecord(data.model) ? data.model : null;
+  const period = readPeriod(data.period);
+  if (!model || typeof model.name !== 'string' || typeof model.version !== 'string' || !period) {
+    return null;
+  }
+  if (!Array.isArray(data.points)) return null;
+  const points = data.points.map((point): ForecastPoint | null => {
+    if (!isRecord(point) || typeof point.date !== 'string') return null;
+    return {
+      date: point.date,
+      value: typeof point.value === 'number' ? point.value : 0,
+      lower: nullableNumber(point.lower),
+      upper: nullableNumber(point.upper),
+    };
+  });
+  if (points.some((point) => point === null)) return null;
+
+  const notes = Array.isArray(data.notes) ? data.notes.filter((n): n is string => typeof n === 'string') : [];
+
+  return {
+    kind: typeof data.kind === 'string' ? data.kind : 'forecast',
+    model: { name: model.name, version: model.version },
+    period,
+    horizon: typeof data.horizon === 'number' ? data.horizon : 0,
+    points: points as readonly ForecastPoint[],
+    notes,
+  };
+}
+
+/**
+ * Maps an array of unknown items, failing closed when any member is not an
+ * object the mapper accepts.
+ */
+function readTypedItems<T>(
+  value: unknown,
+  map: (item: Record<string, unknown>) => T | null,
+): T[] | null {
+  if (!Array.isArray(value)) return null;
+  const items = (value as unknown[]).map((item) => (isRecord(item) ? map(item) : null));
+  return items.some((item) => item === null) ? null : (items as T[]);
+}
+
+/** Validates the unwrapped `GET /analytics/bottleneck` body; fails closed. */
+export function readAnalyticsBottleneck(data: unknown): AnalyticsBottleneck | null {
+  if (!isRecord(data)) return null;
+  const period = readPeriod(data.period);
+  if (!period) return null;
+  if (!Array.isArray(data.stages)) return null;
+  const stages = data.stages.map((stage): BottleneckStage | null => {
+    if (!isRecord(stage) || typeof stage.key !== 'string' || typeof stage.label !== 'string') {
+      return null;
+    }
+    return {
+      key: stage.key,
+      label: stage.label,
+      avgMinutes: nullableNumber(stage.avgMinutes),
+      medianMinutes: nullableNumber(stage.medianMinutes),
+      samples: count(stage.samples),
+    };
+  });
+  if (stages.some((stage) => stage === null)) return null;
+
+  return {
+    interpretation: typeof data.interpretation === 'string' ? data.interpretation : '',
+    order: Array.isArray(data.order)
+      ? data.order.filter((key): key is string => typeof key === 'string')
+      : [],
+    stages: stages as readonly BottleneckStage[],
+    period,
+  };
+}
+
+/** Validates the unwrapped `GET /analytics/capacity` body; fails closed. */
+export function readAnalyticsCapacity(data: unknown): AnalyticsCapacity | null {
+  if (!isRecord(data)) return null;
+  const period = readPeriod(data.period);
+  if (!period) return null;
+
+  const readPeaks = (value: unknown): CapacityPeak[] | null => {
+    if (!Array.isArray(value)) return null;
+    const peaks = value.map((peak): CapacityPeak | null => {
+      if (!isRecord(peak)) return null;
+      const label = typeof peak.hour === 'string' ? peak.hour : typeof peak.day === 'string' ? peak.day : null;
+      if (label === null) return null;
+      return { label, count: count(peak.count) };
+    });
+    return peaks.some((peak) => peak === null) ? null : (peaks as CapacityPeak[]);
+  };
+
+  const peakHours = readPeaks(data.peakHours);
+  const peakDays = readPeaks(data.peakDays);
+  if (!peakHours || !peakDays) return null;
+
+  const departmentLoad = isRecord(data.departmentLoad) ? data.departmentLoad : null;
+  const providerUtilization = isRecord(data.providerUtilization) ? data.providerUtilization : null;
+  const bedOccupancy = isRecord(data.bedOccupancy) ? data.bedOccupancy : null;
+  const appointmentDemand = isRecord(data.appointmentDemand) ? data.appointmentDemand : null;
+  if (!departmentLoad || !providerUtilization || !bedOccupancy || !appointmentDemand) return null;
+
+  const departmentItems = readTypedItems<{ departmentId: string; tickets: number }>(
+    departmentLoad.items,
+    (item) =>
+      typeof item.departmentId === 'string'
+        ? { departmentId: item.departmentId, tickets: count(item.tickets) }
+        : null,
+  );
+  const providerItems = readTypedItems<{
+    providerId: string;
+    completedAppointments: number;
+    scheduledNonCancelled: number;
+    percent: number | null;
+  }>(providerUtilization.items, (item) =>
+    typeof item.providerId === 'string'
+      ? {
+          providerId: item.providerId,
+          completedAppointments: count(item.completedAppointments),
+          scheduledNonCancelled: count(item.scheduledNonCancelled),
+          percent: nullableNumber(item.percent),
+        }
+      : null,
+  );
+  const admissions = readTypedItems<{ date: string; admissions: number }>(
+    bedOccupancy.admissionsPerDay,
+    (item) =>
+      typeof item.date === 'string'
+        ? { date: item.date, admissions: count(item.admissions) }
+        : null,
+  );
+  if (!departmentItems || !providerItems || !admissions) return null;
+
+  return {
+    interpretation: typeof data.interpretation === 'string' ? data.interpretation : '',
+    period,
+    peakHours,
+    peakDays,
+    departmentLoad: {
+      total: count(departmentLoad.total),
+      label: typeof departmentLoad.label === 'string' ? departmentLoad.label : '',
+      items: departmentItems,
+    },
+    providerUtilization: {
+      label: typeof providerUtilization.label === 'string' ? providerUtilization.label : '',
+      items: providerItems,
+    },
+    bedOccupancy: {
+      occupied: count(bedOccupancy.occupied),
+      total: count(bedOccupancy.total),
+      percent: nullableNumber(bedOccupancy.percent),
+      label: typeof bedOccupancy.label === 'string' ? bedOccupancy.label : '',
+      admissionsPerDay: admissions,
+    },
+    appointmentDemand: {
+      forecast: readForecast(appointmentDemand.forecast),
+      label: typeof appointmentDemand.label === 'string' ? appointmentDemand.label : '',
+    },
+  };
+}
+
+/** Raw read against `GET /analytics/bottleneck?{window}`. */
+export async function fetchAnalyticsBottleneck(
+  query: AnalyticsMetricsQuery = {},
+  signal?: AbortSignal,
+): Promise<AnalyticsBottleneck> {
+  const suffix = queryString({
+    from: query.from,
+    to: query.to,
+    branchId: query.branchId,
+    departmentId: query.departmentId,
+  });
+  const url = `${publicEnv.apiBasePath}/analytics/bottleneck${suffix}`;
+  return readEnvelope<AnalyticsBottleneck>(
+    url,
+    (data) => {
+      const bottleneck = readAnalyticsBottleneck(data);
+      return bottleneck ? { ok: true, value: bottleneck } : { ok: false };
+    },
+    signal,
+  );
+}
+
+/** Raw read against `GET /analytics/capacity?{window}`. */
+export async function fetchAnalyticsCapacity(
+  query: AnalyticsMetricsQuery = {},
+  signal?: AbortSignal,
+): Promise<AnalyticsCapacity> {
+  const suffix = queryString({
+    from: query.from,
+    to: query.to,
+    branchId: query.branchId,
+    departmentId: query.departmentId,
+  });
+  const url = `${publicEnv.apiBasePath}/analytics/capacity${suffix}`;
+  return readEnvelope<AnalyticsCapacity>(
+    url,
+    (data) => {
+      const capacity = readAnalyticsCapacity(data);
+      return capacity ? { ok: true, value: capacity } : { ok: false };
+    },
+    signal,
+  );
+}

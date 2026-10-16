@@ -10,12 +10,22 @@ import { MoneyText } from '@/components/clinical/money-text';
 import { Button } from '@/components/ui/button';
 import { Field, Input, Select } from '@/components/ui/field';
 import {
+  useAnalyticsBottleneck,
+  useAnalyticsCapacity,
   useAnalyticsMetrics,
   useBranchOptions,
   useDepartmentList,
   useOrgCurrency,
 } from '@/lib/data/queries';
-import type { AnalyticsMetrics, MetricsSeriesRow } from '@/lib/data/analytics';
+import type {
+  AnalyticsBottleneck,
+  AnalyticsCapacity,
+  AnalyticsMetrics,
+  AnalyticsMetricsQuery,
+  BottleneckStage,
+  ForecastResult,
+  MetricsSeriesRow,
+} from '@/lib/data/analytics';
 
 /**
  * Analytics dashboard (F10 analytics & reports): operational metrics.
@@ -102,13 +112,14 @@ export function AnalyticsScreen() {
     departmentId: string;
   }>({ from: '', to: '', granularity: 'day', branchId: '', departmentId: '' });
 
-  const metrics = useAnalyticsMetrics({
+  const window: AnalyticsMetricsQuery = {
     from: applied.from ? new Date(`${applied.from}T00:00:00Z`).toISOString() : undefined,
     to: applied.to ? new Date(`${applied.to}T23:59:59Z`).toISOString() : undefined,
-    granularity: applied.granularity,
     branchId: applied.branchId || undefined,
     departmentId: applied.departmentId || undefined,
-  });
+  };
+
+  const metrics = useAnalyticsMetrics({ ...window, granularity: applied.granularity });
 
   return (
     <div className="flex flex-col gap-6 px-6 py-6">
@@ -133,6 +144,9 @@ export function AnalyticsScreen() {
       ) : (
         <MetricsBody metrics={metrics.data.data} />
       )}
+
+      <BottleneckSection window={window} />
+      <CapacitySection window={window} />
     </div>
   );
 }
@@ -514,4 +528,322 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function humanize(key: string): string {
   const spaced = key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/**
+ * Journey bottleneck ranking (F10 slice 3). `GET /analytics/bottleneck` is typed
+ * `unknown`; the stages are validated and ranked by mean duration in
+ * `src/lib/data/analytics.ts`. The service's interpretation sentence is shown
+ * verbatim above the table — it states exactly what the numbers are averages
+ * *of*, including that LAB/PHARMACY/BILLING use order-level timestamps.
+ */
+type RankedStage = BottleneckStage & { rank: number };
+
+function BottleneckSection({ window }: { window: AnalyticsMetricsQuery }) {
+  const t = useTranslations('analytics');
+  const locale = useLocale();
+  const bottleneck = useAnalyticsBottleneck(window);
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-subheading font-semibold text-primary">{t('bottleneckHeading')}</h2>
+      {bottleneck.isLoading && !bottleneck.data ? (
+        <p role="status" className="text-meta text-tertiary">
+          {t('loading')}
+        </p>
+      ) : bottleneck.error || !bottleneck.data ? (
+        <p role="alert" className="text-meta text-secondary">
+          {t('bottleneckUnavailable')}
+        </p>
+      ) : (
+        <BottleneckBody bottleneck={bottleneck.data.data} locale={locale} />
+      )}
+    </section>
+  );
+}
+
+function BottleneckBody({ bottleneck, locale }: { bottleneck: AnalyticsBottleneck; locale: string }) {
+  const t = useTranslations('analytics');
+  const rows: RankedStage[] = bottleneck.stages.map((stage, index) => ({
+    ...stage,
+    rank: index + 1,
+  }));
+  const minutes = (value: number | null) =>
+    value === null ? '—' : <span>{t('minutes', { value })}</span>;
+  const columns: readonly DataTableColumn<RankedStage>[] = [
+    { key: 'rank', header: t('bottleneckRank'), numeric: true, cell: (row) => row.rank },
+    { key: 'label', header: t('bottleneckStage'), cell: (row) => row.label },
+    { key: 'avgMinutes', header: t('bottleneckAvg'), numeric: true, cell: (row) => minutes(row.avgMinutes) },
+    { key: 'medianMinutes', header: t('bottleneckMedian'), numeric: true, cell: (row) => minutes(row.medianMinutes) },
+    {
+      key: 'samples',
+      header: t('bottleneckSamples'),
+      numeric: true,
+      cell: (row) => new Intl.NumberFormat(locale).format(row.samples),
+    },
+  ];
+
+  return (
+    <>
+      {bottleneck.interpretation ? (
+        <p className="text-caption text-tertiary">{bottleneck.interpretation}</p>
+      ) : null}
+      <DataTable<RankedStage>
+        caption={t('bottleneckCaption')}
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => row.key}
+        emptyMessage={t('bottleneckEmpty')}
+      />
+    </>
+  );
+}
+
+/**
+ * Capacity planning (F10 slice 3). `GET /analytics/capacity` bundles peak times,
+ * department load, provider booking fill, bed occupancy and an embedded
+ * appointment-demand forecast. The whole payload fails closed, except the
+ * forecast: a malformed forecast leaves the rest of the panel readable (see
+ * `readAnalyticsCapacity`), and the forecast's own notes travel with it.
+ */
+function CapacitySection({ window }: { window: AnalyticsMetricsQuery }) {
+  const t = useTranslations('analytics');
+  const locale = useLocale();
+  const capacity = useAnalyticsCapacity(window);
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-subheading font-semibold text-primary">{t('capacityHeading')}</h2>
+      {capacity.isLoading && !capacity.data ? (
+        <p role="status" className="text-meta text-tertiary">
+          {t('loading')}
+        </p>
+      ) : capacity.error || !capacity.data ? (
+        <p role="alert" className="text-meta text-secondary">
+          {t('capacityUnavailable')}
+        </p>
+      ) : (
+        <CapacityBody capacity={capacity.data.data} locale={locale} />
+      )}
+    </section>
+  );
+}
+
+function CapacityBody({
+  capacity,
+  locale,
+}: {
+  capacity: AnalyticsCapacity;
+  locale: string;
+}) {
+  const t = useTranslations('analytics');
+  const formatPercent = (value: number | null) =>
+    value === null
+      ? '—'
+      : new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }).format(value / 100);
+  const formatDate = (date: string) =>
+    new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(
+      new Date(`${date}T00:00:00Z`),
+    );
+
+  const providerColumns: readonly DataTableColumn<AnalyticsCapacity['providerUtilization']['items'][number]>[] = [
+    { key: 'providerId', header: t('capacityProvider'), cell: (row) => row.providerId },
+    {
+      key: 'completedAppointments',
+      header: t('capacityCompleted'),
+      numeric: true,
+      cell: (row) => new Intl.NumberFormat(locale).format(row.completedAppointments),
+    },
+    {
+      key: 'scheduledNonCancelled',
+      header: t('capacityScheduled'),
+      numeric: true,
+      cell: (row) => new Intl.NumberFormat(locale).format(row.scheduledNonCancelled),
+    },
+    { key: 'percent', header: t('capacityFill'), numeric: true, cell: (row) => formatPercent(row.percent) },
+  ];
+
+  return (
+    <>
+      {capacity.interpretation ? (
+        <p className="text-caption text-tertiary">{capacity.interpretation}</p>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <section className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4">
+          <h3 className="text-body font-semibold text-primary">{t('capacityPeaksHeading')}</h3>
+          <div className="flex flex-col gap-3 sm:flex-row sm:gap-8">
+            <div className="flex flex-col gap-1">
+              <h4 className="text-caption text-tertiary">{t('capacityPeakHours')}</h4>
+              <ul className="flex flex-col gap-0.5 text-meta text-primary">
+                {capacity.peakHours.map((peak) => (
+                  <li key={peak.label} className="flex items-baseline justify-between gap-4">
+                    <span className="tabular-nums">{peak.label}</span>
+                    <span className="tabular-nums">{new Intl.NumberFormat(locale).format(peak.count)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex flex-col gap-1">
+              <h4 className="text-caption text-tertiary">{t('capacityPeakDays')}</h4>
+              <ul className="flex flex-col gap-0.5 text-meta text-primary">
+                {capacity.peakDays.map((peak) => (
+                  <li key={peak.label} className="flex items-baseline justify-between gap-4">
+                    <span>{peak.label}</span>
+                    <span className="tabular-nums">{new Intl.NumberFormat(locale).format(peak.count)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4">
+          <h3 className="text-body font-semibold text-primary">{t('capacityDepartmentHeading')}</h3>
+          <p className="text-caption text-tertiary">{capacity.departmentLoad.label}</p>
+          <p className="text-meta text-secondary">
+            {t('capacityDepartmentTotal', {
+              total: new Intl.NumberFormat(locale).format(capacity.departmentLoad.total),
+            })}
+          </p>
+          <ul className="flex flex-col gap-0.5 text-meta text-primary">
+            {capacity.departmentLoad.items.map((item) => (
+              <li key={item.departmentId} className="flex items-baseline justify-between gap-4">
+                <span>{item.departmentId}</span>
+                <span className="tabular-nums">{new Intl.NumberFormat(locale).format(item.tickets)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4 lg:col-span-2">
+          <h3 className="text-body font-semibold text-primary">{t('capacityProviderHeading')}</h3>
+          <p className="text-caption text-tertiary">{capacity.providerUtilization.label}</p>
+          <DataTable
+            caption={t('capacityProviderCaption')}
+            columns={providerColumns}
+            rows={capacity.providerUtilization.items}
+            rowKey={(row) => row.providerId}
+            emptyMessage={t('capacityEmpty')}
+            scrollable
+          />
+        </section>
+
+        <section className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4">
+          <h3 className="text-body font-semibold text-primary">{t('capacityBedsHeading')}</h3>
+          <p className="text-caption text-tertiary">{capacity.bedOccupancy.label}</p>
+          <dl className="flex flex-wrap gap-x-6 gap-y-1 text-meta text-primary">
+            <div className="flex gap-1">
+              <dt className="text-tertiary">{t('capacityBedsOccupied')}</dt>
+              <dd className="tabular-nums">
+                {new Intl.NumberFormat(locale).format(capacity.bedOccupancy.occupied)}
+              </dd>
+            </div>
+            <div className="flex gap-1">
+              <dt className="text-tertiary">{t('capacityBedsTotal')}</dt>
+              <dd className="tabular-nums">
+                {new Intl.NumberFormat(locale).format(capacity.bedOccupancy.total)}
+              </dd>
+            </div>
+            <div className="flex gap-1">
+              <dt className="text-tertiary">{t('capacityBedsPercent')}</dt>
+              <dd className="tabular-nums">{formatPercent(capacity.bedOccupancy.percent)}</dd>
+            </div>
+          </dl>
+          <h4 className="text-caption text-tertiary">{t('capacityAdmissions')}</h4>
+          <ul className="flex flex-col gap-0.5 text-meta text-primary">
+            {capacity.bedOccupancy.admissionsPerDay.map((day) => (
+              <li key={day.date} className="flex items-baseline justify-between gap-4">
+                <span>{formatDate(day.date)}</span>
+                <span className="tabular-nums">{new Intl.NumberFormat(locale).format(day.admissions)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4">
+          <h3 className="text-body font-semibold text-primary">{t('capacityForecastHeading')}</h3>
+          {capacity.appointmentDemand.forecast ? (
+            <ForecastBlock
+              forecast={capacity.appointmentDemand.forecast}
+              label={capacity.appointmentDemand.label}
+              locale={locale}
+            />
+          ) : (
+            <p className="text-meta text-secondary">{t('capacityForecastUnavailable')}</p>
+          )}
+        </section>
+      </div>
+    </>
+  );
+}
+
+/**
+ * A labelled forecast. The model name and version, the fit period, the horizon,
+ * the points with their uncertainty band, and the service's own notes are all
+ * shown — a forecast is an estimate, and stripping the band or the caveats is how
+ * it gets read as a promise.
+ */
+function ForecastBlock({
+  forecast,
+  label,
+  locale,
+}: {
+  forecast: ForecastResult;
+  label: string;
+  locale: string;
+}) {
+  const t = useTranslations('analytics');
+  const formatDate = (date: string) =>
+    new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(
+      new Date(date.length > 10 ? date : `${date}T00:00:00Z`),
+    );
+  const number = (value: number | null) =>
+    value === null ? '—' : new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
+
+  const columns: readonly DataTableColumn<ForecastResult['points'][number]>[] = [
+    { key: 'date', header: t('forecastDate'), cell: (row) => formatDate(row.date) },
+    { key: 'value', header: t('forecastValue'), numeric: true, cell: (row) => number(row.value) },
+    { key: 'lower', header: t('forecastLower'), numeric: true, cell: (row) => number(row.lower) },
+    { key: 'upper', header: t('forecastUpper'), numeric: true, cell: (row) => number(row.upper) },
+  ];
+
+  return (
+    <div className="flex flex-col gap-2">
+      {label ? <p className="text-caption text-tertiary">{label}</p> : null}
+      <dl className="flex flex-wrap gap-x-6 gap-y-1 text-meta text-primary">
+        <div className="flex gap-1">
+          <dt className="text-tertiary">{t('forecastModel')}</dt>
+          <dd>{`${forecast.model.name} v${forecast.model.version}`}</dd>
+        </div>
+        <div className="flex gap-1">
+          <dt className="text-tertiary">{t('forecastFit')}</dt>
+          <dd>
+            {t('forecastFitValue', {
+              from: formatDate(forecast.period.from),
+              to: formatDate(forecast.period.to),
+            })}
+          </dd>
+        </div>
+        <div className="flex gap-1">
+          <dt className="text-tertiary">{t('forecastHorizon')}</dt>
+          <dd className="tabular-nums">{forecast.horizon}</dd>
+        </div>
+      </dl>
+      <DataTable
+        caption={t('forecastCaption')}
+        columns={columns}
+        rows={forecast.points}
+        rowKey={(row) => row.date}
+        emptyMessage={t('forecastEmpty')}
+      />
+      {forecast.notes.length > 0 ? (
+        <ul className="flex flex-col gap-0.5 text-caption text-tertiary">
+          {forecast.notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
 }

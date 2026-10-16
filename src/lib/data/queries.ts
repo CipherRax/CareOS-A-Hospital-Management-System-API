@@ -268,8 +268,12 @@ import {
   type RequestReportInput,
 } from '@/lib/data/reports';
 import {
+  fetchAnalyticsBottleneck,
+  fetchAnalyticsCapacity,
   fetchAnalyticsMetrics,
+  type AnalyticsBottleneck,
   type AnalyticsCallError,
+  type AnalyticsCapacity,
   type AnalyticsMetrics,
   type AnalyticsMetricsQuery,
 } from '@/lib/data/analytics';
@@ -4446,6 +4450,72 @@ export function useAnalyticsMetrics(
           data: metrics,
           response: new Response(null, { status: 200 }),
         } satisfies Fetched<AnalyticsMetrics>;
+      } catch (call) {
+        throw toQueryError(call as AnalyticsCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Journey bottleneck ranking `GET /analytics/bottleneck?{window}`. The payload is
+ * validated structurally in `src/lib/data/analytics.ts`; stages are linked to
+ * stage keys the API's interpretation text explains.
+ */
+export function useAnalyticsBottleneck(
+  query: AnalyticsMetricsQuery = {},
+): UseQueryResult<Fetched<AnalyticsBottleneck>, QueryError> {
+  return useQuery<Fetched<AnalyticsBottleneck>, QueryError>({
+    queryKey: [
+      'analytics',
+      'bottleneck',
+      query.from ?? null,
+      query.to ?? null,
+      query.branchId ?? null,
+      query.departmentId ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const bottleneck = await fetchAnalyticsBottleneck(query, signal);
+        return {
+          data: bottleneck,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<AnalyticsBottleneck>;
+      } catch (call) {
+        throw toQueryError(call as AnalyticsCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Capacity planning `GET /analytics/capacity?{window}`. Peak hours/days, load per
+ * department, provider utilization, bed occupancy and the embedded appointment
+ * demand forecast are validated structurally in `src/lib/data/analytics.ts`.
+ */
+export function useAnalyticsCapacity(
+  query: AnalyticsMetricsQuery = {},
+): UseQueryResult<Fetched<AnalyticsCapacity>, QueryError> {
+  return useQuery<Fetched<AnalyticsCapacity>, QueryError>({
+    queryKey: [
+      'analytics',
+      'capacity',
+      query.from ?? null,
+      query.to ?? null,
+      query.branchId ?? null,
+      query.departmentId ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const capacity = await fetchAnalyticsCapacity(query, signal);
+        return {
+          data: capacity,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<AnalyticsCapacity>;
       } catch (call) {
         throw toQueryError(call as AnalyticsCallError);
       }

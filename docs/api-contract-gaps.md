@@ -715,6 +715,16 @@ and `src/modules/roles`:
   labelled measurements that the API adds to over time and a new block should
   appear on the dashboard rather than blank it. The API's own `label` on each
   snapshot (and on the payload) is surfaced verbatim rather than paraphrased.
+- **Journey bottleneck & capacity (F10 slice 3).** Same family:
+  `GET /analytics/bottleneck` and `GET /analytics/capacity` are large nested
+  `unknown` payloads on the raw-fetch path, validated in `src/lib/data/analytics.ts`.
+  Bottleneck stages and every capacity block fail closed on drift; the one
+  exception is the **embedded appointment-demand forecast** inside
+  `capacity.appointmentDemand`: a malformed forecast leaves the rest of the panel
+  readable with `forecast: null`, since it is a labelled estimate riding along with
+  otherwise-solid measurements. The forecast's model name/version, fit period,
+  horizon, uncertainty band and the service's `notes` are all rendered — a forecast
+  is not a promise.
 - **Not built:** the audit-log viewing screen is **not buildable**: there is no
   audit-list endpoint (writes happen inside the API via
   `src/database/audit.service.ts`).

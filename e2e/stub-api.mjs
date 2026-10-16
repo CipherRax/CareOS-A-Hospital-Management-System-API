@@ -948,6 +948,81 @@ const LIVE_ANALYTICS_METRICS = {
   label: 'Time-series values are read from the daily rollup projection; point-in-time snapshots are read from current state. All values are measurements or labelled estimates.',
 };
 
+// F10 slice 3 mirrors of src/mocks/fixtures/analytics-registry.ts.
+const LIVE_ANALYTICS_BOTTLENECK = {
+  interpretation: 'Descriptive averages from recorded timestamps. LABORATORY/PHARMACY/BILLING use order-level timestamps where per-visit phase timestamps are not recorded. No causal or clinical claims.',
+  order: ['REGISTRATION_TO_TRIAGE', 'TRIAGE_TO_PROVIDER', 'CONSULTATION', 'LABORATORY', 'PHARMACY', 'BILLING'],
+  stages: [
+    { key: 'LABORATORY', label: 'Laboratory (order → release)', avgMinutes: 96.5, medianMinutes: 88, samples: 34 },
+    { key: 'REGISTRATION_TO_TRIAGE', label: 'Registration → triage', avgMinutes: 18.25, medianMinutes: 15, samples: 52 },
+    { key: 'BILLING', label: 'Billing (invoice issued → first completed payment)', avgMinutes: 14.5, medianMinutes: 12, samples: 27 },
+    { key: 'TRIAGE_TO_PROVIDER', label: 'Triage → provider', avgMinutes: 11.75, medianMinutes: 10, samples: 48 },
+    { key: 'CONSULTATION', label: 'Provider consultation', avgMinutes: 9.5, medianMinutes: null, samples: 1 },
+    { key: 'PHARMACY', label: 'Pharmacy (prescription issued → dispensed)', avgMinutes: 7.25, medianMinutes: 6, samples: 41 },
+  ],
+  period: { from: '2026-02-01T00:00:00.000Z', to: '2026-03-02T00:00:00.000Z' },
+};
+const LIVE_ANALYTICS_CAPACITY = {
+  interpretation: 'Historical analytics over recorded queue/appointment/admission data. Forecasts are labelled estimates from a statistical baseline.',
+  period: { from: '2026-02-01T00:00:00.000Z', to: '2026-05-02T00:00:00.000Z' },
+  peakHours: [
+    { hour: '09:00', count: 64 }, { hour: '08:00', count: 51 }, { hour: '14:00', count: 43 },
+    { hour: '10:00', count: 38 }, { hour: '16:00', count: 22 },
+  ],
+  peakDays: [{ day: 'Monday', count: 188 }, { day: 'Tuesday', count: 162 }, { day: 'Wednesday', count: 141 }],
+  departmentLoad: {
+    total: 384,
+    label: 'Queue tickets per department; departments with no recorded tickets are omitted.',
+    items: [
+      { departmentId: 'dept_example_opd', tickets: 176 },
+      { departmentId: 'dept_example_lab', tickets: 121 },
+      { departmentId: 'dept_example_pharmacy', tickets: 87 },
+    ],
+  },
+  providerUtilization: {
+    label: 'Booking fill estimate per provider = completed / scheduled-and-not-cancelled appointments.',
+    items: [
+      { providerId: 'usr_example_doc_a', completedAppointments: 84, scheduledNonCancelled: 92, percent: 91.3 },
+      { providerId: 'usr_example_doc_b', completedAppointments: 61, scheduledNonCancelled: 80, percent: 76.25 },
+      { providerId: 'usr_example_doc_c', completedAppointments: 40, scheduledNonCancelled: 62, percent: 64.52 },
+      { providerId: 'usr_example_doc_d', completedAppointments: 12, scheduledNonCancelled: 0, percent: null },
+    ],
+  },
+  bedOccupancy: {
+    occupied: 14, total: 24, percent: 58.33,
+    label: 'Point-in-time bed occupancy.',
+    admissionsPerDay: [
+      { date: '2026-04-29', admissions: 3 },
+      { date: '2026-04-30', admissions: 2 },
+      { date: '2026-05-01', admissions: 5 },
+    ],
+  },
+  appointmentDemand: {
+    label: 'Labelled estimate of daily appointment demand (weekly-seasonal-naive v1).',
+    forecast: {
+      kind: 'forecast',
+      model: { name: 'weekly-seasonal-naive', version: '1' },
+      period: { from: '2026-04-05', to: '2026-05-02' },
+      horizon: 7,
+      points: [
+        { date: '2026-05-03', value: 9.14, lower: 3.82, upper: 14.46 },
+        { date: '2026-05-04', value: 11.57, lower: 5.9, upper: 17.24 },
+        { date: '2026-05-05', value: 10.29, lower: 4.44, upper: 16.13 },
+        { date: '2026-05-06', value: 8.71, lower: 3.11, upper: 14.32 },
+        { date: '2026-05-07', value: 9.86, lower: 4.03, upper: 15.69 },
+        { date: '2026-05-08', value: 10.43, lower: 4.53, upper: 16.33 },
+        { date: '2026-05-09', value: 7.29, lower: 1.61, upper: 12.97 },
+      ],
+      notes: [
+        'Statistical baseline only; forecast/estimate, not a promise.',
+        'Fit on 28 data points (2026-04-05..2026-05-02).',
+        'Uncertainty band from model residuals over history.',
+        'Based on daily appointment bookings.',
+      ],
+    },
+  },
+};
+
 
 
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
@@ -3223,6 +3298,32 @@ const server = createServer(async (request, response) => {
         scope: { branchId: branchId ?? null, departmentId: departmentId ?? null },
         period: { from: from ?? LIVE_ANALYTICS_METRICS.period.from, to: to ?? LIVE_ANALYTICS_METRICS.period.to },
         granularity: granularity ?? LIVE_ANALYTICS_METRICS.granularity,
+      },
+    });
+    return;
+  }
+
+  // F10 slice 3: bottleneck and capacity with the requested window echoed back.
+  if (url.pathname === '/analytics/bottleneck' && request.method === 'GET') {
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+    send(response, 200, {
+      success: true,
+      data: {
+        ...LIVE_ANALYTICS_BOTTLENECK,
+        period: { from: from ?? LIVE_ANALYTICS_BOTTLENECK.period.from, to: to ?? LIVE_ANALYTICS_BOTTLENECK.period.to },
+      },
+    });
+    return;
+  }
+  if (url.pathname === '/analytics/capacity' && request.method === 'GET') {
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+    send(response, 200, {
+      success: true,
+      data: {
+        ...LIVE_ANALYTICS_CAPACITY,
+        period: { from: from ?? LIVE_ANALYTICS_CAPACITY.period.from, to: to ?? LIVE_ANALYTICS_CAPACITY.period.to },
       },
     });
     return;
