@@ -274,3 +274,61 @@ export const ANALYTICS_CAPACITY = {
     },
   },
 };
+
+/**
+ * F10 slice 4 forecast fixture, mirroring `ForecastsService.bySeries()` for one
+ * series. The handler patches the period, horizon and the series note.
+ */
+export const ANALYTICS_FORECAST = {
+  kind: 'forecast',
+  model: { name: 'weekly-seasonal-naive', version: '1' },
+  period: { from: '2026-04-05', to: '2026-05-02' },
+  horizon: 7,
+  points: [
+    { date: '2026-05-03', value: 9.14, lower: 3.82, upper: 14.46 },
+    { date: '2026-05-04', value: 11.57, lower: 5.9, upper: 17.24 },
+    { date: '2026-05-05', value: 10.29, lower: 4.44, upper: 16.13 },
+    { date: '2026-05-06', value: 8.71, lower: 3.11, upper: 14.32 },
+    { date: '2026-05-07', value: 9.86, lower: 4.03, upper: 15.69 },
+    { date: '2026-05-08', value: 10.43, lower: 4.53, upper: 16.33 },
+    { date: '2026-05-09', value: 7.29, lower: 1.61, upper: 12.97 },
+  ],
+  notes: [
+    'Statistical baseline only; forecast/estimate, not a promise.',
+    'Fit on 28 data points (2026-04-05..2026-05-02).',
+    'Uncertainty band from model residuals over history.',
+  ],
+};
+
+/**
+ * F10 slice 4 patient-experience fixture, mirroring `PatientExperienceService.score()`:
+ * the weights, a score + raw measurements per component, and the weighted composite.
+ */
+export const ANALYTICS_PATIENT_EXPERIENCE = {
+  interpretation:
+    'Composite estimate built from recorded measurements (waiting time, feedback rating, appointment reliability, service completion). Approximate, not a clinical measure.',
+  weights: { waitingTime: 0.35, feedback: 0.3, appointmentReliability: 0.2, serviceCompletion: 0.15 },
+  components: {
+    waitingTime: { score: 86, raw: { avgWaitingMinutes: 14 } },
+    feedback: { score: 78, raw: { avgRating: 3.9 } },
+    appointmentReliability: { score: 84, raw: { bookings: 25, noShow: 4, cancelled: 0 } },
+    serviceCompletion: { score: 91.67, raw: { visitsCompleted: 33, visitsRegistered: 36 } },
+  },
+  composite: 84.35,
+  period: { from: '2026-02-01T00:00:00.000Z', to: '2026-03-03T00:00:00.000Z' },
+};
+
+/**
+ * F10 slice 4 staff-analytics fixture, mirroring `StaffAnalyticsService.staff()`:
+ * raw per-staff measurements with the service's caveat as `interpretation`.
+ */
+export const ANALYTICS_STAFF = {
+  interpretation:
+    'Raw measurements aggregated from recorded activity. Not intended for individual performance evaluation or automated employment decisions.',
+  period: { from: '2026-02-01T00:00:00.000Z', to: '2026-03-03T00:00:00.000Z' },
+  items: [
+    { staffId: 'usr_example_doc_a', appointmentsHandled: 84, encountersOpened: 80, avgConsultationMinutes: 18.5, tasksCompleted: 12, queueServed: 9 },
+    { staffId: 'usr_example_doc_b', appointmentsHandled: 61, encountersOpened: 58, avgConsultationMinutes: 14.25, tasksCompleted: 21, queueServed: 15 },
+    { staffId: 'usr_example_doc_c', appointmentsHandled: 40, encountersOpened: 38, avgConsultationMinutes: null, tasksCompleted: 8, queueServed: 6 },
+  ],
+};

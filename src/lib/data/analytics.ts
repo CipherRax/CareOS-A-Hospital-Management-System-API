@@ -465,3 +465,212 @@ export async function fetchAnalyticsCapacity(
     signal,
   );
 }
+
+// --- forecasts, patient experience and staff analytics (F10 slice 4) -------
+
+/** The forecast series the service knows. Anything else is echoed back with a note. */
+export const FORECAST_SERIES = [
+  'appointment-demand',
+  'inventory-demand',
+  'bed-occupancy',
+  'lab-workload',
+] as const;
+
+export type ForecastSeries = (typeof FORECAST_SERIES)[number];
+
+export interface AnalyticsForecastQuery extends AnalyticsMetricsQuery {
+  /** Days ahead, 1–90. The service defaults to 7. */
+  horizon?: number;
+}
+
+/** Validates the unwrapped `GET /analytics/forecasts/{series}` body. */
+export function readAnalyticsForecast(data: unknown): ForecastResult | null {
+  return readForecast(data);
+}
+
+export interface ExperienceComponent {
+  readonly score: number | null;
+  /** The measurements the component score was derived from, kept as labelled numbers. */
+  readonly raw: Readonly<Record<string, number | null>>;
+}
+
+export interface ExperienceWeights {
+  readonly waitingTime: number;
+  readonly feedback: number;
+  readonly appointmentReliability: number;
+  readonly serviceCompletion: number;
+}
+
+export interface AnalyticsPatientExperience {
+  readonly interpretation: string;
+  readonly weights: ExperienceWeights;
+  readonly components: {
+    readonly waitingTime: ExperienceComponent;
+    readonly feedback: ExperienceComponent;
+    readonly appointmentReliability: ExperienceComponent;
+    readonly serviceCompletion: ExperienceComponent;
+  };
+  readonly composite: number | null;
+  readonly period: MetricsPeriod;
+}
+
+export interface StaffAnalyticRow {
+  readonly staffId: string;
+  readonly appointmentsHandled: number;
+  readonly encountersOpened: number;
+  readonly avgConsultationMinutes: number | null;
+  readonly tasksCompleted: number;
+  readonly queueServed: number;
+}
+
+export interface AnalyticsStaff {
+  readonly interpretation: string;
+  readonly period: MetricsPeriod;
+  readonly items: readonly StaffAnalyticRow[];
+}
+
+function readExperienceComponent(value: unknown): ExperienceComponent | null {
+  if (!isRecord(value)) return null;
+  if (!isRecord(value.raw)) return null;
+  const raw: Record<string, number | null> = {};
+  for (const [key, member] of Object.entries(value.raw)) {
+    if (typeof member === 'number') raw[key] = member;
+    else if (member === null) raw[key] = null;
+    else return null;
+  }
+  const score = value.score;
+  if (score !== null && typeof score !== 'number') return null;
+  return { score: typeof score === 'number' ? score : null, raw };
+}
+
+/** Validates the unwrapped `GET /analytics/patient-experience` body; fails closed. */
+export function readAnalyticsPatientExperience(data: unknown): AnalyticsPatientExperience | null {
+  if (!isRecord(data)) return null;
+  const period = readPeriod(data.period);
+  if (!period) return null;
+
+  const weights = isRecord(data.weights) ? data.weights : null;
+  if (
+    !weights ||
+    typeof weights.waitingTime !== 'number' ||
+    typeof weights.feedback !== 'number' ||
+    typeof weights.appointmentReliability !== 'number' ||
+    typeof weights.serviceCompletion !== 'number'
+  ) {
+    return null;
+  }
+
+  const components = isRecord(data.components) ? data.components : null;
+  if (!components) return null;
+  const waitingTime = readExperienceComponent(components.waitingTime);
+  const feedback = readExperienceComponent(components.feedback);
+  const appointmentReliability = readExperienceComponent(components.appointmentReliability);
+  const serviceCompletion = readExperienceComponent(components.serviceCompletion);
+  if (!waitingTime || !feedback || !appointmentReliability || !serviceCompletion) return null;
+
+  return {
+    interpretation: typeof data.interpretation === 'string' ? data.interpretation : '',
+    weights: {
+      waitingTime: weights.waitingTime,
+      feedback: weights.feedback,
+      appointmentReliability: weights.appointmentReliability,
+      serviceCompletion: weights.serviceCompletion,
+    },
+    components: { waitingTime, feedback, appointmentReliability, serviceCompletion },
+    composite: nullableNumber(data.composite),
+    period,
+  };
+}
+
+/** Validates the unwrapped `GET /analytics/staff` body; fails closed. */
+export function readAnalyticsStaff(data: unknown): AnalyticsStaff | null {
+  if (!isRecord(data)) return null;
+  const period = readPeriod(data.period);
+  if (!period) return null;
+  if (!Array.isArray(data.items)) return null;
+  const items = data.items.map((item): StaffAnalyticRow | null => {
+    if (!isRecord(item) || typeof item.staffId !== 'string') return null;
+    return {
+      staffId: item.staffId,
+      appointmentsHandled: count(item.appointmentsHandled),
+      encountersOpened: count(item.encountersOpened),
+      avgConsultationMinutes: nullableNumber(item.avgConsultationMinutes),
+      tasksCompleted: count(item.tasksCompleted),
+      queueServed: count(item.queueServed),
+    };
+  });
+  if (items.some((item) => item === null)) return null;
+
+  return {
+    interpretation: typeof data.interpretation === 'string' ? data.interpretation : '',
+    period,
+    items: items as readonly StaffAnalyticRow[],
+  };
+}
+
+/** Raw read against `GET /analytics/forecasts/{series}?{window,horizon}`. */
+export async function fetchAnalyticsForecast(
+  series: string,
+  query: AnalyticsForecastQuery = {},
+  signal?: AbortSignal,
+): Promise<ForecastResult> {
+  const suffix = queryString({
+    from: query.from,
+    to: query.to,
+    branchId: query.branchId,
+    departmentId: query.departmentId,
+    horizon: query.horizon === undefined ? undefined : String(query.horizon),
+  });
+  const url = `${publicEnv.apiBasePath}/analytics/forecasts/${encodeURIComponent(series)}${suffix}`;
+  return readEnvelope<ForecastResult>(
+    url,
+    (data) => {
+      const forecast = readAnalyticsForecast(data);
+      return forecast ? { ok: true, value: forecast } : { ok: false };
+    },
+    signal,
+  );
+}
+
+/** Raw read against `GET /analytics/patient-experience?{window}`. */
+export async function fetchAnalyticsPatientExperience(
+  query: AnalyticsMetricsQuery = {},
+  signal?: AbortSignal,
+): Promise<AnalyticsPatientExperience> {
+  const suffix = queryString({
+    from: query.from,
+    to: query.to,
+    branchId: query.branchId,
+    departmentId: query.departmentId,
+  });
+  const url = `${publicEnv.apiBasePath}/analytics/patient-experience${suffix}`;
+  return readEnvelope<AnalyticsPatientExperience>(
+    url,
+    (data) => {
+      const experience = readAnalyticsPatientExperience(data);
+      return experience ? { ok: true, value: experience } : { ok: false };
+    },
+    signal,
+  );
+}
+
+/** Raw read against `GET /analytics/staff?{window,staffId}`. */
+export async function fetchAnalyticsStaff(
+  query: AnalyticsMetricsQuery = {},
+  signal?: AbortSignal,
+): Promise<AnalyticsStaff> {
+  const suffix = queryString({
+    from: query.from,
+    to: query.to,
+    branchId: query.branchId,
+  });
+  const url = `${publicEnv.apiBasePath}/analytics/staff${suffix}`;
+  return readEnvelope<AnalyticsStaff>(
+    url,
+    (data) => {
+      const staff = readAnalyticsStaff(data);
+      return staff ? { ok: true, value: staff } : { ok: false };
+    },
+    signal,
+  );
+}

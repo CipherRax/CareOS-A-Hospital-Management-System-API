@@ -12,19 +12,26 @@ import { Field, Input, Select } from '@/components/ui/field';
 import {
   useAnalyticsBottleneck,
   useAnalyticsCapacity,
+  useAnalyticsForecast,
   useAnalyticsMetrics,
+  useAnalyticsPatientExperience,
+  useAnalyticsStaff,
   useBranchOptions,
   useDepartmentList,
   useOrgCurrency,
 } from '@/lib/data/queries';
-import type {
-  AnalyticsBottleneck,
-  AnalyticsCapacity,
-  AnalyticsMetrics,
-  AnalyticsMetricsQuery,
-  BottleneckStage,
-  ForecastResult,
-  MetricsSeriesRow,
+import {
+  FORECAST_SERIES,
+  type AnalyticsBottleneck,
+  type AnalyticsCapacity,
+  type AnalyticsMetrics,
+  type AnalyticsMetricsQuery,
+  type AnalyticsPatientExperience,
+  type AnalyticsStaff,
+  type BottleneckStage,
+  type ForecastResult,
+  type ForecastSeries,
+  type MetricsSeriesRow,
 } from '@/lib/data/analytics';
 
 /**
@@ -147,6 +154,9 @@ export function AnalyticsScreen() {
 
       <BottleneckSection window={window} />
       <CapacitySection window={window} />
+      <ForecastExplorer window={window} />
+      <PatientExperienceSection window={window} />
+      <StaffAnalyticsSection window={window} />
     </div>
   );
 }
@@ -845,5 +855,253 @@ function ForecastBlock({
         </ul>
       ) : null}
     </div>
+  );
+}
+
+/** Translation keys for the four forecast series (API keys contain hyphens). */
+const SERIES_LABEL_KEYS: Record<ForecastSeries, string> = {
+  'appointment-demand': 'seriesAppointmentDemand',
+  'inventory-demand': 'seriesInventoryDemand',
+  'bed-occupancy': 'seriesBedOccupancy',
+  'lab-workload': 'seriesLabWorkload',
+};
+
+/**
+ * Forecast explorer (F10 slice 4). `GET /analytics/forecasts/{series}` returns one
+ * labelled forecast; the series and horizon are chosen here. An unknown series is
+ * not an error — the service answers with a labelled forecast whose own notes say
+ * it is unknown — so the response is rendered the same way.
+ */
+function ForecastExplorer({ window }: { window: AnalyticsMetricsQuery }) {
+  const t = useTranslations('analytics');
+  const locale = useLocale();
+  const [series, setSeries] = useState<ForecastSeries>('appointment-demand');
+  const [horizon, setHorizon] = useState(7);
+  const forecast = useAnalyticsForecast(series, { ...window, horizon });
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-subheading font-semibold text-primary">{t('forecastExplorerHeading')}</h2>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field id="analytics-forecast-series" label={t('forecastSeriesLabel')}>
+          {({ controlId }) => (
+            <Select
+              id={controlId}
+              value={series}
+              onChange={(event) => setSeries(event.target.value as ForecastSeries)}
+            >
+              {FORECAST_SERIES.map((option) => (
+                <option key={option} value={option}>
+                  {t(SERIES_LABEL_KEYS[option])}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        <Field
+          id="analytics-forecast-horizon"
+          label={t('forecastHorizonLabel')}
+          hint={t('forecastHorizonFieldHint')}
+        >
+          {({ controlId, describedBy }) => (
+            <Input
+              id={controlId}
+              type="number"
+              min={1}
+              max={90}
+              aria-describedby={describedBy}
+              value={horizon}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                if (Number.isFinite(next) && next >= 1 && next <= 90) setHorizon(Math.trunc(next));
+              }}
+            />
+          )}
+        </Field>
+      </div>
+      {forecast.isLoading && !forecast.data ? (
+        <p role="status" className="text-meta text-tertiary">
+          {t('loading')}
+        </p>
+      ) : forecast.error || !forecast.data ? (
+        <p role="alert" className="text-meta text-secondary">
+          {t('forecastUnavailable')}
+        </p>
+      ) : (
+        <section className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4">
+          <ForecastBlock
+            forecast={forecast.data.data}
+            label={t(SERIES_LABEL_KEYS[series])}
+            locale={locale}
+          />
+        </section>
+      )}
+    </section>
+  );
+}
+
+/** Translation keys for the four experience components. */
+const EXPERIENCE_COMPONENT_KEYS = [
+  ['waitingTime', 'experienceWaitingTime'],
+  ['feedback', 'experienceFeedback'],
+  ['appointmentReliability', 'experienceAppointmentReliability'],
+  ['serviceCompletion', 'experienceServiceCompletion'],
+] as const;
+
+/**
+ * Patient experience (F10 slice 4). `GET /analytics/patient-experience` returns a
+ * weighted composite plus each component's score and the raw measurements behind
+ * it, and the weights themselves. All are shown: the composite is a labelled
+ * estimate, and a composite with its inputs hidden cannot be judged.
+ */
+function PatientExperienceSection({ window }: { window: AnalyticsMetricsQuery }) {
+  const t = useTranslations('analytics');
+  const locale = useLocale();
+  const experience = useAnalyticsPatientExperience(window);
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-subheading font-semibold text-primary">{t('experienceHeading')}</h2>
+      {experience.isLoading && !experience.data ? (
+        <p role="status" className="text-meta text-tertiary">
+          {t('loading')}
+        </p>
+      ) : experience.error || !experience.data ? (
+        <p role="alert" className="text-meta text-secondary">
+          {t('experienceUnavailable')}
+        </p>
+      ) : (
+        <PatientExperienceBody experience={experience.data.data} locale={locale} />
+      )}
+    </section>
+  );
+}
+
+function PatientExperienceBody({
+  experience,
+  locale,
+}: {
+  experience: AnalyticsPatientExperience;
+  locale: string;
+}) {
+  const t = useTranslations('analytics');
+  const score = (value: number | null) =>
+    value === null ? '—' : new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
+  const weight = (value: number) =>
+    new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }).format(value);
+
+  return (
+    <>
+      {experience.interpretation ? (
+        <p className="text-caption text-tertiary">{experience.interpretation}</p>
+      ) : null}
+      <section className="flex flex-col gap-1 rounded-lg border border-border bg-surface p-4">
+        <h3 className="text-caption text-tertiary">{t('experienceComposite')}</h3>
+        <p className="text-heading font-semibold text-primary">{score(experience.composite)}</p>
+      </section>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {EXPERIENCE_COMPONENT_KEYS.map(([key, labelKey]) => {
+          const component = experience.components[key];
+          return (
+            <section
+              key={key}
+              className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4"
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <h3 className="text-body font-semibold text-primary">{t(labelKey)}</h3>
+                <span className="text-caption text-tertiary">
+                  {t('experienceWeight', { value: weight(experience.weights[key]) })}
+                </span>
+              </div>
+              <p className="text-subheading font-semibold text-primary">{score(component.score)}</p>
+              <dl className="flex flex-col gap-0.5 text-meta text-primary">
+                {Object.entries(component.raw).map(([rawKey, rawValue]) => (
+                  <div key={rawKey} className="flex items-baseline justify-between gap-3">
+                    <dt className="text-caption text-tertiary">{humanize(rawKey)}</dt>
+                    <dd className="tabular-nums">{rawValue === null ? '—' : rawValue}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+/**
+ * Staff analytics (F10 slice 4). `GET /analytics/staff` returns raw per-staff
+ * measurements. The service's caveat — that these must not be used for
+ * individual employment decisions — is surfaced verbatim above the table, not
+ * paraphrased or dropped.
+ */
+function StaffAnalyticsSection({ window }: { window: AnalyticsMetricsQuery }) {
+  const t = useTranslations('analytics');
+  const locale = useLocale();
+  const staff = useAnalyticsStaff(window);
+
+  const columns: readonly DataTableColumn<AnalyticsStaff['items'][number]>[] = [
+    { key: 'staffId', header: t('staffColumnStaff'), cell: (row) => row.staffId },
+    {
+      key: 'appointmentsHandled',
+      header: t('staffAppointments'),
+      numeric: true,
+      cell: (row) => new Intl.NumberFormat(locale).format(row.appointmentsHandled),
+    },
+    {
+      key: 'encountersOpened',
+      header: t('staffEncounters'),
+      numeric: true,
+      cell: (row) => new Intl.NumberFormat(locale).format(row.encountersOpened),
+    },
+    {
+      key: 'avgConsultationMinutes',
+      header: t('staffAvgConsultation'),
+      numeric: true,
+      cell: (row) =>
+        row.avgConsultationMinutes === null ? '—' : t('minutes', { value: row.avgConsultationMinutes }),
+    },
+    {
+      key: 'tasksCompleted',
+      header: t('staffTasks'),
+      numeric: true,
+      cell: (row) => new Intl.NumberFormat(locale).format(row.tasksCompleted),
+    },
+    {
+      key: 'queueServed',
+      header: t('staffQueue'),
+      numeric: true,
+      cell: (row) => new Intl.NumberFormat(locale).format(row.queueServed),
+    },
+  ];
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-subheading font-semibold text-primary">{t('staffHeading')}</h2>
+      {staff.isLoading && !staff.data ? (
+        <p role="status" className="text-meta text-tertiary">
+          {t('loading')}
+        </p>
+      ) : staff.error || !staff.data ? (
+        <p role="alert" className="text-meta text-secondary">
+          {t('staffUnavailable')}
+        </p>
+      ) : (
+        <>
+          {staff.data.data.interpretation ? (
+            <p className="text-caption text-tertiary">{staff.data.data.interpretation}</p>
+          ) : null}
+          <DataTable
+            caption={t('staffCaption')}
+            columns={columns}
+            rows={staff.data.data.items}
+            rowKey={(row) => row.staffId}
+            emptyMessage={t('staffEmpty')}
+            scrollable
+          />
+        </>
+      )}
+    </section>
   );
 }

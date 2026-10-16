@@ -270,12 +270,19 @@ import {
 import {
   fetchAnalyticsBottleneck,
   fetchAnalyticsCapacity,
+  fetchAnalyticsForecast,
   fetchAnalyticsMetrics,
+  fetchAnalyticsPatientExperience,
+  fetchAnalyticsStaff,
   type AnalyticsBottleneck,
   type AnalyticsCallError,
   type AnalyticsCapacity,
+  type AnalyticsForecastQuery,
   type AnalyticsMetrics,
   type AnalyticsMetricsQuery,
+  type AnalyticsPatientExperience,
+  type AnalyticsStaff,
+  type ForecastResult,
 } from '@/lib/data/analytics';
 import {
   extractStaffRecord,
@@ -4516,6 +4523,107 @@ export function useAnalyticsCapacity(
           data: capacity,
           response: new Response(null, { status: 200 }),
         } satisfies Fetched<AnalyticsCapacity>;
+      } catch (call) {
+        throw toQueryError(call as AnalyticsCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * One forecast series `GET /analytics/forecasts/{series}?{window,horizon}`. The
+ * service answers an unknown series with a labelled forecast whose notes say so,
+ * so the page renders it rather than treating it as an error.
+ */
+export function useAnalyticsForecast(
+  series: string,
+  query: AnalyticsForecastQuery = {},
+): UseQueryResult<Fetched<ForecastResult>, QueryError> {
+  return useQuery<Fetched<ForecastResult>, QueryError>({
+    queryKey: [
+      'analytics',
+      'forecasts',
+      series,
+      query.from ?? null,
+      query.to ?? null,
+      query.branchId ?? null,
+      query.departmentId ?? null,
+      query.horizon ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const forecast = await fetchAnalyticsForecast(series, query, signal);
+        return {
+          data: forecast,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<ForecastResult>;
+      } catch (call) {
+        throw toQueryError(call as AnalyticsCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Patient-experience composite `GET /analytics/patient-experience?{window}`. The
+ * component scores and the weights behind them are both surfaced; the composite is
+ * a labelled estimate, not a clinical measure.
+ */
+export function useAnalyticsPatientExperience(
+  query: AnalyticsMetricsQuery = {},
+): UseQueryResult<Fetched<AnalyticsPatientExperience>, QueryError> {
+  return useQuery<Fetched<AnalyticsPatientExperience>, QueryError>({
+    queryKey: [
+      'analytics',
+      'patient-experience',
+      query.from ?? null,
+      query.to ?? null,
+      query.branchId ?? null,
+      query.departmentId ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const experience = await fetchAnalyticsPatientExperience(query, signal);
+        return {
+          data: experience,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<AnalyticsPatientExperience>;
+      } catch (call) {
+        throw toQueryError(call as AnalyticsCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Staff analytics `GET /analytics/staff?{window}`. Raw measurements with a
+ * caveat; the service forbids using them for individual employment decisions, and
+ * the interpretation sentence is surfaced verbatim for that reason.
+ */
+export function useAnalyticsStaff(
+  query: AnalyticsMetricsQuery = {},
+): UseQueryResult<Fetched<AnalyticsStaff>, QueryError> {
+  return useQuery<Fetched<AnalyticsStaff>, QueryError>({
+    queryKey: [
+      'analytics',
+      'staff',
+      query.from ?? null,
+      query.to ?? null,
+      query.branchId ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const staff = await fetchAnalyticsStaff(query, signal);
+        return {
+          data: staff,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<AnalyticsStaff>;
       } catch (call) {
         throw toQueryError(call as AnalyticsCallError);
       }

@@ -1,6 +1,13 @@
 import { http, HttpResponse } from 'msw';
 
-import { ANALYTICS_BOTTLENECK, ANALYTICS_CAPACITY, ANALYTICS_METRICS } from '@/mocks/fixtures/analytics-registry';
+import {
+  ANALYTICS_BOTTLENECK,
+  ANALYTICS_CAPACITY,
+  ANALYTICS_FORECAST,
+  ANALYTICS_METRICS,
+  ANALYTICS_PATIENT_EXPERIENCE,
+  ANALYTICS_STAFF,
+} from '@/mocks/fixtures/analytics-registry';
 import { apiOk, delay, MOCK_LATENCY_MS } from '@/mocks/handlers';
 
 /**
@@ -51,6 +58,37 @@ export function analyticsHandlers() {
     http.get('*/api/v1/analytics/capacity', async ({ request }) => {
       await delay(MOCK_LATENCY_MS);
       return HttpResponse.json(apiOk(echoWindow(ANALYTICS_CAPACITY, new URL(request.url))));
+    }),
+    http.get('*/api/v1/analytics/patient-experience', async ({ request }) => {
+      await delay(MOCK_LATENCY_MS);
+      return HttpResponse.json(apiOk(echoWindow(ANALYTICS_PATIENT_EXPERIENCE, new URL(request.url))));
+    }),
+    http.get('*/api/v1/analytics/staff', async ({ request }) => {
+      await delay(MOCK_LATENCY_MS);
+      return HttpResponse.json(apiOk(echoWindow(ANALYTICS_STAFF, new URL(request.url))));
+    }),
+    http.get('*/api/v1/analytics/forecasts/:series', async ({ request, params }) => {
+      await delay(MOCK_LATENCY_MS);
+      const url = new URL(request.url);
+      const requested = Number(url.searchParams.get('horizon'));
+      const horizon =
+        Number.isFinite(requested) && requested >= 1 && requested <= 90 ? Math.trunc(requested) : 7;
+      const base = ANALYTICS_FORECAST.points;
+      const start = new Date(`${base[0]?.date ?? '2026-05-03'}T00:00:00Z`);
+      const points = Array.from({ length: horizon }, (_, index) => {
+        const template = base[index % base.length] ?? base[0];
+        const date = new Date(start);
+        date.setUTCDate(start.getUTCDate() + index);
+        return { ...template, date: date.toISOString().slice(0, 10) };
+      });
+      return HttpResponse.json(
+        apiOk({
+          ...ANALYTICS_FORECAST,
+          horizon,
+          points,
+          notes: [`Based on daily ${String(params.series)}.`, ...ANALYTICS_FORECAST.notes],
+        }),
+      );
     }),
   ];
 }

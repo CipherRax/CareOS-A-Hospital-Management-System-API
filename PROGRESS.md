@@ -22,7 +22,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
 | F9 Administration & audit      | in progress — users administration (slice 1), role management (slice 2), staff directory (slice 3), organization profile (slice 4)                   | audit-log viewing has no API endpoint |
-| F10 Analytics & reports        | in progress — reports desk (slice 1); analytics metrics dashboard (slice 2): `/analytics` summary, daily series and labelled snapshots; journey bottlenecks + capacity with the embedded appointment-demand forecast (slice 3) | forecast series endpoint, patient-experience/staff analytics |
+| F10 Analytics & reports        | complete — reports desk; analytics metrics; journey bottlenecks + capacity; forecast explorer, patient experience and staff analytics (`/analytics`) | audit-log viewing is not buildable (no API list endpoint) |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
 | F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine     |
@@ -1443,6 +1443,44 @@ remain for later slices.
   forecast keys.
 
 Gate: lint clean, `tsc --noEmit` 0, unit 552 (`analytics.test.ts` + 11, i.e. +7),
+`build:prod` OK (route `/analytics`), e2e/a11y 223. Contract note updated in
+GAP-020.
+
+## F10 — Analytics & reports, slice 4: forecasts, patient experience & staff
+
+**Status:** complete. The last three analytics endpoints render on `/analytics`,
+so F10 is done apart from audit-log viewing, which has no API list endpoint and
+is recorded as not buildable.
+
+- **Forecast explorer** (`ForecastExplorer` in
+  `src/components/analytics/analytics-dashboard.tsx`). A series selector (the four
+  known series) and a days-ahead control (1–90), then the same `ForecastBlock`
+  used by capacity. `GET /analytics/forecasts/{series}` answers an unknown series
+  with a labelled forecast whose own notes say it is unknown, so that is rendered
+  like any other rather than turned into an error.
+- **Patient experience** (`PatientExperienceSection`). The weighted composite,
+  then each component's score with the raw measurements it was built from and the
+  weight applied. A composite whose inputs and weights are hidden cannot be
+  judged, so all three are shown.
+- **Staff analytics** (`StaffAnalyticsSection`). Per-staff raw measurements in a
+  table. The service's caveat — these must not be used for individual employment
+  decisions — is surfaced verbatim above the table.
+- **Data layer** (`src/lib/data/analytics.ts`). `FORECAST_SERIES`,
+  `readAnalyticsForecast`, `AnalyticsPatientExperience`/`ExperienceComponent`/
+  `ExperienceWeights`, `readAnalyticsPatientExperience`, `AnalyticsStaff`/
+  `StaffAnalyticRow`, `readAnalyticsStaff`, and the `fetchAnalyticsForecast`/
+  `…PatientExperience`/`…Staff` readers, plus tests in `analytics.test.ts`. All
+  three fail closed on drift.
+- **Hooks** (`src/lib/data/queries.ts`). `useAnalyticsForecast` (keyed on series
+  and horizon), `useAnalyticsPatientExperience`, `useAnalyticsStaff`.
+- **Mocks/stub.** `ANALYTICS_FORECAST`, `ANALYTICS_PATIENT_EXPERIENCE` and
+  `ANALYTICS_STAFF` added to `src/mocks/fixtures/analytics-registry.ts`; the
+  forecast handler rebuilds its points for the requested horizon and prepends a
+  series note. Mirrored in `e2e/stub-api.mjs`.
+- **i18n.** The `analytics` namespace (en+sw) gained the forecast-explorer,
+  experience and staff keys.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 559 (`analytics.test.ts` + 18, i.e. +7),
 `build:prod` OK (route `/analytics`), e2e/a11y 223. Contract note updated in
 GAP-020.
 

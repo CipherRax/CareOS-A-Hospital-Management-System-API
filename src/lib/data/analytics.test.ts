@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   readAnalyticsBottleneck,
   readAnalyticsCapacity,
+  readAnalyticsForecast,
   readAnalyticsMetrics,
+  readAnalyticsPatientExperience,
+  readAnalyticsStaff,
 } from '@/lib/data/analytics';
 
 /**
@@ -205,5 +208,109 @@ describe('readAnalyticsCapacity', () => {
         providerUtilization: { label: '', items: [{ noProvider: true }] },
       }),
     ).toBeNull();
+  });
+});
+
+const forecastPayload = {
+  kind: 'forecast',
+  model: { name: 'weekly-seasonal-naive', version: '1' },
+  period: { from: '2026-04-05', to: '2026-05-02' },
+  horizon: 7,
+  points: [
+    { date: '2026-05-03', value: 9.14, lower: 3.82, upper: 14.46 },
+    { date: '2026-05-04', value: 11.57 },
+  ],
+  notes: ['Statistical baseline only; forecast/estimate, not a promise.'],
+};
+
+describe('readAnalyticsForecast', () => {
+  it('reads the model, period, points and notes', () => {
+    const forecast = readAnalyticsForecast(forecastPayload);
+    expect(forecast?.model).toEqual({ name: 'weekly-seasonal-naive', version: '1' });
+    expect(forecast?.points[0]?.upper).toBe(14.46);
+    expect(forecast?.points[1]?.lower).toBeNull();
+    expect(forecast?.notes).toHaveLength(1);
+  });
+
+  it('fails closed when the model or a point drifts', () => {
+    expect(readAnalyticsForecast(null)).toBeNull();
+    expect(readAnalyticsForecast({ ...forecastPayload, model: 'nope' })).toBeNull();
+    expect(readAnalyticsForecast({ ...forecastPayload, points: [{ value: 1 }] })).toBeNull();
+  });
+});
+
+const experiencePayload = {
+  interpretation: 'Composite estimate built from recorded measurements.',
+  weights: { waitingTime: 0.35, feedback: 0.3, appointmentReliability: 0.2, serviceCompletion: 0.15 },
+  components: {
+    waitingTime: { score: 86, raw: { avgWaitingMinutes: 14 } },
+    feedback: { score: 78, raw: { avgRating: 3.9 } },
+    appointmentReliability: { score: 84, raw: { bookings: 25, noShow: 4, cancelled: 0 } },
+    serviceCompletion: { score: 91.7, raw: { visitsCompleted: 33, visitsRegistered: 36 } },
+  },
+  composite: 84.1,
+  period: { from: '2026-02-01T00:00:00.000Z', to: '2026-03-03T00:00:00.000Z' },
+};
+
+describe('readAnalyticsPatientExperience', () => {
+  it('reads the weights, component scores and raw measurements', () => {
+    const experience = readAnalyticsPatientExperience(experiencePayload);
+    expect(experience?.composite).toBe(84.1);
+    expect(experience?.weights.waitingTime).toBe(0.35);
+    expect(experience?.components.feedback.score).toBe(78);
+    expect(experience?.components.appointmentReliability.raw.bookings).toBe(25);
+  });
+
+  it('keeps a null component score and a null composite', () => {
+    const experience = readAnalyticsPatientExperience({
+      ...experiencePayload,
+      composite: null,
+      components: {
+        ...experiencePayload.components,
+        waitingTime: { score: null, raw: { avgWaitingMinutes: null } },
+      },
+    });
+    expect(experience?.composite).toBeNull();
+    expect(experience?.components.waitingTime.score).toBeNull();
+    expect(experience?.components.waitingTime.raw.avgWaitingMinutes).toBeNull();
+  });
+
+  it('fails closed when a weight or component drifts', () => {
+    expect(readAnalyticsPatientExperience(null)).toBeNull();
+    expect(
+      readAnalyticsPatientExperience({ ...experiencePayload, weights: { waitingTime: 0.5 } }),
+    ).toBeNull();
+    expect(
+      readAnalyticsPatientExperience({
+        ...experiencePayload,
+        components: { ...experiencePayload.components, feedback: undefined },
+      }),
+    ).toBeNull();
+  });
+});
+
+const staffPayload = {
+  interpretation:
+    'Raw measurements aggregated from recorded activity. Not intended for individual performance evaluation or automated employment decisions.',
+  period: { from: '2026-02-01T00:00:00.000Z', to: '2026-03-03T00:00:00.000Z' },
+  items: [
+    { staffId: 'usr_example_doc_a', appointmentsHandled: 84, encountersOpened: 80, avgConsultationMinutes: 18.5, tasksCompleted: 12, queueServed: 9 },
+    { staffId: 'usr_example_doc_b', appointmentsHandled: 40, encountersOpened: 38, avgConsultationMinutes: null, tasksCompleted: 0, queueServed: 0 },
+  ],
+};
+
+describe('readAnalyticsStaff', () => {
+  it('reads the per-staff measurements', () => {
+    const staff = readAnalyticsStaff(staffPayload);
+    expect(staff?.items[0]?.appointmentsHandled).toBe(84);
+    expect(staff?.items[0]?.avgConsultationMinutes).toBe(18.5);
+    expect(staff?.items[1]?.avgConsultationMinutes).toBeNull();
+  });
+
+  it('defaults missing counts to 0 and fails closed on a bad row', () => {
+    const staff = readAnalyticsStaff({ ...staffPayload, items: [{ staffId: 'usr_x' }] });
+    expect(staff?.items[0]?.tasksCompleted).toBe(0);
+    expect(readAnalyticsStaff({ ...staffPayload, items: [{ noId: true }] })).toBeNull();
+    expect(readAnalyticsStaff({ ...staffPayload, items: 'nope' })).toBeNull();
   });
 });

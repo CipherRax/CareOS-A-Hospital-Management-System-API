@@ -725,6 +725,16 @@ and `src/modules/roles`:
   otherwise-solid measurements. The forecast's model name/version, fit period,
   horizon, uncertainty band and the service's `notes` are all rendered — a forecast
   is not a promise.
+- **Forecasts, patient experience & staff (F10 slice 4).** Same family:
+  `GET /analytics/forecasts/{series}`, `GET /analytics/patient-experience` and
+  `GET /analytics/staff` are nested `unknown` payloads validated in
+  `src/lib/data/analytics.ts`, all failing closed on drift. An unknown forecast
+  series is **not** a 4xx: the service answers 200 with a labelled forecast whose
+  `notes` state the series is unknown, so the page renders it like any other.
+  The patient-experience payload carries its own `weights` alongside each
+  component's `score` and `raw` inputs, and the staff payload carries the
+  service's "not for individual employment decisions" caveat as
+  `interpretation`; both are surfaced verbatim rather than paraphrased.
 - **Not built:** the audit-log viewing screen is **not buildable**: there is no
   audit-list endpoint (writes happen inside the API via
   `src/database/audit.service.ts`).
