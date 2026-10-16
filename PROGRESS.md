@@ -22,7 +22,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
 | F9 Administration & audit      | in progress — users administration (slice 1), role management (slice 2), staff directory (slice 3), organization profile (slice 4)                   | audit-log viewing has no API endpoint |
-| F10 Analytics & reports        | not started                                                                                | analytics, forecasts, reports                          |
+| F10 Analytics & reports        | in progress — reports desk (slice 1): export history (`/reports`) + export detail (`/reports/[id]`) with the request form and download | analytics metrics, forecasts |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
 | F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine     |
@@ -1317,6 +1317,51 @@ cannot be built — there is no audit-list endpoint.
 Gate: lint clean, `tsc --noEmit` 0, unit 531 (`admin.test.ts` + 5),
 `build:prod` OK (route `/organization`), e2e/a11y 211. Contract note updated in
 GAP-020.
+
+## F10 — Analytics & reports, slice 1: reports desk
+
+**Status:** in progress. The report-export desk. Analytics metrics and forecasts
+(the large, `unknown`-typed analytics surface) remain for slice 2.
+
+- **Export history + request** (`src/components/reports/reports-worklist.tsx`,
+  `/reports`). A request form (report type, format, optional window/branch/
+  department) that queues an export, and the export history filtered by report
+  type. `GET /reports/exports` types its 200 as the request DTO while the service
+  answers a `PageResult` (GAP-020 family), so rows are validated structurally in
+  `src/lib/data/reports.ts`. The list names its page size `pageSize`, not `limit`.
+  Requesting answers 202 with a PENDING row (`POST /reports/export`, `ExportReportDto`);
+  the form does not block on the render.
+- **Export detail** (`src/components/reports/report-workspace.tsx`, `/reports/[id]`).
+  Status, metadata (requested/generated/expires, UTC), a lenient rendering of the
+  loose `summary` record (numbers plus one level of nested counts, known keys
+  translated, unknown keys humanised), a failure alert, an expiry notice, and a
+  download link. A PENDING row is polled every 4s (`useReportExport`
+  `refetchInterval`) until it settles.
+- **Download.** A same-origin `<a>` to `/api/v1/reports/exports/{id}/download`.
+  The proxy streams the bytes behind the session cookie, and a multi-megabyte
+  patient export should not be loaded onto the JS heap. The link is only offered
+  for a READY, unexpired row, so the 409 (not ready) / 410 (expired) the stream
+  can return are not reachable from the UI; EXPIRED is shown as an explicit
+  notice instead.
+- **Data layer** (`src/lib/data/reports.ts`). `REPORT_TYPES`/`REPORT_FORMATS`/
+  `REPORT_STATUSES`, `ReportExportRow`, `ReportPage`, `ReportQuery`,
+  `RequestReportInput`, `readReportExport`, `extractReportPage`,
+  `extractReportRecord`, `fetchReportExports`, `fetchReportExport`,
+  `reportDownloadUrl`, `isReportExpired`, plus tests in `reports.test.ts`.
+- **Hooks** (`src/lib/data/queries.ts`). `useReportExports`, `useReportExport`,
+  `useRequestReportExport`; `ReportsCallError` joined the `toQueryError` union.
+- **Mocks/stub.** `src/mocks/fixtures/report-registry.ts` walks every export
+  status (READY/PENDING/FAILED/EXPIRED), `src/mocks/report-handlers.ts` adds the
+  list, the request write, the detail read and the download stream with guards,
+  mirrored in `e2e/stub-api.mjs`.
+- **Nav + i18n + a11y.** The existing *Reports* nav entry now resolves; a new
+  `reports` namespace carries the copy; `/reports` and `/reports/rep_example_0001`
+  joined the a11y route sweep.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 541 (`reports.test.ts` + 10),
+`build:prod` OK (routes `/reports`, `/reports/[id]`), e2e/a11y 219. Contract note
+updated in GAP-020.
+
 
 
 

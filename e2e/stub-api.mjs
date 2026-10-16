@@ -844,6 +844,67 @@ const LIVE_ORGANIZATION = {
 };
 const ORGANIZATION_EDITABLE = ['legalName', 'tradingName', 'registrationNumber', 'kraPin', 'phone', 'email', 'website', 'logoUrl', 'address', 'county', 'town'];
 
+// F10 reports (report-export desk). Mirrored from src/mocks/fixtures/report-registry.ts
+// so mock dev and the production build's e2e run cannot silently drift.
+let REPORT_SEQ = 5;
+const LIVE_REPORTS = [
+  {
+    id: 'rep_example_0001',
+    reportType: 'PATIENT',
+    format: 'JSON',
+    status: 'READY',
+    contentType: 'application/json',
+    sizeBytes: 2048,
+    summary: { total: 12, sexes: { MALE: 7, FEMALE: 5 } },
+    error: null,
+    expiresAt: '2026-03-02T08:00:00.000Z',
+    createdAt: '2026-03-01T08:00:00.000Z',
+    completedAt: '2026-03-01T08:00:12.000Z',
+  },
+  {
+    id: 'rep_example_0002',
+    reportType: 'FINANCIAL',
+    format: 'CSV',
+    status: 'PENDING',
+    contentType: 'text/csv',
+    sizeBytes: null,
+    summary: null,
+    error: null,
+    expiresAt: '2026-03-02T08:05:00.000Z',
+    createdAt: '2026-03-01T08:05:00.000Z',
+    completedAt: null,
+  },
+  {
+    id: 'rep_example_0003',
+    reportType: 'LABORATORY',
+    format: 'PDF',
+    status: 'FAILED',
+    contentType: 'application/pdf',
+    sizeBytes: null,
+    summary: null,
+    error: 'Render failed: a required glyph was missing from the PDF font.',
+    expiresAt: '2026-03-02T07:30:00.000Z',
+    createdAt: '2026-03-01T07:30:00.000Z',
+    completedAt: '2026-03-01T07:30:04.000Z',
+  },
+  {
+    id: 'rep_example_0004',
+    reportType: 'APPOINTMENT',
+    format: 'CSV',
+    status: 'EXPIRED',
+    contentType: 'text/csv',
+    sizeBytes: 5120,
+    summary: { total: 40, noShowRate: 12.5 },
+    error: null,
+    expiresAt: '2026-02-28T06:00:00.000Z',
+    createdAt: '2026-02-27T06:00:00.000Z',
+    completedAt: '2026-02-27T06:00:08.000Z',
+  },
+];
+const REPORT_TYPES = ['PATIENT', 'APPOINTMENT', 'CLINICAL_OPERATIONS', 'LABORATORY', 'PHARMACY', 'FINANCIAL', 'INSURANCE', 'OPERATIONS'];
+const REPORT_FORMATS = ['JSON', 'CSV', 'PDF'];
+const REPORT_CONTENT_TYPES = { JSON: 'application/json', CSV: 'text/csv', PDF: 'application/pdf' };
+
 
 
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
@@ -3031,6 +3092,75 @@ const server = createServer(async (request, response) => {
     }
     LIVE_ORGANIZATION.updatedAt = new Date().toISOString();
     send(response, 200, { success: true, data: { organization: { ...LIVE_ORGANIZATION } } });
+    return;
+  }
+
+  // --- reports (F10 report-export desk) ----------------------------------
+  // Mirrors src/mocks/report-handlers.ts: the export history, the request write
+  // (202 + PENDING), the polling detail read, and the download stream (409 while
+  // not READY, 410 once expired). The download writes raw bytes, bypassing the
+  // JSON `send` helper, so `content-disposition` survives to the browser.
+  if (url.pathname === '/reports/exports' && request.method === 'GET') {
+    const reportType = url.searchParams.get('reportType');
+    const page = Math.max(1, Number(url.searchParams.get('page') ?? '1') || 1);
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('pageSize') ?? '25') || 25));
+    const filtered = LIVE_REPORTS.filter((report) => !reportType || report.reportType === reportType)
+      .slice()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const start = (page - 1) * limit;
+    const slice = filtered.slice(start, start + limit).map((report) => ({ ...report }));
+    send(response, 200, { success: true, data: slice, meta: { page, limit, total: filtered.length, totalPages: Math.max(1, Math.ceil(filtered.length / limit)) } });
+    return;
+  }
+  if (url.pathname === '/reports/export' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.reportType !== 'string' || !REPORT_TYPES.includes(body.reportType)) { send(response, 422, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A known report type is required.' } }); return; }
+    if (typeof body.format !== 'string' || !REPORT_FORMATS.includes(body.format)) { send(response, 422, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A known format is required.' } }); return; }
+    const createdAt = new Date().toISOString();
+    const report = {
+      id: `rep_example_${String(REPORT_SEQ).padStart(4, '0')}`,
+      reportType: body.reportType,
+      format: body.format,
+      status: 'PENDING',
+      contentType: REPORT_CONTENT_TYPES[body.format] ?? null,
+      sizeBytes: null,
+      summary: null,
+      error: null,
+      expiresAt: new Date(Date.parse(createdAt) + 24 * 60 * 60 * 1000).toISOString(),
+      createdAt,
+      completedAt: null,
+    };
+    REPORT_SEQ += 1;
+    LIVE_REPORTS.unshift(report);
+    send(response, 202, { success: true, data: { ...report } });
+    return;
+  }
+  const reportDownload = url.pathname.match(/^\/reports\/exports\/([^/]+)\/download$/);
+  if (reportDownload && request.method === 'GET') {
+    const report = LIVE_REPORTS.find((entry) => entry.id === reportDownload[1]);
+    if (!report) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Report export not found' } }); return; }
+    if (report.status !== 'READY') {
+      const status = report.status === 'EXPIRED' ? 410 : 409;
+      const code = report.status === 'EXPIRED' ? 'RESOURCE_EXPIRED' : 'CONFLICT';
+      const message = report.status === 'EXPIRED' ? 'Report has expired (exports are available for 24 hours)' : `Report is ${report.status.toLowerCase()}, not downloadable`;
+      send(response, status, { success: false, error: { code, message } });
+      return;
+    }
+    const payload = 'summary,row\n"total",12\n';
+    response.writeHead(200, {
+      'content-type': report.contentType ?? 'application/octet-stream',
+      'content-disposition': `attachment; filename="${report.reportType.toLowerCase()}-${report.id}.csv"`,
+      'content-length': Buffer.byteLength(payload),
+    });
+    response.end(payload);
+    return;
+  }
+  const reportMatch = url.pathname.match(/^\/reports\/exports\/([^/]+)$/);
+  if (reportMatch && request.method === 'GET') {
+    const report = LIVE_REPORTS.find((entry) => entry.id === reportMatch[1]);
+    if (!report) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Report export not found' } }); return; }
+    send(response, 200, { success: true, data: { ...report } });
     return;
   }
 

@@ -258,6 +258,16 @@ import {
   type UserRow,
 } from '@/lib/data/admin';
 import {
+  extractReportRecord,
+  fetchReportExport,
+  fetchReportExports,
+  type ReportExportRow,
+  type ReportPage,
+  type ReportQuery,
+  type ReportsCallError,
+  type RequestReportInput,
+} from '@/lib/data/reports';
+import {
   extractStaffRecord,
   fetchBranchOptions,
   fetchStaff,
@@ -420,7 +430,8 @@ function toQueryError(
     | InpatientCallError
     | EmergencyCallError
     | AdminCallError
-    | StaffCallError,
+    | StaffCallError
+    | ReportsCallError,
 ): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
@@ -4302,6 +4313,100 @@ export function useUpdateOrganization(): UseMutationResult<
       queryClient.setQueryData(['organization'], (previous: unknown) =>
         previous ? { ...(previous as object), data: organization } : previous,
       );
+    },
+  });
+}
+
+// --- reports (F10: the report-export desk) ----------------------------------
+
+function reportsWriteError(status = 202): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+/**
+ * Report-export history `GET /reports/exports?{filters}`. The export types the
+ * body as `unknown`, so it rides the raw-fetch path. The list endpoint names the
+ * page size `pageSize`, not `limit`.
+ */
+export function useReportExports(
+  query: ReportQuery = {},
+): UseQueryResult<Fetched<ReportPage>, QueryError> {
+  return useQuery<Fetched<ReportPage>, QueryError>({
+    queryKey: ['reports', 'exports', query.reportType ?? null, query.page ?? 1],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchReportExports(query, signal);
+        return {
+          data: page,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<ReportPage>;
+      } catch (call) {
+        throw toQueryError(call as ReportsCallError);
+      }
+    },
+    staleTime: 5_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * One report export `GET /reports/exports/{id}`. Polls while the row is still
+ * PENDING so a request settles without the operator refreshing: generation is
+ * asynchronous and the artifact only appears once the consumer has rendered it.
+ */
+export function useReportExport(id: string): UseQueryResult<Fetched<ReportExportRow>, QueryError> {
+  return useQuery<Fetched<ReportExportRow>, QueryError>({
+    queryKey: ['reports', 'exports', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const report = await fetchReportExport(id, signal);
+        return {
+          data: report,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<ReportExportRow>;
+      } catch (call) {
+        throw toQueryError(call as ReportsCallError);
+      }
+    },
+    enabled: id.length > 0,
+    staleTime: 0,
+    refetchInterval: (query) =>
+      query.state.data?.data.status === 'PENDING' ? 4_000 : false,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Requests a report export `POST /reports/export` (202). The service queues the
+ * render and answers a PENDING row; the caller polls the detail read until it is
+ * READY. The write is not retried on a structural mismatch.
+ */
+export function useRequestReportExport(): UseMutationResult<
+  ReportExportRow,
+  QueryError,
+  RequestReportInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<ReportExportRow, QueryError, RequestReportInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/reports/export', {
+          body: {
+            reportType: input.reportType,
+            format: input.format,
+            ...(input.from ? { from: input.from } : {}),
+            ...(input.to ? { to: input.to } : {}),
+            ...(input.branchId ? { branchId: input.branchId } : {}),
+            ...(input.departmentId ? { departmentId: input.departmentId } : {}),
+          },
+        }),
+      );
+      const parsed = extractReportRecord(fetched.data);
+      if (!parsed.ok) throw reportsWriteError();
+      return parsed.report;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reports', 'exports'] });
     },
   });
 }

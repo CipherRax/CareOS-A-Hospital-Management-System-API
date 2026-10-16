@@ -695,6 +695,17 @@ and `src/modules/roles`:
   DTO refines to at least one field; a change whose email collides with another
   account is a **409 `CONFLICT`**, and a patch that contains no editable keys is a
   **400 `VALIDATION_ERROR`** ("Nothing to update.").
+- **Reports (F10 slice 1).** Same GAP-020 family under `src/modules/insights`.
+  `GET /reports/exports` is typed as the request DTO but the service answers a
+  `PageResult` (`pageOf`), so the rows are validated structurally in
+  `src/lib/data/reports.ts`. `GET /reports/exports/{id}` answers the bare record
+  and `POST /reports/export` answers **202** with the bare record; both go through
+  `extractReportRecord` on the unwrapped body. The list query parameter is
+  `pageSize`, not `limit`. Generation is asynchronous — a request returns a
+  PENDING row that the desk polls — and `GET /reports/exports/{id}/download`
+  returns a stream that is **409** while not READY and **410** once expired; the
+  desk only offers the link for a READY, unexpired row, so those outcomes are not
+  reachable from the UI.
 - **Not built:** the audit-log viewing screen is **not buildable**: there is no
   audit-list endpoint (writes happen inside the API via
   `src/database/audit.service.ts`).

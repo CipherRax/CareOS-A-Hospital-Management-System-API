@@ -14,6 +14,7 @@ import { inventoryHandlers } from './inventory-handlers';
 import { billingHandlers } from './billing-handlers';
 import { emergencyHandlers } from './emergency-handlers';
 import { adminHandlers } from './admin-handlers';
+import { reportHandlers } from './report-handlers';
 import { staffHandlers } from './staff-handlers';
 import { insuranceHandlers } from './insurance-handlers';
 import { inpatientHandlers } from './inpatient-handlers';
@@ -204,6 +205,9 @@ export const handlers = [
   // assignment replacement, and the branch list the assignment editor reads. See
   // ./staff-handlers.ts.
   ...staffHandlers(),
+  // F10 reports (report-export desk): the export history, the request write, and
+  // the polling detail read plus its download stream. See ./report-handlers.ts.
+  ...reportHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).
