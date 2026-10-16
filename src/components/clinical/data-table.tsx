@@ -55,6 +55,14 @@ export interface DataTableProps<T> {
   loadingRowCount?: number;
   emptyMessage?: string;
   captionVisible?: boolean;
+  /**
+   * Marks the horizontal scroll region as a named, focusable region. Set this on
+   * a wide table with no row links: a scrollable area must be reachable by
+   * keyboard, and without an in-table link there is nothing to land on (axe
+   * `scrollable-region-focusable`). Left opt-in so tables whose rows already
+   * carry a link do not add a redundant tab stop.
+   */
+  scrollable?: boolean;
   className?: string;
 }
 
@@ -69,6 +77,7 @@ export function DataTable<T>({
   loadingRowCount = 6,
   emptyMessage = 'Nothing to show.',
   captionVisible = false,
+  scrollable = false,
   className,
 }: DataTableProps<T>) {
   if (loading) {
@@ -131,7 +140,10 @@ export function DataTable<T>({
   }
 
   return (
-    <div className={cn('overflow-x-auto rounded-lg border border-border bg-surface', className)}>
+    <div
+      className={cn('overflow-x-auto rounded-lg border border-border bg-surface', className)}
+      {...(scrollable ? { tabIndex: 0, role: 'region', 'aria-label': caption } : {})}
+    >
       <table className="w-full border-collapse">
         {/* Visually hidden by default: sighted users get the heading above the
             table, but the table must still be self-describing. */}

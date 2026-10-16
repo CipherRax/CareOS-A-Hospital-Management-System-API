@@ -706,6 +706,15 @@ and `src/modules/roles`:
   returns a stream that is **409** while not READY and **410** once expired; the
   desk only offers the link for a READY, unexpired row, so those outcomes are not
   reachable from the UI.
+- **Analytics metrics (F10 slice 2).** `GET /analytics/metrics` types its 200 as
+  `unknown` (a large, nested object — scope, period, granularity, a daily series, a
+  headline summary and a set of point-in-time snapshots), so it rides the raw-fetch
+  path. The **series** and **summary** are validated structurally in
+  `src/lib/data/analytics.ts` and fail closed on drift; the **snapshots** block is
+  deliberately left loose and rendered generically, because it is an open set of
+  labelled measurements that the API adds to over time and a new block should
+  appear on the dashboard rather than blank it. The API's own `label` on each
+  snapshot (and on the payload) is surfaced verbatim rather than paraphrased.
 - **Not built:** the audit-log viewing screen is **not buildable**: there is no
   audit-list endpoint (writes happen inside the API via
   `src/database/audit.service.ts`).

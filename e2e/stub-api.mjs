@@ -905,6 +905,49 @@ const REPORT_TYPES = ['PATIENT', 'APPOINTMENT', 'CLINICAL_OPERATIONS', 'LABORATO
 const REPORT_FORMATS = ['JSON', 'CSV', 'PDF'];
 const REPORT_CONTENT_TYPES = { JSON: 'application/json', CSV: 'text/csv', PDF: 'application/pdf' };
 
+// F10 analytics (operational metrics). Mirrored from
+// src/mocks/fixtures/analytics-registry.ts so mock dev and the production build's
+// e2e run cannot silently drift.
+const LIVE_ANALYTICS_METRICS = {
+  scope: { branchId: null, departmentId: null },
+  period: { from: '2026-02-01T00:00:00.000Z', to: '2026-02-07T00:00:00.000Z' },
+  granularity: 'day',
+  series: [
+    { date: '2026-02-01', patientVolume: 12, appointmentVolume: 8, noShowRate: 0.125, cancellationRate: 0, rescheduleRate: 0.125, avgWaitingMinutes: 14, avgConsultationMinutes: 22, revenue: '15400.00', invoicesIssued: 9, invoicesTotal: '16000.00', refundsTotal: '0.00', labTatAvgMinutes: 95, admissions: 2, discharges: 1, emergencyArrivals: 3, feedbackSubmitted: 4 },
+    { date: '2026-02-02', patientVolume: 15, appointmentVolume: 10, noShowRate: 0.1, cancellationRate: 0.1, rescheduleRate: 0, avgWaitingMinutes: 11, avgConsultationMinutes: 19, revenue: '20150.00', invoicesIssued: 12, invoicesTotal: '21000.00', refundsTotal: '500.00', labTatAvgMinutes: 88, admissions: 3, discharges: 2, emergencyArrivals: 5, feedbackSubmitted: 6 },
+    { date: '2026-02-03', patientVolume: 9, appointmentVolume: 7, noShowRate: 0.286, cancellationRate: 0, rescheduleRate: 0, avgWaitingMinutes: 18, avgConsultationMinutes: 25, revenue: '9800.00', invoicesIssued: 6, invoicesTotal: '10200.00', refundsTotal: '0.00', labTatAvgMinutes: 120, admissions: 1, discharges: 3, emergencyArrivals: 2, feedbackSubmitted: 2 },
+  ],
+  summary: {
+    patientVolume: 36, visitsCompleted: 33, appointmentVolume: 25, appointmentsCompleted: 21, noShowRate: 0.16, cancellationRate: 0.04, rescheduleRate: 0.04, avgWaitingMinutes: 14, avgConsultationMinutes: 22, revenue: '45350.00', invoicesIssued: 27, invoicesTotal: '47200.00', refundsTotal: '500.00', labTatAvgMinutes: 101, admissions: 6, discharges: 6, emergencyArrivals: 10, prescriptionsDispensed: 58, feedbackSubmitted: 12,
+  },
+  snapshots: {
+    outstandingInvoices: { count: 14, balanceDue: '76250.00', label: 'Sum of ISSUED/PARTIALLY_PAID invoice balances due, current state.' },
+    medicationWastage: { events: 3, units: 24, value: '1860.00', label: 'Inventory write-offs in the window (WASTAGE ledger rows).' },
+    stockTurnover: { onHandUnits: 1240, dispensedUnits: 320, avgDispensedPerDay: 45.71, turnover: 0.26, label: 'Estimate: units dispensed in window divided by current on-hand stock.' },
+    providerUtilization: { completedAppointments: 21, scheduledNonCancelled: 25, percent: 84, label: 'Booking fill estimate = completed appointments / scheduled-and-not-cancelled appointments in the window.' },
+    bedOccupancy: { occupied: 6, total: 24, percent: 25, label: 'Point-in-time bed occupancy (active admissions in beds).' },
+    claimAging: { buckets: { current: 5, d30: 2, d60: 1, d90: 0, plus: 0 }, label: 'Open insurance claims by age from submission (days).' },
+    emergencyIntake: {
+      arrivals: 10, avgTimeToTriageMinutes: 6, untriagedNow: 1,
+      perBranch: [{ branchId: 'br_example_0001', count: 10 }],
+      perHour: [{ hour: '08:00', count: 2 }, { hour: '14:00', count: 4 }, { hour: '20:00', count: 4 }],
+      label: 'Emergency department walk-in intake from EmergencyVisit timestamps (arrivedAt → triagedAt).',
+    },
+    emergencyRequests: {
+      received: 7, acknowledged: 6, dispatched: 5, closed: 4, cancelled: 1, escalated: 2, acknowledgementRate: 0.857, escalationRate: 0.286,
+      timeToAcknowledge: { samples: 6, p50Minutes: 3, p90Minutes: 9, maxMinutes: 14 },
+      timeToDispatch: { samples: 5, p50Minutes: 8, p90Minutes: 20, maxMinutes: 22 },
+      ackToDispatch: { samples: 5, p50Minutes: 5, p90Minutes: 12, maxMinutes: 13 },
+      byEscalationLevel: [{ level: 1, count: 2 }],
+      byBranch: [{ branchId: 'br_example_0001', received: 7, escalated: 2 }],
+      unacknowledgedNow: 1, awaitingDispatchNow: 1, unacknowledgedPastSlaNow: 0, openNow: 2, walkInArrivalsInWindow: 10,
+      label: 'Anonymous public emergency requests keyed on createdAt (when the caller asked for help).',
+    },
+    revenue: '45350.00',
+  },
+  label: 'Time-series values are read from the daily rollup projection; point-in-time snapshots are read from current state. All values are measurements or labelled estimates.',
+};
+
 
 
 const PRESCRIPTION_ACTIONS_BY_STATUS = {
@@ -3161,6 +3204,27 @@ const server = createServer(async (request, response) => {
     const report = LIVE_REPORTS.find((entry) => entry.id === reportMatch[1]);
     if (!report) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Report export not found' } }); return; }
     send(response, 200, { success: true, data: { ...report } });
+    return;
+  }
+
+  // --- analytics (F10 operational metrics) -------------------------------
+  // Mirrors src/mocks/analytics-handlers.ts: the large metrics payload with the
+  // requested window, granularity and scope echoed back into it.
+  if (url.pathname === '/analytics/metrics' && request.method === 'GET') {
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+    const granularity = url.searchParams.get('granularity');
+    const branchId = url.searchParams.get('branchId');
+    const departmentId = url.searchParams.get('departmentId');
+    send(response, 200, {
+      success: true,
+      data: {
+        ...LIVE_ANALYTICS_METRICS,
+        scope: { branchId: branchId ?? null, departmentId: departmentId ?? null },
+        period: { from: from ?? LIVE_ANALYTICS_METRICS.period.from, to: to ?? LIVE_ANALYTICS_METRICS.period.to },
+        granularity: granularity ?? LIVE_ANALYTICS_METRICS.granularity,
+      },
+    });
     return;
   }
 

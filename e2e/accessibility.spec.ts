@@ -64,6 +64,7 @@ const ROUTES = [
   { path: '/staff', name: 'Staff' },
   { path: '/staff/stf_example_0002', name: 'Amina Odhiambo' },
   { path: '/organization', name: 'Organization' },
+  { path: '/analytics', name: 'Analytics' },
   { path: '/reports', name: 'Reports' },
   { path: '/reports/rep_example_0001', name: 'Report export' },
   { path: '/schedules', name: 'Schedules' },

@@ -22,7 +22,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
 | F9 Administration & audit      | in progress — users administration (slice 1), role management (slice 2), staff directory (slice 3), organization profile (slice 4)                   | audit-log viewing has no API endpoint |
-| F10 Analytics & reports        | in progress — reports desk (slice 1): export history (`/reports`) + export detail (`/reports/[id]`) with the request form and download | analytics metrics, forecasts |
+| F10 Analytics & reports        | in progress — reports desk (slice 1); analytics metrics dashboard (slice 2): `/analytics` summary, daily series and labelled snapshots | bottleneck/capacity, forecasts, patient-experience/staff analytics |
 | F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
 | F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine     |
@@ -1361,6 +1361,48 @@ GAP-020.
 Gate: lint clean, `tsc --noEmit` 0, unit 541 (`reports.test.ts` + 10),
 `build:prod` OK (routes `/reports`, `/reports/[id]`), e2e/a11y 219. Contract note
 updated in GAP-020.
+
+## F10 — Analytics & reports, slice 2: analytics metrics dashboard
+
+**Status:** in progress. The operational-metrics dashboard. Bottleneck/capacity,
+forecasts and the patient-experience/staff analyses remain for later slices.
+
+- **Dashboard** (`src/components/analytics/analytics-dashboard.tsx`, `/analytics`).
+  A reporting-window control (from/to, granularity day/week, optional branch and
+  department, apply/reset), then three panels: the headline **summary** (counts,
+  rates, money), the **daily series** as a horizontally-scrolling table, and the
+  point-in-time **snapshots** as labelled cards.
+- **The API's own words.** Every snapshot block and the whole payload carry a
+  `label` from the service, and those strings are surfaced verbatim — they are the
+  honest line between a measurement and a claim, so the dashboard does not
+  paraphrase them. Snapshot measurements render generically (scalars, nested
+  objects, small arrays), so a block the API adds appears rather than blanking the
+  page; a two-decimal numeric string is rendered as money (ADR-029).
+- **Data layer** (`src/lib/data/analytics.ts`). `AnalyticsMetrics`,
+  `MetricsSeriesRow`, `MetricsSummary`, `AnalyticsMetricsQuery`,
+  `readAnalyticsMetrics`, `fetchAnalyticsMetrics`, plus tests in
+  `analytics.test.ts`. The series and summary are critical and fail closed on
+  drift; `snapshots` stays loose on purpose (see GAP-020).
+- **Hook** (`src/lib/data/queries.ts`). `useAnalyticsMetrics`, with
+  `AnalyticsCallError` joined to the `toQueryError` union. The query key carries
+  the whole window so each selection is cached separately.
+- **Mocks/stub.** `src/mocks/fixtures/analytics-registry.ts` and
+  `src/mocks/analytics-handlers.ts` (the handler echoes the requested window,
+  granularity and scope back into the payload, as the service does), mirrored in
+  `e2e/stub-api.mjs`.
+- **Nav + i18n + a11y.** A new *Insights* nav section holds *Analytics* (and
+  *Reports* moved out of *Ward*, which never belonged there); a new `analytics`
+  namespace carries the copy; `/analytics` joined the a11y route sweep.
+- **`DataTable` scrollable-region fix.** The series table has no row links, so the
+  horizontally-scrolling container had no focusable content (axe
+  `scrollable-region-focusable`). `DataTable` gained an opt-in `scrollable` prop
+  that names and makes the region focusable; other tables keep their row links and
+  are unchanged.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 545 (`analytics.test.ts` + 4),
+`build:prod` OK (route `/analytics`), e2e/a11y 223. Contract note updated in
+GAP-020.
+
 
 
 

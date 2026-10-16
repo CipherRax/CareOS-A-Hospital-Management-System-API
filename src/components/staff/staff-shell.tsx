@@ -49,6 +49,13 @@ const SECTIONS: readonly NavSection[] = [
       { href: '/wards', label: 'Ward board' },
       { href: '/admissions', label: 'Admissions' },
       { href: '/handover', label: 'Handover' },
+    ],
+  },
+  {
+    id: 'insights',
+    label: 'Insights',
+    items: [
+      { href: '/analytics', label: 'Analytics' },
       { href: '/reports', label: 'Reports' },
     ],
   },

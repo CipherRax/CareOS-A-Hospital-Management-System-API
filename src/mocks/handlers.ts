@@ -14,6 +14,7 @@ import { inventoryHandlers } from './inventory-handlers';
 import { billingHandlers } from './billing-handlers';
 import { emergencyHandlers } from './emergency-handlers';
 import { adminHandlers } from './admin-handlers';
+import { analyticsHandlers } from './analytics-handlers';
 import { reportHandlers } from './report-handlers';
 import { staffHandlers } from './staff-handlers';
 import { insuranceHandlers } from './insurance-handlers';
@@ -208,6 +209,9 @@ export const handlers = [
   // F10 reports (report-export desk): the export history, the request write, and
   // the polling detail read plus its download stream. See ./report-handlers.ts.
   ...reportHandlers(),
+  // F10 analytics (operational metrics): the large metrics payload, windowed. See
+  // ./analytics-handlers.ts.
+  ...analyticsHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).

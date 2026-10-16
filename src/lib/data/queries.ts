@@ -268,6 +268,12 @@ import {
   type RequestReportInput,
 } from '@/lib/data/reports';
 import {
+  fetchAnalyticsMetrics,
+  type AnalyticsCallError,
+  type AnalyticsMetrics,
+  type AnalyticsMetricsQuery,
+} from '@/lib/data/analytics';
+import {
   extractStaffRecord,
   fetchBranchOptions,
   fetchStaff,
@@ -431,7 +437,8 @@ function toQueryError(
     | EmergencyCallError
     | AdminCallError
     | StaffCallError
-    | ReportsCallError,
+    | ReportsCallError
+    | AnalyticsCallError,
 ): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
@@ -4408,5 +4415,42 @@ export function useRequestReportExport(): UseMutationResult<
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reports', 'exports'] });
     },
+  });
+}
+
+// --- analytics (F10: operational metrics) -----------------------------------
+
+/**
+ * Operational metrics `GET /analytics/metrics?{window}`. The export types the
+ * body as `unknown` (a large nested object), so it rides the raw-fetch path and
+ * the series/summary are validated structurally in `src/lib/data/analytics.ts`.
+ * The query key carries the whole window so each selection is cached separately.
+ */
+export function useAnalyticsMetrics(
+  query: AnalyticsMetricsQuery = {},
+): UseQueryResult<Fetched<AnalyticsMetrics>, QueryError> {
+  return useQuery<Fetched<AnalyticsMetrics>, QueryError>({
+    queryKey: [
+      'analytics',
+      'metrics',
+      query.from ?? null,
+      query.to ?? null,
+      query.granularity ?? null,
+      query.branchId ?? null,
+      query.departmentId ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const metrics = await fetchAnalyticsMetrics(query, signal);
+        return {
+          data: metrics,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<AnalyticsMetrics>;
+      } catch (call) {
+        throw toQueryError(call as AnalyticsCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
   });
 }
