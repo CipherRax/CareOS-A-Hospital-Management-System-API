@@ -25,7 +25,10 @@ import type { SessionUser } from '@/lib/data/queries';
  * nav — two navs on one page must not share an accessible name.
  */
 
-const NAV = [{ href: '/portal', key: 'profile' }] as const;
+const NAV = [
+  { href: '/portal', key: 'profile' },
+  { href: '/portal/appointments', key: 'appointments' },
+] as const;
 
 export function PortalShell({ user, children }: { user: SessionUser; children: React.ReactNode }) {
   const t = useTranslations('portal');
@@ -50,7 +53,9 @@ export function PortalShell({ user, children }: { user: SessionUser; children: R
         className="flex shrink-0 gap-1 border-b border-border bg-surface px-6"
       >
         {NAV.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          // Exact match: `/portal` is a leaf route, so a prefix test would leave
+          // the profile tab lit while the patient is on `/portal/appointments`.
+          const active = pathname === item.href;
           return (
             <Link
               key={item.href}

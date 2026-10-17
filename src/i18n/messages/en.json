@@ -2463,7 +2463,8 @@
     "navLabel": "Patient portal",
     "unknownName": "Patient",
     "nav": {
-      "profile": "Your details"
+      "profile": "Your details",
+      "appointments": "Appointments"
     },
     "profile": {
       "title": "Your details",
@@ -2479,10 +2480,37 @@
       "registered": "Registered",
       "notRecorded": "Not recorded"
     },
+    "appointments": {
+      "title": "Your appointments",
+      "description": "Your clinic visits, most recent first.",
+      "caption": "Appointment list",
+      "columnWhen": "When",
+      "columnStatus": "Status",
+      "columnMode": "How",
+      "columnReason": "Reason",
+      "error": "We couldn't load your appointments right now.",
+      "empty": "You have no appointments to show.",
+      "notRecorded": "Not recorded",
+      "showing": "Showing {shown} of {total} appointments."
+    },
     "status": {
       "active": "Active",
       "merged": "Merged",
       "archived": "Archived"
+    },
+    "appointmentStatus": {
+      "booked": "Booked",
+      "confirmed": "Confirmed",
+      "checkedIn": "Checked in",
+      "inProgress": "In progress",
+      "completed": "Completed",
+      "cancelled": "Cancelled",
+      "noShow": "Did not attend",
+      "rescheduled": "Rescheduled"
+    },
+    "appointmentMode": {
+      "inPerson": "In person",
+      "virtual": "Video"
     },
     "notPatient": {
       "body": "This area is for patients. You're signed in as a staff member.",

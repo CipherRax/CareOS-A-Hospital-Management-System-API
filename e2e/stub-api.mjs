@@ -100,6 +100,30 @@ const PATIENT_USER = {
   preferences: null,
 };
 
+// `GET /portal/me/appointments`, newest first — mirrors the mock fixture.
+const PORTAL_APPOINTMENTS = [
+  {
+    id: 'apt_example_2001',
+    departmentId: 'dept_example_1',
+    providerId: 'usr_example_0002',
+    startsAt: '2026-02-10T09:00:00.000Z',
+    endsAt: '2026-02-10T09:30:00.000Z',
+    mode: 'IN_PERSON',
+    status: 'CONFIRMED',
+    reason: 'Antenatal check-up',
+  },
+  {
+    id: 'apt_example_2002',
+    departmentId: 'dept_example_2',
+    providerId: 'usr_example_0003',
+    startsAt: '2026-01-20T14:00:00.000Z',
+    endsAt: '2026-01-20T14:30:00.000Z',
+    mode: 'VIRTUAL',
+    status: 'COMPLETED',
+    reason: 'Follow-up',
+  },
+];
+
 const SESSION = {
   id: 'ses-example-1',
   familyId: 'fam-example-1',
@@ -1768,6 +1792,20 @@ const server = createServer(async (request, response) => {
       return;
     }
     send(response, 200, { success: true, data: { patient: PORTAL_PATIENT } });
+    return;
+  }
+
+  if (url.pathname === '/portal/me/appointments' && request.method === 'GET') {
+    // Same self-scope; a page envelope so the client sees the real list shape.
+    if (request.headers.authorization !== `Bearer ${TOKENS.accessToken}`) {
+      send(response, 401, { success: false, error: { code: 'UNAUTHORIZED' } });
+      return;
+    }
+    if (!((request.headers.cookie ?? '').includes('careos-e2e=patient'))) {
+      send(response, 403, { success: false, error: { code: 'PATIENT_ACCESS_DENIED' } });
+      return;
+    }
+    send(response, 200, listEnvelope(PORTAL_APPOINTMENTS, 25));
     return;
   }
 

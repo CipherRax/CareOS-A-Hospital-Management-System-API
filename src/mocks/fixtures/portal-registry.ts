@@ -32,3 +32,30 @@ export const PORTAL_PATIENT = {
   status: 'ACTIVE',
   createdAt: '2026-01-05T09:00:00.000Z',
 } as const;
+
+/**
+ * `GET /portal/me/appointments`, newest first — exactly `toPublicAppointment`'s
+ * projection (ids, no names; the portal has no provider/department lookup).
+ */
+export const PORTAL_APPOINTMENTS = [
+  {
+    id: 'apt_example_2001',
+    departmentId: 'dept_example_1',
+    providerId: 'usr_example_0002',
+    startsAt: '2026-02-10T09:00:00.000Z',
+    endsAt: '2026-02-10T09:30:00.000Z',
+    mode: 'IN_PERSON',
+    status: 'CONFIRMED',
+    reason: 'Antenatal check-up',
+  },
+  {
+    id: 'apt_example_2002',
+    departmentId: 'dept_example_2',
+    providerId: 'usr_example_0003',
+    startsAt: '2026-01-20T14:00:00.000Z',
+    endsAt: '2026-01-20T14:30:00.000Z',
+    mode: 'VIRTUAL',
+    status: 'COMPLETED',
+    reason: 'Follow-up',
+  },
+] as const;

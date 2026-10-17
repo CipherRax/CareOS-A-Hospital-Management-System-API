@@ -735,10 +735,14 @@ and `src/modules/roles`:
   component's `score` and `raw` inputs, and the staff payload carries the
   service's "not for individual employment decisions" caveat as
   `interpretation`; both are surfaced verbatim rather than paraphrased.
-- **Patient portal (F11 slice 1).** Same GAP-020 family under `src/modules/portal`.
-  `GET /portal/me` is typed as unknown and answers `{ patient }`, the
-  `toPublicPatient` demographics allowlist (no clinical fields, no `otherNames`/
-  `sex`), validated in `src/lib/data/portal.ts` and failing closed on drift. The
+- **Patient portal (F11 slices 1–2).** Same GAP-020 family under
+  `src/modules/portal`. `GET /portal/me` is typed as unknown and answers
+  `{ patient }`, and `GET /portal/me/appointments` types its response as the request
+  DTO while answering a `pageOf(...)` envelope of `toPublicAppointment` rows — both
+  validated structurally in `src/lib/data/portal.ts` and failing closed on drift.
+  The patient projection is the `toPublicPatient` demographics allowlist (no
+  clinical fields, no `otherNames`/`sex`); the appointment projection is ids only
+  (`departmentId`/`providerId`, no names — the portal has no provider lookup). The
   endpoints are self-scoped: the patient id is derived from the session
   (`resolvePatientScope`, `src/common/auth/patient-scope.ts`), never the URL — so
   the client sends no id and a staff principal with no self-scope is a **403

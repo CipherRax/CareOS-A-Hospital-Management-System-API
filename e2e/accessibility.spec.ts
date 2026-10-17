@@ -72,6 +72,7 @@ const ROUTES = [
   // persona is a clinician, so `PortalGate` shows "Patient portal" with a way back
   // to the staff workspace. The patient view is exercised in its own block below.
   { path: '/portal', name: 'Patient portal' },
+  { path: '/portal/appointments', name: 'Patient portal' },
   // Named by their real h1, not by what the route is called. On a patient record
   // the heading is the patient — that is the design decision under review — and
   // on the board it is whatever the clinic called itself.
@@ -490,6 +491,20 @@ test.describe('patient portal', () => {
     // "EXAMPLE Yusuf" appears in the header (session name) and the record; the
     // record's copy is the one under test.
     await expect(page.getByText('EXAMPLE Yusuf').first()).toBeVisible();
+
+    const results = await analyse(page);
+    expect(results.violations, describe(results.violations)).toEqual([]);
+  });
+
+  test("lists the patient's own appointments", async ({ page }) => {
+    await usePatientPersona(page);
+    await signInViaUi(page);
+    await page.goto('/portal/appointments');
+
+    await expect(page.getByRole('heading', { name: 'Your appointments', exact: true })).toBeVisible();
+    // The upcoming, confirmed visit and its reason must be on the page.
+    await expect(page.getByText('Antenatal check-up')).toBeVisible();
+    await expect(page.getByText('Confirmed')).toBeVisible();
 
     const results = await analyse(page);
     expect(results.violations, describe(results.violations)).toEqual([]);

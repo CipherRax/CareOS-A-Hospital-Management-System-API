@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw';
 
-import { PORTAL_PATIENT } from '@/mocks/fixtures/portal-registry';
-import { apiError, apiOk, delay, MOCK_LATENCY_MS } from '@/mocks/handlers';
+import { PORTAL_APPOINTMENTS, PORTAL_PATIENT } from '@/mocks/fixtures/portal-registry';
+import { apiError, apiOk, apiPage, delay, MOCK_LATENCY_MS } from '@/mocks/handlers';
 import { SESSION_COOKIE } from '@/lib/session-cookies';
 
 /**
@@ -28,6 +28,16 @@ export function portalHandlers() {
         });
       }
       return HttpResponse.json(apiOk({ patient: { ...PORTAL_PATIENT } }));
+    }),
+    http.get('*/api/v1/portal/me/appointments', async () => {
+      await delay(MOCK_LATENCY_MS);
+      if (!hasSession()) {
+        return HttpResponse.json(apiError('UNAUTHORIZED', 'Invalid or missing credentials.'), {
+          status: 401,
+        });
+      }
+      const items = PORTAL_APPOINTMENTS.map((appointment) => ({ ...appointment }));
+      return HttpResponse.json(apiPage(items, items.length, 25));
     }),
   ];
 }

@@ -3,6 +3,8 @@ import { publicEnv } from '@/lib/env';
 import {
   isRecord,
   nullableString,
+  pageTotal,
+  queryString,
   readEnvelope,
   type EnvelopeCallError,
 } from '@/lib/data/envelope';
@@ -84,6 +86,110 @@ export async function fetchPortalMe(signal?: AbortSignal): Promise<PortalPatient
     (data) => {
       const parsed = extractPortalPatient(data);
       return parsed.ok ? { ok: true, value: parsed.patient } : { ok: false };
+    },
+    signal,
+  );
+}
+
+export const PORTAL_APPOINTMENT_MODES = ['IN_PERSON', 'VIRTUAL'] as const;
+export type PortalAppointmentMode = (typeof PORTAL_APPOINTMENT_MODES)[number];
+
+export const PORTAL_APPOINTMENT_STATUSES = [
+  'BOOKED',
+  'CONFIRMED',
+  'CHECKED_IN',
+  'IN_PROGRESS',
+  'COMPLETED',
+  'CANCELLED',
+  'NO_SHOW',
+  'RESCHEDULED',
+] as const;
+export type PortalAppointmentStatus = (typeof PORTAL_APPOINTMENT_STATUSES)[number];
+
+export interface PortalAppointment {
+  readonly id: string;
+  readonly departmentId: string;
+  readonly providerId: string;
+  /** ISO 8601 instant. */
+  readonly startsAt: string;
+  readonly endsAt: string;
+  readonly mode: PortalAppointmentMode;
+  readonly status: PortalAppointmentStatus;
+  readonly reason: string | null;
+}
+
+export interface PortalAppointmentPage {
+  readonly rows: readonly PortalAppointment[];
+  readonly total: number;
+}
+
+export interface PortalAppointmentQuery {
+  readonly page?: number;
+  readonly limit?: number;
+}
+
+/** Reads a self-scoped appointment; returns null when a required field has drifted. */
+export function readPortalAppointment(value: unknown): PortalAppointment | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== 'string' || value.id.length === 0) return null;
+  if (typeof value.startsAt !== 'string' || value.startsAt.length === 0) return null;
+  if (typeof value.endsAt !== 'string' || value.endsAt.length === 0) return null;
+  if (
+    typeof value.mode !== 'string' ||
+    !PORTAL_APPOINTMENT_MODES.includes(value.mode as PortalAppointmentMode)
+  ) {
+    return null;
+  }
+  if (
+    typeof value.status !== 'string' ||
+    !PORTAL_APPOINTMENT_STATUSES.includes(value.status as PortalAppointmentStatus)
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    departmentId: typeof value.departmentId === 'string' ? value.departmentId : '',
+    providerId: typeof value.providerId === 'string' ? value.providerId : '',
+    startsAt: value.startsAt,
+    endsAt: value.endsAt,
+    mode: value.mode as PortalAppointmentMode,
+    status: value.status as PortalAppointmentStatus,
+    reason: nullableString(value.reason),
+  };
+}
+
+/** Reads the appointment page from the unwrapped `data` plus the sibling `meta`. */
+export function extractPortalAppointments(
+  data: unknown,
+  meta: unknown,
+): { ok: true; page: PortalAppointmentPage } | { ok: false } {
+  if (!Array.isArray(data)) return { ok: false };
+  const rows = data.map(readPortalAppointment);
+  if (rows.some((row) => row === null)) return { ok: false };
+  return {
+    ok: true,
+    page: {
+      rows: rows as readonly PortalAppointment[],
+      total: pageTotal(meta, rows.length),
+    },
+  };
+}
+
+/** Raw read against `GET /portal/me/appointments` (newest first, paginated). */
+export async function fetchPortalAppointments(
+  query: PortalAppointmentQuery = {},
+  signal?: AbortSignal,
+): Promise<PortalAppointmentPage> {
+  const suffix = queryString({
+    page: query.page !== undefined ? String(query.page) : undefined,
+    limit: query.limit !== undefined ? String(query.limit) : undefined,
+  });
+  const url = `${publicEnv.apiBasePath}/portal/me/appointments${suffix}`;
+  return readEnvelope<PortalAppointmentPage>(
+    url,
+    (data, meta) => {
+      const parsed = extractPortalAppointments(data, meta);
+      return parsed.ok ? { ok: true, value: parsed.page } : { ok: false };
     },
     signal,
   );

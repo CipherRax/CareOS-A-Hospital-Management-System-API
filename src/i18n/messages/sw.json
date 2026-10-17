@@ -2478,7 +2478,8 @@
     "navLabel": "Lango la mgonjwa",
     "unknownName": "Mgonjwa",
     "nav": {
-      "profile": "Maelezo yako"
+      "profile": "Maelezo yako",
+      "appointments": "Miadi"
     },
     "profile": {
       "title": "Maelezo yako",
@@ -2494,10 +2495,37 @@
       "registered": "Alisajiliwa",
       "notRecorded": "Haijarekodiwa"
     },
+    "appointments": {
+      "title": "Miadi yako",
+      "description": "Ziara zako za kliniki, za hivi karibuni kwanza.",
+      "caption": "Orodha ya miadi",
+      "columnWhen": "Lini",
+      "columnStatus": "Hali",
+      "columnMode": "Namna",
+      "columnReason": "Sababu",
+      "error": "Hatuwezi kupakia miadi yako kwa sasa.",
+      "empty": "Huna miadi ya kuonyesha.",
+      "notRecorded": "Haijarekodiwa",
+      "showing": "Inaonyesha {shown} kati ya {total} miadi."
+    },
     "status": {
       "active": "Hai",
       "merged": "Imeunganishwa",
       "archived": "Imehifadhiwa"
+    },
+    "appointmentStatus": {
+      "booked": "Imehifadhiwa",
+      "confirmed": "Imethibitishwa",
+      "checkedIn": "Ameingia",
+      "inProgress": "Inaendelea",
+      "completed": "Imekamilika",
+      "cancelled": "Imeghairiwa",
+      "noShow": "Hakufika",
+      "rescheduled": "Imepangwa upya"
+    },
+    "appointmentMode": {
+      "inPerson": "Ana kwa ana",
+      "virtual": "Kwa video"
     },
     "notPatient": {
       "body": "Eneo hili ni la wagonjwa. Umeingia kama mfanyakazi.",

@@ -23,7 +23,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
 | F9 Administration & audit      | **complete** — users administration (slice 1), role management (slice 2), staff directory (slice 3), organization profile (slice 4)                   | audit-log viewing has no API endpoint |
 | F10 Analytics & reports        | complete — reports desk; analytics metrics; journey bottlenecks + capacity; forecast explorer, patient experience and staff analytics (`/analytics`) | audit-log viewing is not buildable (no API list endpoint) |
-| F11 Portal & queue display     | partial — display board done; patient portal in progress (slice 1: patient-session gate + portal shell + profile `/portal`) | portal appointments, lab results and feedback |
+| F11 Portal & queue display     | partial — display board done; patient portal in progress (slice 1: patient-session gate + portal shell + profile `/portal`; slice 2: appointments `/portal/appointments`) | portal lab results and feedback |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
 | F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine     |
 
@@ -1539,6 +1539,52 @@ Gate: lint clean, `tsc --noEmit` 0, unit 570 (+11: `session.test.ts` +4,
 `portal.test.ts` +6, `login-form.test.tsx` +1), `build:prod` OK (route `/portal`),
 e2e/a11y **231** (was 223: +4 `/portal` route variants in four themes, +4 patient
 portal tests).
+
+## F11 — Patient portal, slice 2: the appointment list
+
+**Status:** in progress (slice 2 of 4). Slice 1 built the patient session, the
+`PortalGate` and the profile; this adds the first *list* read, `GET
+/portal/me/appointments`, at `/portal/appointments`. Lab results and the feedback
+write remain.
+
+- **Appointments screen** (`src/components/portal/portal-appointments.tsx`). The
+  patient's own bookings, newest first, as a real `<table>` (via `DataTable`): a
+  visit is tabular — when, how, what state — and a patient scanning for the status
+  reads down the column. Each status carries a distinct `StatusPill` tone so a
+  cancelled visit and a completed one do not look alike, and the visible label is
+  the word, never colour alone. The table opts into `scrollable` because there is no
+  appointment-detail route, so the first column has no link for a keyboard user to
+  land on (axe `scrollable-region-focusable`). Times are `Intl`-formatted and pinned
+  to UTC, matching the profile, with no `Date.now()` in render.
+- **Pagination honesty.** Only page 1 (`limit: 25`) is requested; when `meta.total`
+  exceeds the rows returned a footer says `Showing {shown} of {total} appointments`,
+  so a partial page is never read as the whole diary. There are no next/prev controls
+  yet — the API is ready for them.
+- **Data layer** (`src/lib/data/portal.ts`) and hook `usePortalAppointments`. The
+  list endpoint is one of the GAP-020 family (the export types the response as the
+  request DTO), so it rides the raw-fetch path: `readPortalAppointment` fails closed
+  on a drifted row, `extractPortalAppointments` reads the page from the unwrapped
+  `data` plus the sibling `meta`. Self-scoped — no patient id in the path or query,
+  so there is nothing to tamper with.
+- **Navigation.** The portal nav grew a second item. The active test is now an exact
+  `pathname === href` rather than a prefix, because `/portal` is a leaf: a prefix
+  test would leave "Your details" lit while the patient is on `/portal/appointments`.
+- **Mocks/stub.** `PORTAL_APPOINTMENTS` added to `src/mocks/fixtures/portal-registry.ts`
+  and mirrored in `e2e/stub-api.mjs`; `portalHandlers` gained the paginated
+  `/portal/me/appointments` route (401 unsigned), and the stub the same under the
+  `careos-e2e=patient` persona.
+- **i18n.** `portal.appointments.*`, `portal.appointmentStatus.*` and
+  `portal.appointmentMode.*` (en+sw, key parity checked).
+- **Tests.** `portal.test.ts` +7 (`readPortalAppointment` full/nullable/fail-closed/
+  unknown-enum, `extractPortalAppointments` meta/fallback/fail-closed); the a11y sweep
+  gained `/portal/appointments` and a "lists the patient's own appointments" case.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 577 (+7), `build:prod` OK (route
+`/portal/appointments`), e2e/a11y **236** (was 231: +4 `/portal/appointments`
+route variants in four themes, +1 patient appointments view test).
+
+
+
 
 
 

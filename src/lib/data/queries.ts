@@ -298,7 +298,10 @@ import {
   type UpdateStaffInput,
 } from '@/lib/data/staff';
 import {
+  fetchPortalAppointments,
   fetchPortalMe,
+  type PortalAppointmentPage,
+  type PortalAppointmentQuery,
   type PortalCallError,
   type PortalPatient,
 } from '@/lib/data/portal';
@@ -4701,6 +4704,33 @@ export function usePortalMe(): UseQueryResult<Fetched<PortalPatient>, QueryError
           data: patient,
           response: new Response(null, { status: 200 }),
         } satisfies Fetched<PortalPatient>;
+      } catch (call) {
+        throw toQueryError(call as PortalCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * The caller's own appointments `GET /portal/me/appointments` (newest first).
+ * The list type in the export is the request DTO, so the page rides the raw-fetch
+ * path and is validated in `src/lib/data/portal.ts` (GAP-020 family). Like every
+ * portal read it is self-scoped — no patient id is sent.
+ */
+export function usePortalAppointments(
+  query: PortalAppointmentQuery = {},
+): UseQueryResult<Fetched<PortalAppointmentPage>, QueryError> {
+  return useQuery<Fetched<PortalAppointmentPage>, QueryError>({
+    queryKey: ['portal', 'appointments', query.page ?? 1, query.limit ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchPortalAppointments(query, signal);
+        return {
+          data: page,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<PortalAppointmentPage>;
       } catch (call) {
         throw toQueryError(call as PortalCallError);
       }
