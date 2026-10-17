@@ -153,6 +153,24 @@ live path is verified end to end through the e2e stub (the stub is upstream of
 the real proxy) and through MSW+unit tests; it has not been exercised against a
 booted API, because no seeded account can reach the challenge (see above).
 
+### The patient portal is partial, and its session model is new
+
+The portal has one screen (the profile, `GET /portal/me`). The API's other portal
+endpoints — `GET /portal/me/appointments`, `GET /portal/me/lab-results` and
+`POST /portal/me/feedback` — are contract-verified but not yet built, so a patient
+can see their demographics and nothing else. The F11 row in `PROGRESS.md` tracks
+the remainder.
+
+Staff and patient are two gates over one session (ADR-011). The principal is
+derived from `/auth/me`'s `roles` and `patientLink` — fields that exist in the live
+body but are untyped in the exported document, so they are read structurally and a
+drifted body is treated as staff (fail closed). As with everything else here, the
+gate is UX: the API's `resolvePatientScope` and the `portal.read` permission are
+the real control, and the portal screens still have to render a 403. The
+patient-facing path is verified end to end through the e2e stub and MSW; it has not
+been exercised against a booted API, because no seeded patient account can log in
+(see the session section above).
+
 ### The intake tracking page is built on a contract whose success body is untyped
 
 `/request` is built against the live `POST /public/emergency-requests` contract

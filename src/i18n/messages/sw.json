@@ -2472,5 +2472,41 @@
       "emergencyRequests": "Maombi ya dharura",
       "revenue": "Mapato"
     }
+  },
+  "portal": {
+    "title": "Lango la mgonjwa",
+    "navLabel": "Lango la mgonjwa",
+    "unknownName": "Mgonjwa",
+    "nav": {
+      "profile": "Maelezo yako"
+    },
+    "profile": {
+      "title": "Maelezo yako",
+      "description": "Maelezo tuliyo nayo kukuhusu. Wasiliana na mapokezi ikiwa kuna lolote linalohitaji kurekebishwa.",
+      "loading": "Inapakia maelezo yako…",
+      "error": "Hatuwezi kupakia maelezo yako kwa sasa.",
+      "patientNumber": "Namba ya mgonjwa",
+      "name": "Jina",
+      "dateOfBirth": "Tarehe ya kuzaliwa",
+      "status": "Hali ya rekodi",
+      "phone": "Simu",
+      "email": "Barua pepe",
+      "registered": "Alisajiliwa",
+      "notRecorded": "Haijarekodiwa"
+    },
+    "status": {
+      "active": "Hai",
+      "merged": "Imeunganishwa",
+      "archived": "Imehifadhiwa"
+    },
+    "notPatient": {
+      "body": "Eneo hili ni la wagonjwa. Umeingia kama mfanyakazi.",
+      "staffLink": "Nenda kwenye eneo la wafanyakazi"
+    },
+    "staffDenied": {
+      "title": "Akaunti ya mgonjwa",
+      "body": "Umeingia kama mgonjwa. Skrini za wafanyakazi ni za wafanyakazi wa kliniki.",
+      "portalLink": "Nenda kwenye lango la mgonjwa"
+    }
   }
 }

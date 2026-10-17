@@ -297,6 +297,11 @@ import {
   type StaffRow,
   type UpdateStaffInput,
 } from '@/lib/data/staff';
+import {
+  fetchPortalMe,
+  type PortalCallError,
+  type PortalPatient,
+} from '@/lib/data/portal';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
@@ -392,6 +397,9 @@ export function useSession() {
   }) as UseQueryResult<Fetched<SessionUser>, QueryError>;
 }
 
+/** The reserved role key for the patient portal (ADR-051, `patient-scope.ts`). */
+export const PATIENT_ROLE_KEY = 'PATIENT';
+
 export interface SessionUser {
   id: string;
   displayName: string;
@@ -399,6 +407,18 @@ export interface SessionUser {
   facilityId?: string;
   /** ISO 4217 for money display, from the org on `/auth/me`. */
   currency: string;
+  /** Role keys from `/auth/me` (`roles`), used to tell staff from patient. */
+  roles: readonly string[];
+  /** The patient record this login is linked to (`patientLink.patientId`), if any. */
+  patientId: string | null;
+  /**
+   * A patient principal. Both halves are required, mirroring
+   * `resolvePatientScope` server-side: the `PATIENT` role *and* a linked record.
+   * A staff login that happens to hold the role, or a provisioned patient that
+   * has not been linked yet, is not a patient principal and must not be routed
+   * to the portal.
+   */
+  isPatient: boolean;
 }
 
 /**
@@ -406,14 +426,21 @@ export interface SessionUser {
  * persona. The identity endpoint returns `user` plus `roleDetails`; the fallbacks
  * are for a body that drifts again, so a malformed response starves the header
  * rather than crashing it.
+ *
+ * It also carries the principal's routing facts — `roles`, the patient link, and
+ * the derived `isPatient` — because both gates (`StaffGate`, `PortalGate`) branch
+ * on them. Deriving the flag once here keeps the two gates from disagreeing about
+ * what a patient is.
  */
 export function normaliseSessionUser(data: unknown): SessionUser {
   if (!data || typeof data !== 'object') {
-    return { id: '', displayName: '', roleLabel: '', currency: 'KES' };
+    return emptySessionUser();
   }
   const record = data as {
     user?: { id?: unknown; firstName?: unknown; otherNames?: unknown; lastName?: unknown };
     roleDetails?: ReadonlyArray<{ name?: unknown }> | null;
+    roles?: unknown;
+    patientLink?: { patientId?: unknown } | null;
     organization?: { currency?: unknown } | null;
   };
   const user = record.user;
@@ -428,7 +455,28 @@ export function normaliseSessionUser(data: unknown): SessionUser {
     typeof record.organization?.currency === 'string' && record.organization.currency.length > 0
       ? record.organization.currency
       : 'KES';
-  return { id, displayName, roleLabel, currency };
+  const roles = Array.isArray(record.roles)
+    ? record.roles.filter((key): key is string => typeof key === 'string')
+    : [];
+  const patientId =
+    typeof record.patientLink?.patientId === 'string' && record.patientLink.patientId.length > 0
+      ? record.patientLink.patientId
+      : null;
+  const isPatient = roles.includes(PATIENT_ROLE_KEY) && patientId !== null;
+  return { id, displayName, roleLabel, currency, roles, patientId, isPatient };
+}
+
+/** The signed-out / malformed-body persona: nothing about it is known, so it is not a patient. */
+function emptySessionUser(): SessionUser {
+  return {
+    id: '',
+    displayName: '',
+    roleLabel: '',
+    currency: 'KES',
+    roles: [],
+    patientId: null,
+    isPatient: false,
+  };
 }
 
 /** Pulls an untyped call (raw search/queue/scheduling/vitals/schedules) onto the query error contract. */
@@ -449,7 +497,8 @@ function toQueryError(
     | AdminCallError
     | StaffCallError
     | ReportsCallError
-    | AnalyticsCallError,
+    | AnalyticsCallError
+    | PortalCallError,
 ): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
@@ -4626,6 +4675,34 @@ export function useAnalyticsStaff(
         } satisfies Fetched<AnalyticsStaff>;
       } catch (call) {
         throw toQueryError(call as AnalyticsCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+// --- patient portal (F11) ---------------------------------------------------
+
+/**
+ * The caller's own patient record `GET /portal/me`. The export types the body as
+ * unknown, so it rides the raw-fetch path and is validated in
+ * `src/lib/data/portal.ts`. Self-scoped by the API — there is deliberately no id
+ * argument, because a client that names the record it wants is one step from an
+ * IDOR.
+ */
+export function usePortalMe(): UseQueryResult<Fetched<PortalPatient>, QueryError> {
+  return useQuery<Fetched<PortalPatient>, QueryError>({
+    queryKey: ['portal', 'me'],
+    queryFn: async ({ signal }) => {
+      try {
+        const patient = await fetchPortalMe(signal);
+        return {
+          data: patient,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<PortalPatient>;
+      } catch (call) {
+        throw toQueryError(call as PortalCallError);
       }
     },
     staleTime: 60_000,

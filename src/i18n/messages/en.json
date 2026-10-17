@@ -2457,5 +2457,41 @@
       "emergencyRequests": "Emergency requests",
       "revenue": "Revenue"
     }
+  },
+  "portal": {
+    "title": "Patient portal",
+    "navLabel": "Patient portal",
+    "unknownName": "Patient",
+    "nav": {
+      "profile": "Your details"
+    },
+    "profile": {
+      "title": "Your details",
+      "description": "The details we hold for you. Contact reception if anything needs correcting.",
+      "loading": "Loading your details…",
+      "error": "We couldn't load your details right now.",
+      "patientNumber": "Patient number",
+      "name": "Name",
+      "dateOfBirth": "Date of birth",
+      "status": "Record status",
+      "phone": "Phone",
+      "email": "Email",
+      "registered": "Registered",
+      "notRecorded": "Not recorded"
+    },
+    "status": {
+      "active": "Active",
+      "merged": "Merged",
+      "archived": "Archived"
+    },
+    "notPatient": {
+      "body": "This area is for patients. You're signed in as a staff member.",
+      "staffLink": "Go to the staff workspace"
+    },
+    "staffDenied": {
+      "title": "Patient account",
+      "body": "You're signed in as a patient. Staff screens are for clinic staff.",
+      "portalLink": "Go to the patient portal"
+    }
   }
 }

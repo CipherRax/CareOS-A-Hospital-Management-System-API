@@ -68,6 +68,10 @@ const ROUTES = [
   { path: '/reports', name: 'Reports' },
   { path: '/reports/rep_example_0001', name: 'Report export' },
   { path: '/schedules', name: 'Schedules' },
+  // Under the staff sweep this is the *staff-refused* portal screen: the signed-in
+  // persona is a clinician, so `PortalGate` shows "Patient portal" with a way back
+  // to the staff workspace. The patient view is exercised in its own block below.
+  { path: '/portal', name: 'Patient portal' },
   // Named by their real h1, not by what the route is called. On a patient record
   // the heading is the patient — that is the design decision under review — and
   // on the board it is whatever the clinic called itself.
@@ -462,6 +466,69 @@ test.describe('staff session gate', () => {
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('heading', { name: 'Please sign in again' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Sign in' })).toHaveCount(0);
+  });
+});
+
+test.describe('patient portal', () => {
+  /** Puts the stub on the patient persona; `/auth/me` and `/portal/me` follow it. */
+  async function usePatientPersona(page: Page) {
+    await page
+      .context()
+      .addCookies([{ name: 'careos-e2e', value: 'patient', url: 'http://127.0.0.1:3100' }]);
+  }
+
+  test('shows the signed-in patient their own details', async ({ page }) => {
+    await usePatientPersona(page);
+    // Sign in through /login as usual; the switch cookie makes the session a
+    // patient one. The staff route then redirects the principal away, so the test
+    // lands on the portal directly.
+    await signInViaUi(page);
+    await page.goto('/portal');
+
+    await expect(page.getByRole('heading', { name: 'Your details', exact: true })).toBeVisible();
+    await expect(page.getByText('PAT-2026-000001')).toBeVisible();
+    // "EXAMPLE Yusuf" appears in the header (session name) and the record; the
+    // record's copy is the one under test.
+    await expect(page.getByText('EXAMPLE Yusuf').first()).toBeVisible();
+
+    const results = await analyse(page);
+    expect(results.violations, describe(results.violations)).toEqual([]);
+  });
+
+  test('withholds the portal from a staff session and points back to staff', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/portal');
+
+    await expect(page.getByRole('heading', { name: 'Patient portal' })).toBeVisible();
+    // The patient's record must not be in the document at all.
+    await expect(page.getByText('PAT-2026-000001')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Go to the staff workspace' })).toHaveAttribute(
+      'href',
+      '/',
+    );
+  });
+
+  test('withholds staff content from a patient session', async ({ page }) => {
+    await usePatientPersona(page);
+    await signInViaUi(page);
+    // A patient following a staff URL is stopped by the staff gate, not shown the
+    // shell — the reciprocal of the portal gate.
+    await page.goto('/triage');
+
+    await expect(page.getByRole('heading', { name: 'Patient account' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Clinical' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Go to the patient portal' })).toHaveAttribute(
+      'href',
+      '/portal',
+    );
+  });
+
+  test('withholds the portal when there is no session', async ({ page }) => {
+    await page.goto('/portal');
+
+    await expect(page.getByRole('heading', { name: 'Please sign in again' })).toBeVisible();
+    await expect(page.getByText('PAT-2026-000001')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
   });
 });
 

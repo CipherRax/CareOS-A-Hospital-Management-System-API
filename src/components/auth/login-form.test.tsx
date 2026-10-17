@@ -42,6 +42,21 @@ function okAuth() {
   });
 }
 
+/** Login succeeds for a patient principal, whose roles put them on the portal. */
+function patientAuth() {
+  post.mockImplementation((path: string) => {
+    if (path === '/auth/login') {
+      return Promise.resolve(
+        envelope({
+          success: true,
+          data: { mfaRequired: false, user: { id: 'u1', roles: ['PATIENT'] } },
+        }),
+      );
+    }
+    return Promise.resolve(envelope({ success: true, data: { user: { id: 'u1' } } }));
+  });
+}
+
 /** Login answers with an MFA challenge; verify succeeds. */
 function mfaAuth() {
   post.mockImplementation((path: string) => {
@@ -126,6 +141,15 @@ describe('LoginForm', () => {
       password: 'correct-horse',
     });
     await waitFor(() => expect(router.push).toHaveBeenCalledWith('/triage'));
+  });
+
+  it('lands a patient principal on the portal, not the staff surface', async () => {
+    patientAuth();
+    renderForm();
+    const user = await fillSignIn();
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/portal'));
   });
 
   it('never touches the session query cache before the API confirms the session', async () => {

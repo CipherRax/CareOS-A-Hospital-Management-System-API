@@ -36,6 +36,24 @@ type MfaVerifyDto = components['schemas']['MfaVerifyDto'];
 interface LoginPayload {
   sessionStarted: boolean;
   challengeToken: string | null;
+  /** Where to land once the session is live: the staff surface or the portal. */
+  destination: '/triage' | '/portal';
+}
+
+/**
+ * Routes a freshly-authenticated principal to their surface.
+ *
+ * The login body carries the role keys (`user.roles`), so the patient/staff split
+ * is known before the first `/auth/me`. Only `PATIENT` routes to the portal; every
+ * other key — and an absent or drifted `roles` — routes to the staff surface, so a
+ * body that drifts cannot strand an unknown principal in the portal.
+ */
+function destinationForLogin(data: unknown): '/triage' | '/portal' {
+  const user =
+    data && typeof data === 'object' ? (data as { user?: unknown }).user : undefined;
+  const roles =
+    user && typeof user === 'object' ? (user as { roles?: unknown }).roles : undefined;
+  return Array.isArray(roles) && roles.includes('PATIENT') ? '/portal' : '/triage';
 }
 
 export function LoginForm() {
@@ -84,14 +102,15 @@ export function LoginForm() {
       return {
         sessionStarted: !mfa,
         challengeToken: mfa && typeof data.challengeToken === 'string' ? data.challengeToken : null,
+        destination: destinationForLogin(data),
       };
     },
     onSuccess: async (payload) => {
       if (payload.sessionStarted) {
         // The session cookie is live; drop the query's cached signed-out state
-        // before landing the gate on the staff surface.
+        // before landing the gate on the right surface.
         await queryClient.invalidateQueries({ queryKey: ['session'] });
-        router.push('/triage');
+        router.push(payload.destination);
       } else if (payload.challengeToken) {
         setChallengeToken(payload.challengeToken);
         setMfaFieldError(undefined);
@@ -121,12 +140,13 @@ export function LoginForm() {
       return {
         sessionStarted: !mfa,
         challengeToken: mfa && typeof data.challengeToken === 'string' ? data.challengeToken : null,
+        destination: destinationForLogin(data),
       };
     },
     onSuccess: async (payload) => {
       if (payload.sessionStarted) {
         await queryClient.invalidateQueries({ queryKey: ['session'] });
-        router.push('/triage');
+        router.push(payload.destination);
       } else if (payload.challengeToken) {
         // A chained factor: keep the phase open under the new challenge.
         setChallengeToken(payload.challengeToken);

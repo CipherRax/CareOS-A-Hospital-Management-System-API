@@ -55,6 +55,51 @@ const USER = {
   preferences: null,
 };
 
+/**
+ * The patient persona. `/auth/me` answers this — instead of `USER` — when the
+ * request carries the `careos-e2e=patient` switch cookie, so an e2e test can put
+ * a patient session in front of the portal without a second login flow. It mirrors
+ * the copy in `src/mocks/fixtures/portal-registry.ts` and the mock handler
+ * (`src/mocks/handlers.ts`).
+ */
+const PORTAL_PATIENT_ID = 'pat_example_1001';
+const PORTAL_PATIENT = {
+  id: PORTAL_PATIENT_ID,
+  patientNumber: 'PAT-2026-000001',
+  firstName: 'EXAMPLE',
+  lastName: 'Yusuf',
+  dateOfBirth: '1992-05-14',
+  phone: '0700000001',
+  email: null,
+  status: 'ACTIVE',
+  createdAt: '2026-01-05T09:00:00.000Z',
+};
+const PATIENT_USER = {
+  user: {
+    id: 'usr-example-pt01',
+    email: 'amina@example.org',
+    firstName: 'EXAMPLE',
+    lastName: 'Yusuf',
+    status: 'ACTIVE',
+  },
+  roles: ['PATIENT'],
+  roleDetails: [{ id: 'role-example-patient', key: 'PATIENT', name: 'Patient' }],
+  organization: {
+    id: 'org-example-1',
+    name: 'EXAMPLE Teaching Hospital',
+    status: 'ACTIVE',
+    currency: 'KES',
+    featureFlags: {},
+  },
+  security: { passwordChangeRequired: false, mfaEnrolmentRequired: false, staging: [] },
+  session: { id: 'ses-example-1', familyId: 'fam-example-1' },
+  branch: { current: null, allowed: [] },
+  branches: [],
+  patient: PORTAL_PATIENT,
+  patientLink: { patientId: PORTAL_PATIENT_ID },
+  preferences: null,
+};
+
 const SESSION = {
   id: 'ses-example-1',
   familyId: 'fam-example-1',
@@ -1698,7 +1743,31 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    // The patient persona: same session, different principal. The proxy forwards
+    // the switch cookie, so a test can ask for a patient without a second login.
+    if (cookies.includes('careos-e2e=patient')) {
+      send(response, 200, { success: true, data: PATIENT_USER });
+      return;
+    }
+
     send(response, 200, { success: true, data: USER });
+    return;
+  }
+
+  if (url.pathname === '/portal/me' && request.method === 'GET') {
+    // Self-scoped like the live API: the patient comes from the session, never the
+    // URL, so there is nothing here for a caller to tamper with.
+    if (request.headers.authorization !== `Bearer ${TOKENS.accessToken}`) {
+      send(response, 401, { success: false, error: { code: 'UNAUTHORIZED' } });
+      return;
+    }
+    if (!((request.headers.cookie ?? '').includes('careos-e2e=patient'))) {
+      // Authenticated, but not a patient: the live API answers 403 for a staff
+      // principal with no self-scope.
+      send(response, 403, { success: false, error: { code: 'PATIENT_ACCESS_DENIED' } });
+      return;
+    }
+    send(response, 200, { success: true, data: { patient: PORTAL_PATIENT } });
     return;
   }
 

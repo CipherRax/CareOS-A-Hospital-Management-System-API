@@ -249,3 +249,29 @@ rather than `next start`, so the accessibility run exercises the artefact that
 actually ships.
 
 The verification is the point. A deployment target nobody loads is not verified.
+
+## ADR-011 — Staff and patient are two gates over one session, not two sessions
+
+**Context.** The API authenticates staff and patients through the same
+`/auth/login` and the same session cookie; what differs is the principal. A patient
+is a `PATIENT` role **and** a linked patient record (`resolvePatientScope`,
+`src/common/auth/patient-scope.ts`). Before the portal existed, every staff route
+was gated by `StaffGate`, which admitted any 2xx from `/auth/me` — so the moment a
+patient session existed, it satisfied the staff gate.
+
+**Decision.** There is one session and two mirrored gates. The principal is
+derived once, in `normaliseSessionUser`: `isPatient = roles.includes('PATIENT') &&
+patientId !== null` (both halves required). `StaffGate` admits staff and refuses a
+patient; `PortalGate` admits a patient and refuses staff. The refusal is not
+"signed out" — an authenticated wrong-principal is told so and handed the one
+useful link (the portal from a staff screen, the staff workspace from the portal).
+
+**Alternatives rejected.** A separate patient login or session store would
+duplicate the proxy bridge and the identity endpoint for no benefit, and the API
+does not offer one. Reading the roles at each call site would let the two gates
+drift; deriving the flag once is what stops them disagreeing.
+
+**Consequence.** A wrong-principal is a first-class state in both gates, and a
+drifted `/auth/me` (no `roles`, no `patientLink`) is a staff principal by default —
+the fail-closed answer, since the portal exposes a patient's own record and a
+malformed identity must not open it.

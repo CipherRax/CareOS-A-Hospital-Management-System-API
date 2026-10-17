@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw';
 
 import { REFRESH_COOKIE, SESSION_COOKIE } from '@/lib/session-cookies';
+import { PORTAL_PATIENT, PORTAL_PATIENT_ID, PORTAL_SESSION_USER } from '@/mocks/fixtures/portal-registry';
 
 import { patientHandlers } from './patient-handlers';
 import { queueHandlers } from './queue-handlers';
@@ -17,6 +18,7 @@ import { adminHandlers } from './admin-handlers';
 import { analyticsHandlers } from './analytics-handlers';
 import { reportHandlers } from './report-handlers';
 import { staffHandlers } from './staff-handlers';
+import { portalHandlers } from './portal-handlers';
 import { insuranceHandlers } from './insurance-handlers';
 import { inpatientHandlers } from './inpatient-handlers';
 import { laboratoryHandlers } from './laboratory-handlers';
@@ -206,6 +208,9 @@ export const handlers = [
   // assignment replacement, and the branch list the assignment editor reads. See
   // ./staff-handlers.ts.
   ...staffHandlers(),
+  // F11 patient portal: the self-scoped profile read (`GET /portal/me`). See
+  // ./portal-handlers.ts.
+  ...portalHandlers(),
   // F10 reports (report-export desk): the export history, the request write, and
   // the polling detail read plus its download stream. See ./report-handlers.ts.
   ...reportHandlers(),
@@ -334,6 +339,33 @@ export const handlers = [
         status: 401,
       });
     }
+    // The patient persona. A `careos-e2e=patient` cookie switches the answer, the
+    // same device the stub uses, so a manual dev session can reach the portal and
+    // the gates can be exercised without a second login flow.
+    if (document.cookie.includes('careos-e2e=patient')) {
+      return HttpResponse.json(
+        apiOk({
+          user: PORTAL_SESSION_USER,
+          organization: {
+            id: 'org_example_0001',
+            name: 'EXAMPLE Health Services',
+            status: 'ACTIVE',
+            currency: 'KES',
+            featureFlags: {},
+          },
+          roles: ['PATIENT'],
+          roleDetails: [{ id: 'role_example_patient', key: 'PATIENT', name: 'Patient' }],
+          security: { passwordChangeRequired: false, mfaEnrolmentRequired: false, staging: [] },
+          session: { id: 'ses_example_0001' },
+          branch: { current: null, allowed: [] },
+          branches: [],
+          patient: { ...PORTAL_PATIENT },
+          patientLink: { patientId: PORTAL_PATIENT_ID },
+          preferences: null,
+        }),
+        { status: 200 },
+      );
+    }
     return HttpResponse.json(
       apiOk({
         user: MOCK_SESSION_USER,
@@ -355,6 +387,7 @@ export const handlers = [
         branch: { current: null, allowed: [] },
         branches: [],
         patient: null,
+        patientLink: null,
         preferences: null,
       }),
       { status: 200 },

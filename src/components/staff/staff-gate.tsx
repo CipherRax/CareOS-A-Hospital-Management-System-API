@@ -34,13 +34,13 @@ export function StaffGate({ children }: { children: React.ReactNode }) {
 
   if (session.isPending) {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-canvas px-6">
+      <main className="flex min-h-dvh items-center justify-center bg-canvas px-6">
         {/* `role="status"` so a screen reader hears that the page is working
             instead of sitting on unexplained silence. */}
         <p role="status" className="text-body text-secondary">
           Checking your session…
         </p>
-      </div>
+      </main>
     );
   }
 
@@ -48,7 +48,42 @@ export function StaffGate({ children }: { children: React.ReactNode }) {
     return <SignedOut code={session.error?.code} />;
   }
 
+  // A patient principal is authenticated but is not staff. Rendering the staff
+  // shell to them would put a clinic's chrome — and eventually its data — in
+  // front of someone who must never have it. The gate's rule is "signed in" and
+  // this is the second half of that: signed in *as staff*.
+  if (session.data.data.isPatient) {
+    return <PatientAtStaffGate />;
+  }
+
   return <StaffShell user={session.data.data}>{children}</StaffShell>;
+}
+
+/**
+ * A patient principal at a staff route.
+ *
+ * Not a dead end and not a lie: it names the situation and hands them the portal
+ * — the same pattern as the signed-out screen. A staff login never reaches here
+ * (its `isPatient` is false), so this exists only for the patient who followed a
+ * staff URL or was landed on one.
+ */
+function PatientAtStaffGate() {
+  const t = useTranslations('portal');
+
+  return (
+    <main className="flex min-h-dvh items-center justify-center bg-canvas px-6">
+      <div className="w-full max-w-md rounded-lg border border-border bg-surface p-6">
+        <h1 className="text-heading-sm font-semibold text-primary">{t('staffDenied.title')}</h1>
+        <p className="mt-2 text-body text-secondary">{t('staffDenied.body')}</p>
+        <Link
+          href="/portal"
+          className="mt-4 inline-block rounded-md border border-border bg-surface px-4 py-2 text-body font-medium text-primary hover:bg-canvas"
+        >
+          {t('staffDenied.portalLink')}
+        </Link>
+      </div>
+    </main>
+  );
 }
 
 /**
@@ -66,7 +101,7 @@ function SignedOut({ code }: { code: string | undefined }) {
   const key = unavailable ? 'unavailable' : 'unauthenticated';
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-canvas px-6">
+    <main className="flex min-h-dvh items-center justify-center bg-canvas px-6">
       <div className="w-full max-w-md rounded-lg border border-border bg-surface p-6">
         <h1 className="text-heading-sm font-semibold text-primary">{t(`${key}.title`)}</h1>
         <p className="mt-2 text-body text-secondary">{t(`${key}.body`)}</p>
@@ -82,6 +117,6 @@ function SignedOut({ code }: { code: string | undefined }) {
           </Link>
         )}
       </div>
-    </div>
+    </main>
   );
 }

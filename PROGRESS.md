@@ -21,9 +21,9 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) and wastage write-offs | transfers/counts/POs have no read endpoint (GAP-020) |
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
-| F9 Administration & audit      | in progress — users administration (slice 1), role management (slice 2), staff directory (slice 3), organization profile (slice 4)                   | audit-log viewing has no API endpoint |
+| F9 Administration & audit      | **complete** — users administration (slice 1), role management (slice 2), staff directory (slice 3), organization profile (slice 4)                   | audit-log viewing has no API endpoint |
 | F10 Analytics & reports        | complete — reports desk; analytics metrics; journey bottlenecks + capacity; forecast explorer, patient experience and staff analytics (`/analytics`) | audit-log viewing is not buildable (no API list endpoint) |
-| F11 Portal & queue display     | partial — display board done                                                               | portal read models                                     |
+| F11 Portal & queue display     | partial — display board done; patient portal in progress (slice 1: patient-session gate + portal shell + profile `/portal`) | portal appointments, lab results and feedback |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
 | F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine     |
 
@@ -1484,9 +1484,61 @@ Gate: lint clean, `tsc --noEmit` 0, unit 559 (`analytics.test.ts` + 18, i.e. +7)
 `build:prod` OK (route `/analytics`), e2e/a11y 223. Contract note updated in
 GAP-020.
 
+## F11 — Patient portal, slice 1: the patient session, gate and profile
 
+**Status:** in progress. The API has had a self-scoped portal module
+(`src/modules/portal/*`) all along — `GET /portal/me`, `GET /portal/me/appointments`,
+`GET /portal/me/lab-results`, `POST /portal/me/feedback` — so the earlier "blocked
+on portal read models" note was stale. This slice builds the session model, the
+gate and the first screen (the profile); the remaining reads and the feedback write
+follow.
 
+- **Principal detection** (`normaliseSessionUser` in `src/lib/data/queries.ts`).
+  `SessionUser` gained `roles`, `patientId` and a derived `isPatient`. The flag is
+  `roles.includes('PATIENT') && patientId !== null`, mirroring `resolvePatientScope`
+  server-side: the role alone is not enough (an un-provisioned patient account), and
+  a linked record alone is not enough (a staff account). Deriving it once keeps the
+  two gates from disagreeing. `PATIENT_ROLE_KEY` is exported as the single source of
+  the string.
+- **`PortalGate`** (`src/components/portal/portal-gate.tsx`). The mirror of
+  `StaffGate`: fails closed, admits only a confirmed patient principal, and gives an
+  authenticated non-patient a screen that says so with a link back to the staff
+  workspace (not a "signed out" dead end). The unavailable/unauthenticated states
+  match `StaffGate` — sign-in link for the former, none for the latter.
+- **`StaffGate` hardening** (`src/components/staff/staff-gate.tsx`). A patient
+  principal at a staff route is now stopped at the gate and pointed at `/portal`.
+  Before this, any authenticated session — including a patient's — satisfied the
+  gate, which was a real hole once a patient session existed.
+- **Portal shell and profile** (`src/components/portal/portal-shell.tsx`,
+  `portal-profile.tsx`). A deliberately consumer-shaped shell (header, a named nav
+  landmark distinct from the staff rail's "Clinical", one column) and the read-only
+  profile from `GET /portal/me`. Dates are formatted with `Intl` pinned to UTC so a
+  calendar birth date does not shift a day in western timezones, and the record is
+  the demographics allowlist `toPublicPatient` projects — never clinical data.
+- **Route group** (`src/app/(portal)/`). A new group with its own layout, so the
+  patient surface diverges from staff without a routing migration and neither can be
+  reached by editing a URL into the other. `/portal` is the profile.
+- **Login routing** (`src/components/auth/login-form.tsx`). A login whose body
+  carries `user.roles` including `PATIENT` lands on `/portal`; everything else (and a
+  drifted body) lands on `/triage`.
+- **Data layer** (`src/lib/data/portal.ts`) and hook `usePortalMe`
+  (`src/lib/data/queries.ts`). Raw-fetch + structural validation, fail-closed matching
+  the rest of the app; `PortalCallError` added to the `toQueryError` union.
+- **Mocks/stub.** `src/mocks/fixtures/portal-registry.ts` (`PORTAL_SESSION_USER`,
+  `PORTAL_PATIENT`), `src/mocks/portal-handlers.ts`, and the stub's `/portal/me` plus
+  the `careos-e2e=patient` persona switch on `/auth/me`. Registered in
+  `src/mocks/handlers.ts`.
+- **i18n.** A new `portal` namespace (en+sw), including the staff-refused screen the
+  patient sees and the portal-refused screen a clinician sees.
+- **Tests.** `session.test.ts` +4 (patient/role/link combinations), `portal.test.ts`
+  +6 (profile validators), `login-form.test.tsx` +1 (patient routing); the a11y sweep
+  gained `/portal` and a `patient portal` block (patient view, staff refused, patient
+  at a staff route, no session).
 
+Gate: lint clean, `tsc --noEmit` 0, unit 570 (+11: `session.test.ts` +4,
+`portal.test.ts` +6, `login-form.test.tsx` +1), `build:prod` OK (route `/portal`),
+e2e/a11y **231** (was 223: +4 `/portal` route variants in four themes, +4 patient
+portal tests).
 
 
 

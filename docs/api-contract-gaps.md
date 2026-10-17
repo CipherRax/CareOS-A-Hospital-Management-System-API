@@ -735,6 +735,15 @@ and `src/modules/roles`:
   component's `score` and `raw` inputs, and the staff payload carries the
   service's "not for individual employment decisions" caveat as
   `interpretation`; both are surfaced verbatim rather than paraphrased.
+- **Patient portal (F11 slice 1).** Same GAP-020 family under `src/modules/portal`.
+  `GET /portal/me` is typed as unknown and answers `{ patient }`, the
+  `toPublicPatient` demographics allowlist (no clinical fields, no `otherNames`/
+  `sex`), validated in `src/lib/data/portal.ts` and failing closed on drift. The
+  endpoints are self-scoped: the patient id is derived from the session
+  (`resolvePatientScope`, `src/common/auth/patient-scope.ts`), never the URL — so
+  the client sends no id and a staff principal with no self-scope is a **403
+  `PATIENT_ACCESS_DENIED`**. `/auth/me` gained `roles` and `patientLink`, which is
+  how the client tells a patient principal (role **and** link) from staff.
 - **Not built:** the audit-log viewing screen is **not buildable**: there is no
   audit-list endpoint (writes happen inside the API via
   `src/database/audit.service.ts`).
