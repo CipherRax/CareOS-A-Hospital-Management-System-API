@@ -2464,7 +2464,8 @@
     "unknownName": "Patient",
     "nav": {
       "profile": "Your details",
-      "appointments": "Appointments"
+      "appointments": "Appointments",
+      "labResults": "Test results"
     },
     "profile": {
       "title": "Your details",
@@ -2492,6 +2493,26 @@
       "empty": "You have no appointments to show.",
       "notRecorded": "Not recorded",
       "showing": "Showing {shown} of {total} appointments."
+    },
+    "labResults": {
+      "title": "Your test results",
+      "description": "Results your clinic has released to you, most recent first.",
+      "caption": "Test result list",
+      "columnTest": "Test",
+      "columnResult": "Result",
+      "columnReference": "Reference range",
+      "columnStatus": "Status",
+      "columnReleased": "Released",
+      "unnamedTest": "Test result",
+      "error": "We couldn't load your test results right now.",
+      "empty": "You have no test results to show.",
+      "notRecorded": "Not recorded",
+      "showing": "Showing {shown} of {total} results."
+    },
+    "labResultStatus": {
+      "critical": "Needs attention",
+      "abnormal": "Outside range",
+      "normal": "Within range"
     },
     "status": {
       "active": "Active",

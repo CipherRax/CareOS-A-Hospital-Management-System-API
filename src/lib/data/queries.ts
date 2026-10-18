@@ -299,10 +299,13 @@ import {
 } from '@/lib/data/staff';
 import {
   fetchPortalAppointments,
+  fetchPortalLabResults,
   fetchPortalMe,
   type PortalAppointmentPage,
   type PortalAppointmentQuery,
   type PortalCallError,
+  type PortalLabResultPage,
+  type PortalLabResultQuery,
   type PortalPatient,
 } from '@/lib/data/portal';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
@@ -4731,6 +4734,32 @@ export function usePortalAppointments(
           data: page,
           response: new Response(null, { status: 200 }),
         } satisfies Fetched<PortalAppointmentPage>;
+      } catch (call) {
+        throw toQueryError(call as PortalCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * The caller's own released lab results `GET /portal/me/lab-results` (newest
+ * first). Self-scoped and release-gated server-side: a result that has not been
+ * released never appears. Raw-fetch + structural validation (GAP-020 family).
+ */
+export function usePortalLabResults(
+  query: PortalLabResultQuery = {},
+): UseQueryResult<Fetched<PortalLabResultPage>, QueryError> {
+  return useQuery<Fetched<PortalLabResultPage>, QueryError>({
+    queryKey: ['portal', 'lab-results', query.page ?? 1, query.limit ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchPortalLabResults(query, signal);
+        return {
+          data: page,
+          response: new Response(null, { status: 200 }),
+        } satisfies Fetched<PortalLabResultPage>;
       } catch (call) {
         throw toQueryError(call as PortalCallError);
       }

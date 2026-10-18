@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   extractPortalAppointments,
+  extractPortalLabResults,
   extractPortalPatient,
   readPortalAppointment,
+  readPortalLabResult,
   readPortalPatient,
   type PortalAppointment,
   type PortalPatient,
@@ -127,5 +129,73 @@ describe('extractPortalAppointments', () => {
     expect(extractPortalAppointments({ rows: [] }, null).ok).toBe(false);
     expect(extractPortalAppointments([{ id: 'x' }], null).ok).toBe(false);
     expect(extractPortalAppointments(null, null).ok).toBe(false);
+  });
+});
+
+const labResult = {
+  id: 'lab_example_5008',
+  orderId: 'labord_example_1',
+  itemId: 'labitem_example_1',
+  testId: 'test_example_1',
+  testName: 'Haemoglobin',
+  value: '12.5',
+  unit: 'g/dL',
+  referenceMin: '12.0',
+  referenceMax: '16.0',
+  isAbnormal: false,
+  isCritical: false,
+  verifiedAt: '2026-01-22T10:00:00.000Z',
+  releasedAt: '2026-01-23T08:00:00.000Z',
+} as const;
+
+describe('readPortalLabResult', () => {
+  it('reads a full projection', () => {
+    const parsed = readPortalLabResult(labResult);
+    expect(parsed?.id).toBe('lab_example_5008');
+    expect(parsed?.isCritical).toBe(false);
+  });
+
+  it('tolerates nullable reference fields and timestamps', () => {
+    const parsed = readPortalLabResult({
+      ...labResult,
+      testName: null,
+      unit: null,
+      referenceMin: null,
+      referenceMax: null,
+      verifiedAt: null,
+      releasedAt: null,
+    });
+    expect(parsed?.testName).toBeNull();
+    expect(parsed?.unit).toBeNull();
+    expect(parsed?.verifiedAt).toBeNull();
+  });
+
+  it('fails closed on a missing required field or wrong type', () => {
+    expect(readPortalLabResult({ ...labResult, id: '' })).toBeNull();
+    expect(readPortalLabResult({ ...labResult, value: 12.5 })).toBeNull();
+    expect(readPortalLabResult({ ...labResult, isAbnormal: 'yes' })).toBeNull();
+    expect(readPortalLabResult({ ...labResult, isCritical: null })).toBeNull();
+    expect(readPortalLabResult(null)).toBeNull();
+  });
+});
+
+describe('extractPortalLabResults', () => {
+  it('reads the page from the unwrapped data and the sibling meta', () => {
+    const parsed = extractPortalLabResults([labResult], { page: 1, limit: 25, total: 2 });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.page.rows).toHaveLength(1);
+    expect(parsed.page.total).toBe(2);
+  });
+
+  it('falls back to the row count when meta is absent', () => {
+    const parsed = extractPortalLabResults([labResult, labResult], null);
+    expect(parsed.ok && parsed.page.total).toBe(2);
+  });
+
+  it('fails closed when the data is not an array or a row has drifted', () => {
+    expect(extractPortalLabResults({ rows: [] }, null).ok).toBe(false);
+    expect(extractPortalLabResults([{ id: 'x', value: '5' }], null).ok).toBe(false);
+    expect(extractPortalLabResults(null, null).ok).toBe(false);
   });
 });

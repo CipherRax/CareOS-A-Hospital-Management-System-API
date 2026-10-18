@@ -194,3 +194,92 @@ export async function fetchPortalAppointments(
     signal,
   );
 }
+
+export interface PortalLabResult {
+  readonly id: string;
+  readonly orderId: string;
+  readonly itemId: string;
+  readonly testId: string;
+  readonly testName: string | null;
+  readonly value: string;
+  readonly unit: string | null;
+  readonly referenceMin: string | null;
+  readonly referenceMax: string | null;
+  /** The result sits outside its reference range. */
+  readonly isAbnormal: boolean;
+  /** The result is flagged clinically critical — needs attention, not just "off". */
+  readonly isCritical: boolean;
+  readonly verifiedAt: string | null;
+  readonly releasedAt: string | null;
+}
+
+export interface PortalLabResultPage {
+  readonly rows: readonly PortalLabResult[];
+  readonly total: number;
+}
+
+export interface PortalLabResultQuery {
+  readonly page?: number;
+  readonly limit?: number;
+}
+
+/** Reads a released lab result; returns null when a required field has drifted. */
+export function readPortalLabResult(value: unknown): PortalLabResult | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== 'string' || value.id.length === 0) return null;
+  if (typeof value.value !== 'string') return null;
+  if (typeof value.isAbnormal !== 'boolean') return null;
+  if (typeof value.isCritical !== 'boolean') return null;
+  return {
+    id: value.id,
+    orderId: typeof value.orderId === 'string' ? value.orderId : '',
+    itemId: typeof value.itemId === 'string' ? value.itemId : '',
+    testId: typeof value.testId === 'string' ? value.testId : '',
+    testName: nullableString(value.testName),
+    value: value.value,
+    unit: nullableString(value.unit),
+    referenceMin: nullableString(value.referenceMin),
+    referenceMax: nullableString(value.referenceMax),
+    isAbnormal: value.isAbnormal,
+    isCritical: value.isCritical,
+    verifiedAt: nullableString(value.verifiedAt),
+    releasedAt: nullableString(value.releasedAt),
+  };
+}
+
+/** Reads the lab-result page from the unwrapped `data` plus the sibling `meta`. */
+export function extractPortalLabResults(
+  data: unknown,
+  meta: unknown,
+): { ok: true; page: PortalLabResultPage } | { ok: false } {
+  if (!Array.isArray(data)) return { ok: false };
+  const rows = data.map(readPortalLabResult);
+  if (rows.some((row) => row === null)) return { ok: false };
+  return {
+    ok: true,
+    page: {
+      rows: rows as readonly PortalLabResult[],
+      total: pageTotal(meta, rows.length),
+    },
+  };
+}
+
+/** Raw read against `GET /portal/me/lab-results` (released only, newest first). */
+export async function fetchPortalLabResults(
+  query: PortalLabResultQuery = {},
+  signal?: AbortSignal,
+): Promise<PortalLabResultPage> {
+  const suffix = queryString({
+    page: query.page !== undefined ? String(query.page) : undefined,
+    limit: query.limit !== undefined ? String(query.limit) : undefined,
+  });
+  const url = `${publicEnv.apiBasePath}/portal/me/lab-results${suffix}`;
+  return readEnvelope<PortalLabResultPage>(
+    url,
+    (data, meta) => {
+      const parsed = extractPortalLabResults(data, meta);
+      return parsed.ok ? { ok: true, value: parsed.page } : { ok: false };
+    },
+    signal,
+  );
+}

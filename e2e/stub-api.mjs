@@ -124,6 +124,40 @@ const PORTAL_APPOINTMENTS = [
   },
 ];
 
+// `GET /portal/me/lab-results`, newest first — mirrors the mock fixture.
+const PORTAL_LAB_RESULTS = [
+  {
+    id: 'lab_example_5008',
+    orderId: 'labord_example_1',
+    itemId: 'labitem_example_1',
+    testId: 'test_example_1',
+    testName: 'Haemoglobin',
+    value: '12.5',
+    unit: 'g/dL',
+    referenceMin: '12.0',
+    referenceMax: '16.0',
+    isAbnormal: false,
+    isCritical: false,
+    verifiedAt: '2026-01-22T10:00:00.000Z',
+    releasedAt: '2026-01-23T08:00:00.000Z',
+  },
+  {
+    id: 'lab_example_5009',
+    orderId: 'labord_example_1',
+    itemId: 'labitem_example_2',
+    testId: 'test_example_2',
+    testName: 'Potassium',
+    value: '6.4',
+    unit: 'mmol/L',
+    referenceMin: '3.5',
+    referenceMax: '5.1',
+    isAbnormal: true,
+    isCritical: true,
+    verifiedAt: '2026-01-22T10:00:00.000Z',
+    releasedAt: '2026-01-23T08:00:00.000Z',
+  },
+];
+
 const SESSION = {
   id: 'ses-example-1',
   familyId: 'fam-example-1',
@@ -1806,6 +1840,19 @@ const server = createServer(async (request, response) => {
       return;
     }
     send(response, 200, listEnvelope(PORTAL_APPOINTMENTS, 25));
+    return;
+  }
+
+  if (url.pathname === '/portal/me/lab-results' && request.method === 'GET') {
+    if (request.headers.authorization !== `Bearer ${TOKENS.accessToken}`) {
+      send(response, 401, { success: false, error: { code: 'UNAUTHORIZED' } });
+      return;
+    }
+    if (!((request.headers.cookie ?? '').includes('careos-e2e=patient'))) {
+      send(response, 403, { success: false, error: { code: 'PATIENT_ACCESS_DENIED' } });
+      return;
+    }
+    send(response, 200, listEnvelope(PORTAL_LAB_RESULTS, 25));
     return;
   }
 

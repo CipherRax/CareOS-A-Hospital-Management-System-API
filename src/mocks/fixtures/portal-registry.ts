@@ -59,3 +59,41 @@ export const PORTAL_APPOINTMENTS = [
     reason: 'Follow-up',
   },
 ] as const;
+
+/**
+ * `GET /portal/me/lab-results`, newest first — `toPublicLabResult`'s projection
+ * (released only). One within-range value and one critical value so the screen's
+ * tri-state pill and the "needs attention" path are both exercised.
+ */
+export const PORTAL_LAB_RESULTS = [
+  {
+    id: 'lab_example_5008',
+    orderId: 'labord_example_1',
+    itemId: 'labitem_example_1',
+    testId: 'test_example_1',
+    testName: 'Haemoglobin',
+    value: '12.5',
+    unit: 'g/dL',
+    referenceMin: '12.0',
+    referenceMax: '16.0',
+    isAbnormal: false,
+    isCritical: false,
+    verifiedAt: '2026-01-22T10:00:00.000Z',
+    releasedAt: '2026-01-23T08:00:00.000Z',
+  },
+  {
+    id: 'lab_example_5009',
+    orderId: 'labord_example_1',
+    itemId: 'labitem_example_2',
+    testId: 'test_example_2',
+    testName: 'Potassium',
+    value: '6.4',
+    unit: 'mmol/L',
+    referenceMin: '3.5',
+    referenceMax: '5.1',
+    isAbnormal: true,
+    isCritical: true,
+    verifiedAt: '2026-01-22T10:00:00.000Z',
+    releasedAt: '2026-01-23T08:00:00.000Z',
+  },
+] as const;

@@ -2479,7 +2479,8 @@
     "unknownName": "Mgonjwa",
     "nav": {
       "profile": "Maelezo yako",
-      "appointments": "Miadi"
+      "appointments": "Miadi",
+      "labResults": "Matokeo ya vipimo"
     },
     "profile": {
       "title": "Maelezo yako",
@@ -2507,6 +2508,26 @@
       "empty": "Huna miadi ya kuonyesha.",
       "notRecorded": "Haijarekodiwa",
       "showing": "Inaonyesha {shown} kati ya {total} miadi."
+    },
+    "labResults": {
+      "title": "Matokeo ya vipimo vyako",
+      "description": "Matokeo ambayo kliniki yako imekufichulia, ya hivi karibuni kwanza.",
+      "caption": "Orodha ya matokeo ya vipimo",
+      "columnTest": "Kipimo",
+      "columnResult": "Matokeo",
+      "columnReference": "Kiwango cha kawaida",
+      "columnStatus": "Hali",
+      "columnReleased": "Ilifichuliwa",
+      "unnamedTest": "Matokeo ya kipimo",
+      "error": "Hatuwezi kupakia matokeo ya vipimo vyako kwa sasa.",
+      "empty": "Huna matokeo ya vipimo ya kuonyesha.",
+      "notRecorded": "Haijarekodiwa",
+      "showing": "Inaonyesha {shown} kati ya {total} matokeo."
+    },
+    "labResultStatus": {
+      "critical": "Inahitaji uangalizi",
+      "abnormal": "Nje ya kiwango",
+      "normal": "Ndani ya kiwango"
     },
     "status": {
       "active": "Hai",

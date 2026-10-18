@@ -1579,9 +1579,9 @@ write remain.
   unknown-enum, `extractPortalAppointments` meta/fallback/fail-closed); the a11y sweep
   gained `/portal/appointments` and a "lists the patient's own appointments" case.
 
-Gate: lint clean, `tsc --noEmit` 0, unit 577 (+7), `build:prod` OK (route
-`/portal/appointments`), e2e/a11y **236** (was 231: +4 `/portal/appointments`
-route variants in four themes, +1 patient appointments view test).
+Gate: lint clean, `tsc --noEmit` 0, unit 583 (+6: `portal.test.ts` +6), `build:prod` OK
+(routes `/portal/appointments`, `/portal/lab-results`), e2e/a11y **241** (was 236: +4
+`/portal/lab-results` route variants in four themes, +1 patient lab-results test).
 
 
 
