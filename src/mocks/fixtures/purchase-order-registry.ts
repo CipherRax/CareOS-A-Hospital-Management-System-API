@@ -24,7 +24,8 @@ export interface PurchaseOrderItemFixture {
   readonly medicationId: string;
   readonly quantityOrdered: number;
   readonly quantityReceived: number;
-  readonly unitCost: string;
+  /** Decimal string, or null when no cost was recorded (ADR-029). */
+  readonly unitCost: string | null;
 }
 
 export interface PurchaseOrderFixture {

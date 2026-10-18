@@ -600,6 +600,12 @@ function inventoryBatchIdFor(branchId, medicationId, batchNumber) {
 // the `serializePo` projection the service answers (not the query DTO the export
 // fastens onto the 200); `unitCost` is a decimal string because Prisma serializes
 // `Decimal` as one.
+//
+// `PURCHASE_ORDERS` is mutable: raising, submitting, approving, ordering,
+// receiving and closing move the same records the worklist reads back, with the
+// same guards as `src/mocks/purchase-order-handlers.ts` and `domain/po-flow.ts`.
+let purchaseOrderSeq = 3007;
+let purchaseOrderNumberSeq = 7;
 const PROCUREMENT_SUPPLIERS = [
   { id: 'sup_example_4001', name: 'EXAMPLE Pharma Distributors', isActive: true },
   { id: 'sup_example_4002', name: 'EXAMPLE Medical Supplies', isActive: true },
@@ -2777,6 +2783,116 @@ const server = createServer(async (request, response) => {
     const start = (page - 1) * limit;
     const rows = PROCUREMENT_SUPPLIERS.slice(start, start + limit);
     send(response, 200, { success: true, data: rows, meta: { page, limit, total: PROCUREMENT_SUPPLIERS.length, totalPages: Math.max(1, Math.ceil(PROCUREMENT_SUPPLIERS.length / limit)) } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/purchase-orders\/[^/]+$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const order = PURCHASE_ORDERS.find((o) => o.id === id);
+    if (!order) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Purchase order not found' } }); return; }
+    send(response, 200, { success: true, data: { purchaseOrder: order } });
+    return;
+  }
+
+  if (url.pathname === '/purchase-orders' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A purchase order body is required.' } }); return; }
+    const supplierId = typeof body.supplierId === 'string' ? body.supplierId : null;
+    const branchId = typeof body.branchId === 'string' ? body.branchId : null;
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (!supplierId || !branchId || !PROCUREMENT_SUPPLIERS.some((s) => s.id === supplierId)) {
+      send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Branch or supplier not found' } }); return;
+    }
+    if (items.length === 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A purchase order needs at least one item.' } }); return; }
+    const lines = [];
+    const seen = new Set();
+    for (const item of items) {
+      const medicationId = item && typeof item.medicationId === 'string' ? item.medicationId : null;
+      const quantityOrdered = item ? item.quantityOrdered : null;
+      if (!medicationId || !Number.isInteger(quantityOrdered) || quantityOrdered <= 0) {
+        send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'An item is malformed.' } }); return;
+      }
+      if (seen.has(medicationId)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Each medication can appear on only one line.' } }); return; }
+      seen.add(medicationId);
+      lines.push({ id: `poi_example_${purchaseOrderSeq}${lines.length + 1}`, medicationId, quantityOrdered, quantityReceived: 0, unitCost: typeof item.unitCost === 'number' ? item.unitCost.toFixed(2) : null });
+    }
+    purchaseOrderSeq += 1;
+    const order = {
+      id: `po_example_${purchaseOrderSeq}`, organizationId: 'org_example_1', branchId,
+      supplierId, poNumber: `PO-2026-${String(purchaseOrderNumberSeq).padStart(6, '0')}`,
+      status: 'DRAFT', expectedAt: typeof body.expectedAt === 'string' ? body.expectedAt : null,
+      notes: typeof body.notes === 'string' ? body.notes : null, createdById: 'usr_example_9001',
+      submittedById: null, approvedById: null, submittedAt: null, approvedAt: null,
+      receivedAt: null, closedAt: null, version: 1, items: lines,
+    };
+    purchaseOrderNumberSeq += 1;
+    PURCHASE_ORDERS.unshift(order);
+    send(response, 201, { success: true, data: { purchaseOrder: order } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/purchase-orders\/[^/]+\/action$/) && request.method === 'POST') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const order = PURCHASE_ORDERS.find((o) => o.id === id);
+    if (!order) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Purchase order not found' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'An action is required.' } }); return; }
+    const allowedFrom = { submit: 'DRAFT', approve: 'SUBMITTED', order: 'APPROVED', close: 'RECEIVED' };
+    const targetStatus = { submit: 'SUBMITTED', approve: 'APPROVED', order: 'ORDERED', close: 'CLOSED' };
+    const action = body && typeof body.action === 'string' ? body.action : null;
+    if (!action || !(action in allowedFrom)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Unknown purchase order action.' } }); return; }
+    if (order.status !== allowedFrom[action]) {
+      send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION', message: `A ${order.status} purchase order cannot be ${action}ed.` } }); return;
+    }
+    const now = new Date().toISOString();
+    order.status = targetStatus[action];
+    order.version += 1;
+    if (action === 'submit') { order.submittedAt = now; order.submittedById = 'usr_example_9001'; }
+    if (action === 'approve') { order.approvedAt = now; order.approvedById = 'usr_example_9001'; }
+    if (action === 'close') { order.closedAt = now; }
+    send(response, 201, { success: true, data: { purchaseOrder: order } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/purchase-orders\/[^/]+\/receive$/) && request.method === 'POST') {
+    const id = url.pathname.split('/').slice(-2, -1)[0];
+    const order = PURCHASE_ORDERS.find((o) => o.id === id);
+    if (!order) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Purchase order not found' } }); return; }
+    if (order.status !== 'ORDERED' && order.status !== 'PARTIALLY_RECEIVED') {
+      send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION', message: `A ${order.status} purchase order cannot be received.` } }); return;
+    }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Received lines are required.' } }); return; }
+    const lines = Array.isArray(body.lines) ? body.lines : [];
+    if (lines.length === 0) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'At least one received line is required.' } }); return; }
+    const received = new Map();
+    for (const line of lines) {
+      const medicationId = line && typeof line.medicationId === 'string' ? line.medicationId : null;
+      const batchNumber = line && typeof line.batchNumber === 'string' && line.batchNumber.length > 0 ? line.batchNumber : null;
+      const quantity = line ? line.quantity : null;
+      if (!medicationId || !batchNumber || !Number.isInteger(quantity) || quantity <= 0) {
+        send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A received line is malformed.' } }); return;
+      }
+      received.set(medicationId, quantity);
+    }
+    for (const item of order.items) {
+      const quantity = received.get(item.medicationId);
+      if (quantity === undefined) continue;
+      const outstanding = item.quantityOrdered - item.quantityReceived;
+      if (quantity > outstanding) {
+        send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: `Receiving ${quantity} units of ${item.medicationId} exceeds the outstanding ${outstanding}.` } }); return;
+      }
+    }
+    for (const item of order.items) {
+      const quantity = received.get(item.medicationId);
+      if (quantity === undefined) continue;
+      item.quantityReceived += quantity;
+    }
+    const fullyReceived = order.items.every((item) => item.quantityReceived >= item.quantityOrdered);
+    order.status = fullyReceived ? 'RECEIVED' : 'PARTIALLY_RECEIVED';
+    if (fullyReceived) order.receivedAt = new Date().toISOString();
+    order.version += 1;
+    send(response, 201, { success: true, data: { purchaseOrder: order } });
     return;
   }
 

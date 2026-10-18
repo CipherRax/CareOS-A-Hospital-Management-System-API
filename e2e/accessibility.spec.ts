@@ -46,6 +46,7 @@ const ROUTES = [
   { path: '/pharmacy', name: 'Pharmacy' },
   { path: '/pharmacy/stock', name: 'Pharmacy stock' },
   { path: '/pharmacy/purchase-orders', name: 'Purchase orders' },
+  { path: '/pharmacy/purchase-orders/po_example_3001', name: 'PO-2026-000001' },
   { path: '/billing', name: 'Billing' },
   { path: '/billing/inv_example_8001', name: 'INV-2026-000001' },
   { path: '/insurance', name: 'Insurance' },
@@ -588,17 +589,53 @@ test.describe('pharmacy purchase orders', () => {
     await expect(page.getByRole('heading', { name: 'Purchase orders', exact: true })).toBeVisible();
     // The supplier directory read names the row; the raw id must not be what shows.
     await expect(page.getByText('EXAMPLE Pharma Distributors').first()).toBeVisible();
-    await expect(page.getByText('PO-2026-000003')).toBeVisible();
+    // Rows are links now, so the order number appears in the cell and in the
+    // link label — target the link rather than the bare text.
+    await expect(page.getByRole('link', { name: /PO-2026-000003/ })).toBeVisible();
 
     const results = await analyse(page);
     expect(results.violations, describe(results.violations)).toEqual([]);
 
     await page.locator('#purchase-order-status-filter').selectOption('ORDERED');
-    await expect(page.getByText('PO-2026-000002')).toBeVisible();
-    await expect(page.getByText('PO-2026-000003')).toBeHidden();
+    await expect(page.getByRole('link', { name: /PO-2026-000002/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: /PO-2026-000003/ })).toBeHidden();
 
     const filtered = await analyse(page);
     expect(filtered.violations, describe(filtered.violations)).toEqual([]);
+  });
+
+  test('raises an order from the worklist and it lands as a draft', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/pharmacy/purchase-orders');
+
+    await page.getByRole('button', { name: 'Raise purchase order' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: 'New purchase order' })).toBeVisible();
+
+    // The form refuses a supplier-less order in place rather than round-tripping.
+    await dialog.getByRole('button', { name: 'Raise order' }).click();
+    await expect(dialog.getByText('Choose a supplier.')).toBeVisible();
+
+    await dialog.locator('#po-supplier').selectOption('sup_example_4001');
+    await dialog.locator('#po-line-medication-1').selectOption('med_example_7101');
+    await dialog.locator('#po-line-quantity-1').fill('10');
+    await dialog.getByRole('button', { name: 'Raise order' }).click();
+
+    await expect(dialog).toBeHidden();
+    // The stub numbers the new order after the six fixtures, and it lands as a draft.
+    await expect(page.getByRole('link', { name: /PO-2026-000007/ })).toBeVisible();
+  });
+
+  test('advances a draft order one move at a time', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/pharmacy/purchase-orders/po_example_3006');
+
+    await expect(page.getByRole('heading', { name: 'PO-2026-000006', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Submit for approval' }).click();
+
+    // The action answers the moved order, so the bar swaps to the next move only.
+    await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Submit for approval' })).toHaveCount(0);
   });
 });
 

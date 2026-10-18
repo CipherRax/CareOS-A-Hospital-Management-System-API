@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Plus, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
@@ -8,6 +8,8 @@ import { useState } from 'react';
 import { DataTable, type DataTableColumn } from '@/components/clinical/data-table';
 import { EmptyState } from '@/components/clinical/empty-state';
 import { StatusPill, type StatusTone } from '@/components/clinical/status-pill';
+import { RaisePurchaseOrderDialog } from '@/components/staff/purchase-order-dialog';
+import { Button } from '@/components/ui/button';
 import { Field, Select } from '@/components/ui/field';
 import {
   PURCHASE_ORDER_STATUSES,
@@ -24,15 +26,12 @@ import { usePurchaseOrders, useSuppliers } from '@/lib/data/queries';
  * structurally in `src/lib/data/purchase-orders.ts` and a drifted body reads as
  * an error rather than an empty shelf of orders.
  *
- * Read-only. The contract carries three writes — create, `/:id/action` and
- * `/:id/receive` — each needing a supplier catalogue, line composer and an
- * optimistic-lock version bump, so the list is the slice that closes "there is
- * no read for a purchase order"; the writes stay open in `docs/api-contract-gaps.md`.
- *
- * A supplier has no detail route either, so the name comes from the directory
- * read and the column falls back to the id rather than inventing a label. Units
- * are reported as ordered against received — coverage, not value: `unitCost` is
- * a decimal (ADR-029) and a list that rounds it would misstate a commitment.
+ * Each row opens the order's own screen, which carries the lifecycle moves; the
+ * header raises a new one. A supplier has no detail route either, so the name
+ * comes from the directory read and the column falls back to the id rather than
+ * inventing a label. Units are reported as ordered against received — coverage,
+ * not value: `unitCost` is a decimal (ADR-029) and a list that rounds it would
+ * misstate a commitment.
  *
  * Only the first page is requested; a footer names how many of the total are
  * shown instead of silently truncating.
@@ -63,6 +62,7 @@ function receivedUnits(row: PurchaseOrderRow): number {
 export function PharmacyPurchaseOrdersScreen() {
   const t = useTranslations('pharmacy');
   const [status, setStatus] = useState<PurchaseOrderStatus | ''>('');
+  const [raising, setRaising] = useState(false);
   const orders = usePurchaseOrders({
     ...(status ? { status } : {}),
     page: 1,
@@ -150,25 +150,33 @@ export function PharmacyPurchaseOrdersScreen() {
           <h1 className="text-heading font-semibold text-primary">{t('purchaseOrders.title')}</h1>
           <p className="max-w-prose text-meta text-secondary">{t('purchaseOrders.description')}</p>
         </div>
-        <div className="w-56">
-          <Field id="purchase-order-status-filter" label={t('purchaseOrders.filterStatus')}>
-            {({ controlId }) => (
-              <Select
-                id={controlId}
-                value={status}
-                onChange={(event) => setStatus(event.target.value as PurchaseOrderStatus | '')}
-              >
-                <option value="">{t('purchaseOrders.allStatuses')}</option>
-                {PURCHASE_ORDER_STATUSES.map((value) => (
-                  <option key={value} value={value}>
-                    {t(`purchaseOrders.status.${value}`)}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="w-56">
+            <Field id="purchase-order-status-filter" label={t('purchaseOrders.filterStatus')}>
+              {({ controlId }) => (
+                <Select
+                  id={controlId}
+                  value={status}
+                  onChange={(event) => setStatus(event.target.value as PurchaseOrderStatus | '')}
+                >
+                  <option value="">{t('purchaseOrders.allStatuses')}</option>
+                  {PURCHASE_ORDER_STATUSES.map((value) => (
+                    <option key={value} value={value}>
+                      {t(`purchaseOrders.status.${value}`)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          </div>
+          <Button variant="primary" onClick={() => setRaising(true)}>
+            <Plus aria-hidden="true" className="size-4" />
+            {t('purchaseOrders.raise')}
+          </Button>
         </div>
       </header>
+
+      <RaisePurchaseOrderDialog open={raising} onOpenChange={setRaising} />
 
       {orders.error ? (
         <EmptyState
@@ -185,7 +193,8 @@ export function PharmacyPurchaseOrdersScreen() {
             rows={page?.rows ?? []}
             rowKey={(row) => row.id}
             loading={orders.isLoading}
-            scrollable
+            rowHref={(row) => `/pharmacy/purchase-orders/${row.id}`}
+            rowLinkLabel={(row) => t('purchaseOrders.openOrder', { number: row.poNumber })}
             emptyMessage={
               status
                 ? t('purchaseOrders.emptyFiltered')

@@ -163,11 +163,17 @@ import {
   type WriteOffResult,
 } from '@/lib/data/inventory';
 import {
+  fetchPurchaseOrder,
   fetchPurchaseOrders,
   fetchSuppliers,
+  readPurchaseOrderRecord,
+  type CreatePurchaseOrderInput,
+  type PurchaseOrderAction,
   type PurchaseOrderCallError,
   type PurchaseOrderPage,
   type PurchaseOrderQuery,
+  type PurchaseOrderRow,
+  type ReceivePurchaseOrderInput,
   type SupplierCallError,
   type SupplierPage,
 } from '@/lib/data/purchase-orders';
@@ -3901,6 +3907,148 @@ export function useSuppliers(
     },
     staleTime: 60_000,
     retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * One purchase order `GET /purchase-orders/{id}`. The export types the 200 as the
+ * bare `PurchaseOrderResponseDto` while the service answers `{ purchaseOrder }`
+ * (GAP-020), so the row is validated through `readPurchaseOrderRecord`.
+ */
+export function usePurchaseOrder(id: string): UseQueryResult<Fetched<PurchaseOrderRow>, QueryError> {
+  return useQuery<Fetched<PurchaseOrderRow>, QueryError>({
+    queryKey: ['purchase-orders', 'detail', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const order = await fetchPurchaseOrder(id, signal);
+        return { data: order, response: new Response(null, { status: 200 }) } satisfies Fetched<
+          PurchaseOrderRow
+        >;
+      } catch (call) {
+        throw toQueryError(call as PurchaseOrderCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+function purchaseOrderWriteError(status = 201): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+/**
+ * Raises a purchase order `POST /purchase-orders` (always DRAFT). The service
+ * answers `{ purchaseOrder }` while the export types the bare entity, so the
+ * unwrapped body is validated structurally. The list cannot open the new order —
+ * only an order id it has fetched can — so the detail read is primed from the
+ * response and the list is invalidated.
+ */
+export function useCreatePurchaseOrder(): UseMutationResult<
+  PurchaseOrderRow,
+  QueryError,
+  CreatePurchaseOrderInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<PurchaseOrderRow, QueryError, CreatePurchaseOrderInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/purchase-orders', {
+          body: {
+            branchId: input.branchId,
+            supplierId: input.supplierId,
+            ...(input.expectedAt ? { expectedAt: input.expectedAt } : {}),
+            ...(input.notes ? { notes: input.notes } : {}),
+            items: input.items.map((item) => ({
+              medicationId: item.medicationId,
+              quantityOrdered: item.quantityOrdered,
+              ...(item.unitCost !== undefined ? { unitCost: item.unitCost } : {}),
+            })),
+          },
+        }),
+      );
+      const parsed = readPurchaseOrderRecord(fetched.data);
+      if (!parsed.ok) throw purchaseOrderWriteError();
+      return parsed.order;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders', 'list'] });
+    },
+  });
+}
+
+export interface PurchaseOrderActionInput {
+  readonly id: string;
+  readonly action: PurchaseOrderAction;
+}
+
+/**
+ * Advances a purchase order `POST /purchase-orders/{id}/action`
+ * (submit → approve → order, and close once received). A move that races a stale
+ * tab answers 409 and is surfaced in place rather than retried.
+ */
+export function usePurchaseOrderAction(): UseMutationResult<
+  PurchaseOrderRow,
+  QueryError,
+  PurchaseOrderActionInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<PurchaseOrderRow, QueryError, PurchaseOrderActionInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/purchase-orders/{id}/action', {
+          params: { path: { id: input.id } },
+          body: { action: input.action },
+        }),
+      );
+      const parsed = readPurchaseOrderRecord(fetched.data);
+      if (!parsed.ok) throw purchaseOrderWriteError();
+      return parsed.order;
+    },
+    onSuccess: (order) => {
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders', 'detail', order.id] });
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders', 'list'] });
+    },
+  });
+}
+
+/**
+ * Receives ordered items `POST /purchase-orders/{id}/receive`: creates or tops up
+ * a stock batch per line, posts a RECEIVED ledger entry and advances
+ * `quantityReceived`, re-evaluating the order's status. The stock reads are
+ * invalidated because the receipt moves them.
+ */
+export function useReceivePurchaseOrder(): UseMutationResult<
+  PurchaseOrderRow,
+  QueryError,
+  ReceivePurchaseOrderInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<PurchaseOrderRow, QueryError, ReceivePurchaseOrderInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/purchase-orders/{id}/receive', {
+          params: { path: { id: input.id } },
+          body: {
+            lines: input.lines.map((line) => ({
+              medicationId: line.medicationId,
+              quantity: line.quantity,
+              batchNumber: line.batchNumber,
+              ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
+            })),
+          },
+        }),
+      );
+      const parsed = readPurchaseOrderRecord(fetched.data);
+      if (!parsed.ok) throw purchaseOrderWriteError();
+      return parsed.order;
+    },
+    onSuccess: (order) => {
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders', 'detail', order.id] });
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders', 'list'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory', 'on-hand'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory', 'alerts'] });
+    },
   });
 }
 

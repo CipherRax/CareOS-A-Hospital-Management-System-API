@@ -18,7 +18,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F3 Scheduling, queue, nursing  | **complete** — reception queue slice (live queue board, walk-in ticket issuance, status/priority moves), appointment desk slice (day book, booking with slot search, appointment status moves, department waitlist), nursing vitals slice (patient chart, record/correct with BMI), schedule admin slice (weekly template CRUD + dated exceptions), and reschedule from the day book | live API round-trip Docker-gated; GAP-017–GAP-019 documented |
 | F4 Doctor workspace            | encounters + clinical notes + prescriptions + results **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), the clinical-notes panel (structured DRAFT → Finalize → Amend with version history), the prescriptions panel (medication orders: DRAFT → issue → pharmacy dispense, cancel while un-/partially-dispensed), and the read-only results panel (released laboratory results + imaging reports); MSW fixtures + stub + e2e swept | live API round-trip Docker-gated; GAP-020 documented |
 | F5 Laboratory & radiology      | **complete** — laboratory worklist + order workspace, radiology worklist + imaging workspace, and order entry from the encounter | billing |
-| F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving), wastage write-offs and the purchase-order worklist (`/pharmacy/purchase-orders`) | transfer/count reads still have no endpoint; purchase-order writes (create/action/receive) not built (GAP-020) |
+| F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving), wastage write-offs, and procurement (order worklist `/pharmacy/purchase-orders`, plus raising, advancing and receiving an order at `/pharmacy/purchase-orders/[id]`) | transfer/count reads still have no endpoint |
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
 | F9 Administration & audit      | **complete** — users administration (slice 1), role management (slice 2), staff directory (slice 3), organization profile (slice 4)                   | audit-log viewing has no API endpoint |
@@ -1669,17 +1669,19 @@ read — it was one of the writes the contract exposed while the list was missin
 The contract has since grown `GET /purchase-orders` (and `GET /suppliers`), so the
 procurement read is now buildable and is what this slice adds. It closes the last
 F6 item that had an endpoint behind it; the transfer and stock-count loops still
-have only writes, and the three purchase-order writes remain unbuilt.
+have only writes, and the three purchase-order writes remained unbuilt at this
+point (slice 5 below closes them).
 
 - **Screen** (`src/components/staff/pharmacy-purchase-orders.tsx`,
   `/pharmacy/purchase-orders`). Order number, supplier, units ordered against
   units received, expected date and a status pill, filterable by any of the eight
   `PurchaseOrderStatus` values. Reached from a second header link on the dispense
-  worklist (`Purchase orders`, beside `Stock control`). Read-only: it opens no
-  detail route, so the table opts into the focusable scroll region and the caption
-  ("Purchase order list") is deliberately distinct from the page heading
-  (landmark-unique). Only the first page is requested and a footer names how many
-  of the total are shown.
+  worklist (`Purchase orders`, beside `Stock control`). Read-only at the time: it
+  opened no detail route, so the table opted into the focusable scroll region and
+  the caption ("Purchase order list") is deliberately distinct from the page
+  heading (landmark-unique). Only the first page is requested and a footer names
+  how many of the total are shown. (Slice 5 below gave each row a link to its own
+  screen and dropped the opt-in scroll region.)
 - **No money.** `unitCost` is a Prisma `Decimal` that arrives as a string
   (ADR-029), and the row reports coverage — ordered against received — rather than
   value, so nothing here parses, sums or rounds an amount. The units are summed
@@ -1712,3 +1714,81 @@ have only writes, and the three purchase-order writes remain unbuilt.
 Gate: lint clean, `tsc --noEmit` 0, unit 597 (+11: `purchase-orders.test.ts`),
 `build:prod` OK (route `/pharmacy/purchase-orders`), e2e/a11y **251** (was 246: +4
 `/pharmacy/purchase-orders` route variants in four themes, +1 filter test).
+
+## F6 — Procurement, slice 5: purchase-order writes (create, advance, receive)
+
+**Status:** complete. F6's blocker column also carried the three purchase-order
+writes — create, `/:id/action` and `/:id/receive` — each of which needs a supplier
+directory, a line composer and an optimistic-lock version bump. This slice builds
+all three, so procurement is closed end to end: an order is raised from the
+worklist, opened on its own screen, advanced submit→approve→order, received (which
+moves stock) and closed. What remains in F6 are only the transfer and stock-count
+*reads*, which have no endpoint and so cannot be built without inventing one.
+
+- **Order workspace** (`src/components/staff/purchase-order-workspace.tsx`,
+  `/pharmacy/purchase-orders/[id]`, id guarded by the shared `ID_PATTERN`). The
+  heading is the order number, so the route's accessible name is `PO-2026-000001`
+  for the first fixture. Three regions — Summary (supplier name from the
+  directory read, expected and workflow timestamps, notes), Actions and Items —
+  each named distinctly (landmark-unique). The action bar is the server's
+  transition graph, derived from `PURCHASE_ORDER_ACTION_FROM`: submit is offered
+  on DRAFT, approve on SUBMITTED, order on APPROVED, close on RECEIVED, and
+  receive on ORDERED or PARTIALLY_RECEIVED. There is deliberately **no cancel**
+  button: the `CANCELLED` status exists in the enum but no endpoint reaches it, so
+  offering the move would be a lie. A stale move answers 409 and is rendered in
+  place ("This order changed"), never retried.
+- **Raise dialog** (`src/components/staff/purchase-order-dialog.tsx`, opened from
+  the worklist header). Supplier select (active suppliers only), optional expected
+  date and notes, and a line list of medication + quantity + optional unit cost.
+  The form refuses a missing supplier, an empty line, a non-integer quantity and a
+  duplicate medication before the request goes out — the last because the service
+  compares the distinct id count and would otherwise answer 404 "catalog items not
+  found". There is no branch picker in the app (GAP-018), so the order is raised
+  against the branch the stock read reports, the same precedent as the stock
+  movements.
+- **Receive dialog** (from the order workspace). One row per line still
+  outstanding, prefilled to the outstanding quantity, each taking a batch number
+  and optional expiry — the same shape the stock receive composer writes. The
+  quantity is capped at what is outstanding because the service refuses an
+  over-receipt with a `VALIDATION_ERROR`; the composer holds the same ceiling
+  rather than letting the operator discover it from a failed submit. A receipt
+  moves the order to RECEIVED or PARTIALLY_RECEIVED, so the stock reads are
+  invalidated alongside the order.
+- **No money.** `unitCost` is a `Decimal` that arrives as a string (ADR-029), and
+  a procurement screen that summed it would need decimal arithmetic the client
+  does not have. The line table reports ordered, received and outstanding units —
+  coverage, not value — and no amount is parsed, summed or rounded. The create
+  dialog does send a unit cost when one is typed, because the request DTO genuinely
+  takes a number and the server is what quantizes it to `Decimal(12, 2)`.
+- **Data layer** (`src/lib/data/purchase-orders.ts`). Every single-order read and
+  write answers the `{ purchaseOrder }` envelope while the export types the bare
+  `PurchaseOrderResponseDto` (GAP-020 again), so `readPurchaseOrderRecord` unwraps
+  and validates that body and `fetchPurchaseOrder` rides the raw-fetch path.
+  `PURCHASE_ORDER_ACTIONS` / `PURCHASE_ORDER_ACTION_FROM` mirror `po-flow.ts`, and
+  `outstandingUnits` clamps at zero so a wire that reported more received than
+  ordered could not produce a negative ceiling.
+- **Hooks** (`src/lib/data/queries.ts`). `usePurchaseOrder`, `useCreatePurchaseOrder`,
+  `usePurchaseOrderAction` and `useReceivePurchaseOrder`. Writes go through
+  `unwrap(api.POST(...))`, validate the unwrapped body structurally, and invalidate
+  the list key plus the affected detail key; receiving also invalidates the
+  on-hand and alerts reads because it moves stock.
+- **Mocks/stub.** The handler and the stub now hold a *mutable* clone of the six
+  fixture orders, so raising, advancing and receiving land on the next read. Both
+  mirror the service's guards: `INVALID_WORKFLOW_TRANSITION` from the wrong status,
+  the over-receipt `VALIDATION_ERROR`, duplicate-medication rejection, and a server
+  generated `PO-2026-000007` for the first raised order (the client never supplies
+  the number).
+- **i18n.** `pharmacy.purchaseOrders` gained the raise link, the dialog, the
+  workspace, the four actions, the receive composer and the error copy in `en.json`
+  and `sw.json`, key parity checked.
+- **Tests.** `purchase-orders.test.ts` +7 (the `{ purchaseOrder }` unwrap, the
+  clamped outstanding count, and the action/status maps including "no cancel, no
+  receive in the action list"); the a11y sweep gained
+  `/pharmacy/purchase-orders/po_example_3001` plus two write tests — one raising an
+  order from the worklist (asserting the in-place validation and the new
+  `PO-2026-000007` row) and one advancing a draft order through submit.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 604 (+7: `purchase-orders.test.ts`),
+`build:prod` OK (route `/pharmacy/purchase-orders/[id]`), e2e/a11y **257** (was
+251: +4 `/pharmacy/purchase-orders/po_example_3001` route variants in four themes,
++2 write tests).

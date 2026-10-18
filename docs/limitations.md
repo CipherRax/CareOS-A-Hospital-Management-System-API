@@ -179,17 +179,31 @@ patient-facing path is verified end to end through the e2e stub and MSW; it has 
 been exercised against a booted API, because no seeded patient account can log in
 (see the session section above).
 
-### Purchase orders are read-only, and only the first page
+### Purchase orders are raised and advanced, but only the first page is listed
 
-`/pharmacy/purchase-orders` reads `GET /purchase-orders` — a list the contract only
-recently grew — and nothing else. Raising an order, moving it through
-submit/approve/cancel, and receiving it (`POST /purchase-orders`, `/:id/action`,
-`/:id/receive`) have no composer on the client: each needs a supplier catalogue, a
-line editor and the optimistic-lock version bump, which is more than the read
-covers. As with the portal lists, only the first 25 rows are requested and a footer
-names how many of the total are shown — there are no next/previous controls. The
-supplier column resolves names from `GET /suppliers`, which the contract mis-types
-the same way (the query DTO on the 200), so it is validated structurally too.
+`/pharmacy/purchase-orders` reads `GET /purchase-orders` and raises an order from
+its header; `/pharmacy/purchase-orders/[id]` reads one order and moves it through
+the whole lifecycle the API exposes — submit → approve → order → receive → close —
+with a receive composer that writes the stock batches. Two constraints are the
+API's, not the screen's:
+
+- There is **no cancel**. `ActionPurchaseOrderDto` accepts only `submit`, `approve`,
+  `order` and `close`, so the `CANCELLED` status exists in the enum and in the
+  fixtures but no request can reach it; no cancel move is offered, and the fixture
+  cancelled orders are read-only history.
+- An order can only be received against a **batch and its outstanding quantity**:
+  a line over what is still owed is a `VALIDATION_ERROR`, so the composer caps the
+  quantity at the outstanding amount and requires a batch number. Lines for
+  medications not on the order are ignored by the service, and the composer never
+  offers them.
+- Lines report coverage (ordered, received, outstanding) and no money: `unitCost` is
+  a decimal string (ADR-029) and the client has no decimal arithmetic, so it is
+  neither displayed nor summed.
+
+As with the portal lists, only the first 25 orders are requested and a footer names
+how many of the total are shown — there are no next/previous controls. The supplier
+column resolves names from `GET /suppliers`, which the contract mis-types the same
+way (the query DTO on the 200), so it is validated structurally too.
 
 ### The intake tracking page is built on a contract whose success body is untyped
 

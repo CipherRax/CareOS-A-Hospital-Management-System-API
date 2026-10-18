@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   extractPurchaseOrderPage,
   extractSupplierPage,
+  outstandingUnits,
+  PURCHASE_ORDER_ACTIONS,
+  PURCHASE_ORDER_ACTION_FROM,
   readPurchaseOrder,
+  readPurchaseOrderRecord,
   readSupplier,
   PURCHASE_ORDER_STATUSES,
   type PurchaseOrderRow,
@@ -111,6 +115,55 @@ describe('extractPurchaseOrderPage', () => {
     expect(extractPurchaseOrderPage({ purchaseOrders: [order] }, {}).ok).toBe(false);
     expect(extractPurchaseOrderPage(null, {}).ok).toBe(false);
     expect(extractPurchaseOrderPage([order, { id: 'po_broken' }], {}).ok).toBe(false);
+  });
+});
+
+describe('readPurchaseOrderRecord', () => {
+  it('unwraps the { purchaseOrder } body every single-order read and write answers', () => {
+    expect(readPurchaseOrderRecord({ purchaseOrder: order })).toEqual({ ok: true, order });
+  });
+
+  it('fails closed on a bare entity, a drifted inner row or a non-record', () => {
+    expect(readPurchaseOrderRecord(order).ok).toBe(false);
+    expect(readPurchaseOrderRecord({ purchaseOrder: { ...order, status: 'IN_TRANSIT' } }).ok).toBe(
+      false,
+    );
+    expect(readPurchaseOrderRecord({ purchaseOrder: null }).ok).toBe(false);
+    expect(readPurchaseOrderRecord('po_example_3001').ok).toBe(false);
+  });
+});
+
+describe('outstandingUnits', () => {
+  it('reports what is still owed on a line', () => {
+    expect(outstandingUnits({ medicationId: 'm', quantityOrdered: 40, quantityReceived: 12 })).toBe(
+      28,
+    );
+  });
+
+  it('never goes negative, even if the wire reports more received than ordered', () => {
+    expect(outstandingUnits({ medicationId: 'm', quantityOrdered: 10, quantityReceived: 12 })).toBe(
+      0,
+    );
+  });
+});
+
+describe('PURCHASE_ORDER_ACTIONS', () => {
+  it('offers exactly the four moves the action endpoint accepts', () => {
+    expect([...PURCHASE_ORDER_ACTIONS]).toEqual(['submit', 'approve', 'order', 'close']);
+  });
+
+  it('knows the status each move is allowed from, mirroring the domain flow', () => {
+    expect(PURCHASE_ORDER_ACTION_FROM).toEqual({
+      submit: 'DRAFT',
+      approve: 'SUBMITTED',
+      order: 'APPROVED',
+      close: 'RECEIVED',
+    });
+  });
+
+  it('has no cancel move: the status exists but no endpoint reaches it', () => {
+    expect((PURCHASE_ORDER_ACTIONS as readonly string[]).includes('cancel')).toBe(false);
+    expect((PURCHASE_ORDER_ACTIONS as readonly string[]).includes('receive')).toBe(false);
   });
 });
 

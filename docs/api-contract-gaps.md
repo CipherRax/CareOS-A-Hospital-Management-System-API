@@ -486,7 +486,7 @@ on a body that is not the page the service answers. The order projection carries
 reader deliberately does not touch it, because the screen reports coverage
 (ordered against received), not value.
 
-Three F6 write loops still have **no read counterpart**, so they are not wired:
+Two F6 write loops still have **no read counterpart**, so they are not wired:
 
 - `POST /pharmacy/transfers` (+ `/:id/action`, `/:id/receive`) and
   `POST /pharmacy/stock/counts` (+ `/:countId/items/:itemId`, `/:id/apply`) expose
@@ -494,10 +494,20 @@ Three F6 write loops still have **no read counterpart**, so they are not wired:
   to list what exists, and the app has no branch picker to choose a transfer
   destination. A client cannot render a durable transfers or counts desk without
   one of those.
-- `POST /purchase-orders` (+ `/:id/action`, `/:id/receive`) has a list read now but
-  no composer on the client: raising or receiving an order needs a supplier
-  catalogue, a line composer and the optimistic-lock version bump, which is more
-  than the read slice covers.
+
+The procurement writes (F6 slice 5) **are** wired now, and they drift the same
+way. `POST /purchase-orders`, `/:id/action` and `/:id/receive` are each typed as
+the bare `PurchaseOrderResponseDto` while the service answers `{ purchaseOrder }`,
+and `GET /purchase-orders/{id}` drifts identically — so `readPurchaseOrderRecord`
+unwraps and validates every one of those bodies, and `fetchPurchaseOrder` rides
+the raw-fetch path. Two shaped details the client has to know: the action body
+(`ActionPurchaseOrderDto`) accepts only `submit | approve | order | close` — there
+is no `cancel`, so the `CANCELLED` status is unreachable through the API and no
+cancel move is offered — and a duplicate medication line is rejected with a 404
+"catalog items not found" rather than a validation error, because the service
+compares the distinct id count rather than the line count. Receive lines for
+medications that are not on the order are silently skipped, and an over-receipt is
+a `VALIDATION_ERROR`, so the composer caps each line at what is outstanding.
 
 **Same drift under the billing reads/writes (F7 slice 1).** Verified against
 `src/modules/billing` — the controller is declared `@Controller()` (empty base

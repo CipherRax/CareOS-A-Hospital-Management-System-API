@@ -161,10 +161,85 @@ export async function fetchPurchaseOrders(
   );
 }
 
-/** Shape every supplier call rejects with, matching the query error contract. */
-export type SupplierCallError = EnvelopeCallError;
+/**
+ * Reads the `{ purchaseOrder }` body every single-order read and write answers.
+ * The export types each of those as the bare `PurchaseOrderResponseDto` while the
+ * service wraps it (GAP-020), so the unwrapped body is validated structurally.
+ */
+export function readPurchaseOrderRecord(
+  payload: unknown,
+): { ok: true; order: PurchaseOrderRow } | { ok: false } {
+  if (!isRecord(payload)) return { ok: false };
+  const order = readPurchaseOrder(payload.purchaseOrder);
+  return order ? { ok: true, order } : { ok: false };
+}
 
-/** A supplier as the list reports it — an id and a name are all the screens need. */
+/** Raw read against `GET /purchase-orders/{id}` (answers `{ purchaseOrder }`, GAP-020). */
+export async function fetchPurchaseOrder(
+  id: string,
+  signal?: AbortSignal,
+): Promise<PurchaseOrderRow> {
+  const url = `${publicEnv.apiBasePath}/purchase-orders/${encodeURIComponent(id)}`;
+  return readEnvelope<PurchaseOrderRow>(
+    url,
+    (data) => {
+      const parsed = readPurchaseOrderRecord(data);
+      return parsed.ok ? { ok: true, value: parsed.order } : { ok: false };
+    },
+    signal,
+  );
+}
+
+/**
+ * The moves `POST /purchase-orders/{id}/action` accepts. `receive` is deliberately
+ * absent: it is its own endpoint because it writes stock, and it has its own
+ * input. There is no `cancel` — the status exists but no endpoint reaches it.
+ */
+export const PURCHASE_ORDER_ACTIONS = ['submit', 'approve', 'order', 'close'] as const;
+
+export type PurchaseOrderAction = (typeof PURCHASE_ORDER_ACTIONS)[number];
+
+/** The status each action is allowed from, mirroring `domain/po-flow.ts`. */
+export const PURCHASE_ORDER_ACTION_FROM: Record<PurchaseOrderAction, PurchaseOrderStatus> = {
+  submit: 'DRAFT',
+  approve: 'SUBMITTED',
+  order: 'APPROVED',
+  close: 'RECEIVED',
+};
+
+export interface CreatePurchaseOrderLineInput {
+  readonly medicationId: string;
+  readonly quantityOrdered: number;
+  readonly unitCost?: number;
+}
+
+export interface CreatePurchaseOrderInput {
+  readonly branchId: string;
+  readonly supplierId: string;
+  readonly expectedAt?: string;
+  readonly notes?: string;
+  readonly items: readonly CreatePurchaseOrderLineInput[];
+}
+
+export interface ReceivePurchaseOrderLineInput {
+  readonly medicationId: string;
+  readonly quantity: number;
+  readonly batchNumber: string;
+  readonly expiryDate?: string;
+}
+
+export interface ReceivePurchaseOrderInput {
+  readonly id: string;
+  readonly lines: readonly ReceivePurchaseOrderLineInput[];
+}
+
+/** The units still outstanding on a line — the ceiling a receive line must respect. */
+export function outstandingUnits(line: PurchaseOrderLine): number {
+  return Math.max(0, line.quantityOrdered - line.quantityReceived);
+}
+
+/** Shape every supplier call rejects with, matching the query error contract. */
+export type SupplierCallError = EnvelopeCallError;/** A supplier as the list reports it — an id and a name are all the screens need. */
 export interface SupplierRow {
   readonly id: string;
   readonly name: string;
