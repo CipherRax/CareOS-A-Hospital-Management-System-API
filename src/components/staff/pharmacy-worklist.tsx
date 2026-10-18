@@ -48,12 +48,20 @@ export function PharmacyWorklistScreen() {
           <h1 className="text-heading font-semibold text-primary">{t('pageTitle')}</h1>
           <p className="text-meta text-secondary">{t('pageIntro')}</p>
         </div>
-        <Link
-          href="/pharmacy/stock"
-          className="inline-flex items-center gap-1.5 text-meta font-medium text-secondary underline-offset-2 hover:underline"
-        >
-          {t('stockControl')}
-        </Link>
+        <div className="flex flex-wrap items-center gap-4">
+          <Link
+            href="/pharmacy/stock"
+            className="inline-flex items-center gap-1.5 text-meta font-medium text-secondary underline-offset-2 hover:underline"
+          >
+            {t('stockControl')}
+          </Link>
+          <Link
+            href="/pharmacy/purchase-orders"
+            className="inline-flex items-center gap-1.5 text-meta font-medium text-secondary underline-offset-2 hover:underline"
+          >
+            {t('purchaseOrdersLink')}
+          </Link>
+        </div>
       </header>
 
       {prescriptions.error ? (

@@ -1299,6 +1299,38 @@
     "dispensed": "Imetolewa — sasa {status}.",
     "unknownPatient": "Mgonjwa haijulikani",
     "stockControl": "Udhibiti wa akiba",
+    "purchaseOrdersLink": "Oda za manunuzi",
+    "purchaseOrders": {
+      "back": "Rudi kwenye foleni ya kutoa dawa",
+      "title": "Oda za manunuzi",
+      "description": "Oda zilizotumwa kwa wasambazaji na kiasi kilichopokelewa kwa kila moja. Vipimo huonyeshwa kama vilivyoagizwa dhidi ya vilivyopokelewa.",
+      "filterStatus": "Hali",
+      "allStatuses": "Hali zote",
+      "caption": "Orodha ya oda za manunuzi",
+      "columnPo": "Oda",
+      "columnSupplier": "Msambazaji",
+      "columnOrdered": "Iliyoagizwa",
+      "columnReceived": "Iliyopokelewa",
+      "columnExpected": "Inatarajiwa",
+      "columnStatus": "Hali",
+      "notRecorded": "Haijawekwa",
+      "unknownSupplier": "Msambazaji haijulikani",
+      "empty": "Hakuna oda za manunuzi zilizotolewa bado.",
+      "emptyFiltered": "Hakuna oda za manunuzi zenye hali hiyo.",
+      "unavailableTitle": "Oda za manunuzi hazipatikani kwa sasa",
+      "unavailableBody": "Oda za manunuzi hazingeweza kupakiwa. Jaribu tena baadaye.",
+      "showing": "Inaonyesha {shown} kati ya {total} oda.",
+      "status": {
+        "DRAFT": "Rasimu",
+        "SUBMITTED": "Imetumwa",
+        "APPROVED": "Imeidhinishwa",
+        "ORDERED": "Imeagizwa",
+        "PARTIALLY_RECEIVED": "Imepokelewa kwa sehemu",
+        "RECEIVED": "Imepokelewa",
+        "CLOSED": "Imefungwa",
+        "CANCELLED": "Imefutwa"
+      }
+    },
     "status": {
       "ISSUED": "Imetolewa maagizo",
       "PARTIALLY_DISPENSED": "Imetolewa kwa sehemu"

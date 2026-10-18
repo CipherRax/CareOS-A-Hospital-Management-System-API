@@ -595,6 +595,76 @@ function inventoryBatchIdFor(branchId, medicationId, batchNumber) {
   return id;
 }
 
+// --- procurement (F6 purchase orders) ------------------------------------
+// Same records as `src/mocks/fixtures/purchase-order-registry.ts`. The rows are
+// the `serializePo` projection the service answers (not the query DTO the export
+// fastens onto the 200); `unitCost` is a decimal string because Prisma serializes
+// `Decimal` as one.
+const PROCUREMENT_SUPPLIERS = [
+  { id: 'sup_example_4001', name: 'EXAMPLE Pharma Distributors', isActive: true },
+  { id: 'sup_example_4002', name: 'EXAMPLE Medical Supplies', isActive: true },
+  { id: 'sup_example_4003', name: 'EXAMPLE Surgical Co.', isActive: false },
+];
+const PURCHASE_ORDERS = [
+  {
+    id: 'po_example_3006', organizationId: 'org_example_1', branchId: 'br_example_0001',
+    supplierId: 'sup_example_4002', poNumber: 'PO-2026-000006', status: 'DRAFT',
+    expectedAt: '2026-03-16T09:00:00.000Z', notes: null, createdById: 'usr_example_9001',
+    submittedById: null, approvedById: null, submittedAt: null, approvedAt: null,
+    receivedAt: null, closedAt: null, version: 1,
+    items: [{ id: 'poi_example_30061', medicationId: 'med_example_7104', quantityOrdered: 60, quantityReceived: 0, unitCost: '2.10' }],
+  },
+  {
+    id: 'po_example_3005', organizationId: 'org_example_1', branchId: 'br_example_0001',
+    supplierId: 'sup_example_4003', poNumber: 'PO-2026-000005', status: 'CANCELLED',
+    expectedAt: null, notes: 'EXAMPLE supplier could not confirm the delivery window.', createdById: 'usr_example_9001',
+    submittedById: 'usr_example_9001', approvedById: null, submittedAt: '2026-02-24T10:00:00.000Z',
+    approvedAt: null, receivedAt: null, closedAt: null, version: 2,
+    items: [{ id: 'poi_example_30051', medicationId: 'med_example_7105', quantityOrdered: 20, quantityReceived: 0, unitCost: '18.75' }],
+  },
+  {
+    id: 'po_example_3004', organizationId: 'org_example_1', branchId: 'br_example_0001',
+    supplierId: 'sup_example_4001', poNumber: 'PO-2026-000004', status: 'RECEIVED',
+    expectedAt: '2026-02-23T09:00:00.000Z', notes: null, createdById: 'usr_example_9001',
+    submittedById: 'usr_example_9001', approvedById: 'usr_example_9001', submittedAt: '2026-02-16T09:30:00.000Z',
+    approvedAt: '2026-02-17T07:45:00.000Z', receivedAt: '2026-02-23T08:20:00.000Z', closedAt: '2026-02-24T06:00:00.000Z', version: 5,
+    items: [
+      { id: 'poi_example_30041', medicationId: 'med_example_7102', quantityOrdered: 40, quantityReceived: 40, unitCost: '6.40' },
+      { id: 'poi_example_30042', medicationId: 'med_example_7106', quantityOrdered: 8, quantityReceived: 8, unitCost: '22.30' },
+    ],
+  },
+  {
+    id: 'po_example_3003', organizationId: 'org_example_1', branchId: 'br_example_0001',
+    supplierId: 'sup_example_4002', poNumber: 'PO-2026-000003', status: 'PARTIALLY_RECEIVED',
+    expectedAt: '2026-02-27T09:00:00.000Z', notes: 'EXAMPLE back-order on the second line.', createdById: 'usr_example_9001',
+    submittedById: 'usr_example_9001', approvedById: 'usr_example_9001', submittedAt: '2026-02-19T12:00:00.000Z',
+    approvedAt: '2026-02-20T07:30:00.000Z', receivedAt: null, closedAt: null, version: 4,
+    items: [
+      { id: 'poi_example_30031', medicationId: 'med_example_7101', quantityOrdered: 30, quantityReceived: 30, unitCost: '12.50' },
+      { id: 'poi_example_30032', medicationId: 'med_example_7103', quantityOrdered: 24, quantityReceived: 10, unitCost: '4.00' },
+    ],
+  },
+  {
+    id: 'po_example_3002', organizationId: 'org_example_1', branchId: 'br_example_0001',
+    supplierId: 'sup_example_4002', poNumber: 'PO-2026-000002', status: 'ORDERED',
+    expectedAt: '2026-03-09T09:00:00.000Z', notes: null, createdById: 'usr_example_9001',
+    submittedById: 'usr_example_9001', approvedById: 'usr_example_9001', submittedAt: '2026-02-25T11:15:00.000Z',
+    approvedAt: '2026-02-26T08:05:00.000Z', receivedAt: null, closedAt: null, version: 3,
+    items: [{ id: 'poi_example_30021', medicationId: 'med_example_7105', quantityOrdered: 15, quantityReceived: 0, unitCost: '18.75' }],
+  },
+  {
+    id: 'po_example_3001', organizationId: 'org_example_1', branchId: 'br_example_0001',
+    supplierId: 'sup_example_4001', poNumber: 'PO-2026-000001', status: 'ORDERED',
+    expectedAt: '2026-03-02T09:00:00.000Z', notes: 'EXAMPLE monthly restock.', createdById: 'usr_example_9001',
+    submittedById: 'usr_example_9001', approvedById: 'usr_example_9001', submittedAt: '2026-02-20T11:15:00.000Z',
+    approvedAt: '2026-02-21T08:05:00.000Z', receivedAt: null, closedAt: null, version: 3,
+    items: [
+      { id: 'poi_example_30011', medicationId: 'med_example_7101', quantityOrdered: 40, quantityReceived: 0, unitCost: '12.50' },
+      { id: 'poi_example_30012', medicationId: 'med_example_7103', quantityOrdered: 12, quantityReceived: 0, unitCost: '4.00' },
+    ],
+  },
+];
+
 // --- billing (F7 invoices desk) ------------------------------------------
 // Same contract and records as the MSW handlers. Money is handled in integer
 // cents so a mock balance cannot drift; invoices are mutable so an issue,
@@ -2684,6 +2754,29 @@ const server = createServer(async (request, response) => {
     prescription.version += 1;
     if (next === 'DISPENSED') prescription.dispensedAt = new Date().toISOString();
     send(response, 201, { success: true, data: { prescriptionStatus: next, dispensedLines: lines.map((line) => line.medicationId) } });
+    return;
+  }
+
+  // --- procurement (F6 purchase orders) -----------------------------------
+  // A page of serialized orders under the unwrapped `data`, matching the service
+  // (the export types the 200 as the query DTO instead — GAP-020).
+  if (url.pathname === '/purchase-orders' && request.method === 'GET') {
+    const status = url.searchParams.get('status');
+    const page = Math.max(1, Number(url.searchParams.get('page') || '1') || 1);
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || '25') || 25));
+    const filtered = PURCHASE_ORDERS.filter((order) => !status || order.status === status);
+    const start = (page - 1) * limit;
+    const rows = filtered.slice(start, start + limit);
+    send(response, 200, { success: true, data: rows, meta: { page, limit, total: filtered.length, totalPages: Math.max(1, Math.ceil(filtered.length / limit)) } });
+    return;
+  }
+
+  if (url.pathname === '/suppliers' && request.method === 'GET') {
+    const page = Math.max(1, Number(url.searchParams.get('page') || '1') || 1);
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || '20') || 20));
+    const start = (page - 1) * limit;
+    const rows = PROCUREMENT_SUPPLIERS.slice(start, start + limit);
+    send(response, 200, { success: true, data: rows, meta: { page, limit, total: PROCUREMENT_SUPPLIERS.length, totalPages: Math.max(1, Math.ceil(PROCUREMENT_SUPPLIERS.length / limit)) } });
     return;
   }
 

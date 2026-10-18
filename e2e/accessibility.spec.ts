@@ -45,6 +45,7 @@ const ROUTES = [
   { path: '/radiology/rad_example_4001', name: 'EXAMPLE Amina Yusuf' },
   { path: '/pharmacy', name: 'Pharmacy' },
   { path: '/pharmacy/stock', name: 'Pharmacy stock' },
+  { path: '/pharmacy/purchase-orders', name: 'Purchase orders' },
   { path: '/billing', name: 'Billing' },
   { path: '/billing/inv_example_8001', name: 'INV-2026-000001' },
   { path: '/insurance', name: 'Insurance' },
@@ -576,6 +577,28 @@ test.describe('patient portal', () => {
     await expect(page.getByRole('heading', { name: 'Please sign in again' })).toBeVisible();
     await expect(page.getByText('PAT-2026-000001')).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+  });
+});
+
+test.describe('pharmacy purchase orders', () => {
+  test('lists orders with supplier names and filters by status', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/pharmacy/purchase-orders');
+
+    await expect(page.getByRole('heading', { name: 'Purchase orders', exact: true })).toBeVisible();
+    // The supplier directory read names the row; the raw id must not be what shows.
+    await expect(page.getByText('EXAMPLE Pharma Distributors').first()).toBeVisible();
+    await expect(page.getByText('PO-2026-000003')).toBeVisible();
+
+    const results = await analyse(page);
+    expect(results.violations, describe(results.violations)).toEqual([]);
+
+    await page.locator('#purchase-order-status-filter').selectOption('ORDERED');
+    await expect(page.getByText('PO-2026-000002')).toBeVisible();
+    await expect(page.getByText('PO-2026-000003')).toBeHidden();
+
+    const filtered = await analyse(page);
+    expect(filtered.violations, describe(filtered.violations)).toEqual([]);
   });
 });
 

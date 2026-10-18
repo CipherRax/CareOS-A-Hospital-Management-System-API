@@ -163,6 +163,15 @@ import {
   type WriteOffResult,
 } from '@/lib/data/inventory';
 import {
+  fetchPurchaseOrders,
+  fetchSuppliers,
+  type PurchaseOrderCallError,
+  type PurchaseOrderPage,
+  type PurchaseOrderQuery,
+  type SupplierCallError,
+  type SupplierPage,
+} from '@/lib/data/purchase-orders';
+import {
   extractClaimRecord,
   extractPayerRecord,
   extractPolicyRecord,
@@ -499,6 +508,8 @@ function toQueryError(
     | LaboratoryCallError
     | RadiologyCallError
     | InventoryCallError
+    | PurchaseOrderCallError
+    | SupplierCallError
     | BillingCallError
     | InsuranceCallError
     | InpatientCallError
@@ -3831,6 +3842,65 @@ export function useWriteOffStock(): UseMutationResult<
       queryClient.invalidateQueries({ queryKey: ['inventory', 'on-hand'] });
       queryClient.invalidateQueries({ queryKey: ['inventory', 'alerts'] });
     },
+  });
+}
+
+// --- procurement: purchase orders and suppliers (F6) ------------------------
+
+/**
+ * Purchase orders `GET /purchase-orders?{filters}`. The export fastens the
+ * request DTO onto the 200 while the service returns `pageOf(...)` of
+ * serialized orders (GAP-020), so it rides the raw-fetch path in
+ * `src/lib/data/purchase-orders.ts` and validates every row structurally.
+ */
+export function usePurchaseOrders(
+  query: PurchaseOrderQuery = {},
+): UseQueryResult<Fetched<PurchaseOrderPage>, QueryError> {
+  return useQuery<Fetched<PurchaseOrderPage>, QueryError>({
+    queryKey: [
+      'purchase-orders',
+      'list',
+      query.status ?? null,
+      query.page ?? null,
+      query.limit ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchPurchaseOrders(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<
+          PurchaseOrderPage
+        >;
+      } catch (call) {
+        throw toQueryError(call as PurchaseOrderCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Supplier directory `GET /suppliers?…`, read only to name the supplier on a
+ * purchase order — there is no supplier detail route to link to. The 200 is the
+ * query DTO again (GAP-020), so this validates the page structurally too.
+ */
+export function useSuppliers(
+  query: { limit?: number } = {},
+): UseQueryResult<Fetched<SupplierPage>, QueryError> {
+  return useQuery<Fetched<SupplierPage>, QueryError>({
+    queryKey: ['suppliers', 'list', query.limit ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchSuppliers(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<
+          SupplierPage
+        >;
+      } catch (call) {
+        throw toQueryError(call as SupplierCallError);
+      }
+    },
+    staleTime: 60_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
   });
 }
 

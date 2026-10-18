@@ -18,7 +18,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F3 Scheduling, queue, nursing  | **complete** — reception queue slice (live queue board, walk-in ticket issuance, status/priority moves), appointment desk slice (day book, booking with slot search, appointment status moves, department waitlist), nursing vitals slice (patient chart, record/correct with BMI), schedule admin slice (weekly template CRUD + dated exceptions), and reschedule from the day book | live API round-trip Docker-gated; GAP-017–GAP-019 documented |
 | F4 Doctor workspace            | encounters + clinical notes + prescriptions + results **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), the clinical-notes panel (structured DRAFT → Finalize → Amend with version history), the prescriptions panel (medication orders: DRAFT → issue → pharmacy dispense, cancel while un-/partially-dispensed), and the read-only results panel (released laboratory results + imaging reports); MSW fixtures + stub + e2e swept | live API round-trip Docker-gated; GAP-020 documented |
 | F5 Laboratory & radiology      | **complete** — laboratory worklist + order workspace, radiology worklist + imaging workspace, and order entry from the encounter | billing |
-| F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving) and wastage write-offs | transfers/counts/POs have no read endpoint (GAP-020) |
+| F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving), wastage write-offs and the purchase-order worklist (`/pharmacy/purchase-orders`) | transfer/count reads still have no endpoint; purchase-order writes (create/action/receive) not built (GAP-020) |
 | F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
 | F9 Administration & audit      | **complete** — users administration (slice 1), role management (slice 2), staff directory (slice 3), organization profile (slice 4)                   | audit-log viewing has no API endpoint |
@@ -1661,3 +1661,54 @@ Gate: lint clean, `tsc --noEmit` 0, unit 586 (+3: `portal.test.ts` +3),
 
 
 
+
+## F6 — Procurement, slice 4: purchase-order worklist (after F11)
+
+**Status:** complete. F6's blocker column recorded that a purchase order had no
+read — it was one of the writes the contract exposed while the list was missing.
+The contract has since grown `GET /purchase-orders` (and `GET /suppliers`), so the
+procurement read is now buildable and is what this slice adds. It closes the last
+F6 item that had an endpoint behind it; the transfer and stock-count loops still
+have only writes, and the three purchase-order writes remain unbuilt.
+
+- **Screen** (`src/components/staff/pharmacy-purchase-orders.tsx`,
+  `/pharmacy/purchase-orders`). Order number, supplier, units ordered against
+  units received, expected date and a status pill, filterable by any of the eight
+  `PurchaseOrderStatus` values. Reached from a second header link on the dispense
+  worklist (`Purchase orders`, beside `Stock control`). Read-only: it opens no
+  detail route, so the table opts into the focusable scroll region and the caption
+  ("Purchase order list") is deliberately distinct from the page heading
+  (landmark-unique). Only the first page is requested and a footer names how many
+  of the total are shown.
+- **No money.** `unitCost` is a Prisma `Decimal` that arrives as a string
+  (ADR-029), and the row reports coverage — ordered against received — rather than
+  value, so nothing here parses, sums or rounds an amount. The units are summed
+  from the validated line items instead.
+- **Data layer** (`src/lib/data/purchase-orders.ts`). Both reads are the GAP-020
+  mis-typing at its purest: the export fastens the *request* DTO
+  (`ListPurchaseOrdersQueryDto` / `ListSuppliersQueryDto`) onto the 200 while the
+  service returns `pageOf(...)`. `readPurchaseOrder` requires the identity fields,
+  a known status, a numeric version and a well-formed line array, and both
+  `extractPurchaseOrderPage` and `extractSupplierPage` fail closed on a body that
+  is not the page the service answers.
+- **Hooks** (`src/lib/data/queries.ts`). `usePurchaseOrders` (key
+  `['purchase-orders','list',status,page,limit]`) and `useSuppliers` (the name
+  lookup for the supplier column, since a supplier has no detail route to link
+  to), both on the raw-fetch path with `toQueryError`.
+- **Mocks/stub.** `src/mocks/fixtures/purchase-order-registry.ts` holds six EXAMPLE
+  orders spanning DRAFT → SUBMITTED → APPROVED → ORDERED → PARTIALLY_RECEIVED →
+  RECEIVED → CLOSED → CANCELLED, two of them sharing `ORDERED` so the filter has
+  more than one row to return, plus three suppliers; the same records are
+  duplicated in `e2e/stub-api.mjs` (paged and filterable, like `/users`).
+- **i18n.** The `pharmacy` namespace gained `purchaseOrdersLink` and a
+  `purchaseOrders` block (title, description, filter, six column heads, empty and
+  filtered-empty, unavailable and showing, and the eight status labels) in
+  `en.json` and `sw.json`, key parity checked.
+- **Tests.** `purchase-orders.test.ts` +11 (row/page validators, the status
+  allowlist, and the supplier reader); the a11y sweep gained
+  `/pharmacy/purchase-orders` and a test that asserts the supplier name resolves
+  and that the status filter narrows the table.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 597 (+11: `purchase-orders.test.ts`),
+`build:prod` OK (route `/pharmacy/purchase-orders`), e2e/a11y **251** (was 246: +4
+`/pharmacy/purchase-orders` route variants in four themes, +1 filter test).

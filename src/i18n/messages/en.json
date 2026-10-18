@@ -1283,6 +1283,38 @@
     "dispensed": "Dispensed — now {status}.",
     "unknownPatient": "Unknown patient",
     "stockControl": "Stock control",
+    "purchaseOrdersLink": "Purchase orders",
+    "purchaseOrders": {
+      "back": "Back to the dispense queue",
+      "title": "Purchase orders",
+      "description": "Orders placed with suppliers and how much of each has been received. Units are reported as ordered against received.",
+      "filterStatus": "Status",
+      "allStatuses": "All statuses",
+      "caption": "Purchase order list",
+      "columnPo": "Order",
+      "columnSupplier": "Supplier",
+      "columnOrdered": "Ordered",
+      "columnReceived": "Received",
+      "columnExpected": "Expected",
+      "columnStatus": "Status",
+      "notRecorded": "Not set",
+      "unknownSupplier": "Unknown supplier",
+      "empty": "No purchase orders have been raised yet.",
+      "emptyFiltered": "No purchase orders have that status.",
+      "unavailableTitle": "Purchase orders are temporarily unavailable",
+      "unavailableBody": "Purchase orders could not be loaded. Try again shortly.",
+      "showing": "Showing {shown} of {total} orders.",
+      "status": {
+        "DRAFT": "Draft",
+        "SUBMITTED": "Submitted",
+        "APPROVED": "Approved",
+        "ORDERED": "Ordered",
+        "PARTIALLY_RECEIVED": "Partially received",
+        "RECEIVED": "Received",
+        "CLOSED": "Closed",
+        "CANCELLED": "Cancelled"
+      }
+    },
     "status": {
       "ISSUED": "Issued",
       "PARTIALLY_DISPENSED": "Partially dispensed"

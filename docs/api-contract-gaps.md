@@ -474,13 +474,30 @@ though the module is `inventory`:
   }`, 1–100 lines). The client validates the unwrapped body through
   `readWriteOffResult`.
 
-Two more F6 endpoints have **no read counterpart**, so they are not yet wired:
-`POST /pharmacy/transfers` (+ `/:id/action`, `/:id/receive`) and
-`POST /pharmacy/stock/counts` (+ `/:countId/items/:itemId`, `/:id/apply`) expose
-only writes — there is no `GET /pharmacy/transfers` or `GET /pharmacy/stock/counts`
-to list what exists, and the app has no branch picker to choose a transfer
-destination. A client cannot render a durable transfers or counts desk without
-one of those.
+**The procurement reads (F6 slice 4).** `GET /purchase-orders` is the same
+mis-typing in its purest form: the export fastens the *request* DTO
+(`ListPurchaseOrdersQueryDto`) onto the 200 while `PurchaseOrdersService.list`
+answers `pageOf(rows.map(serializePo), …)`. `GET /suppliers` drifts the same way
+(`ListSuppliersQueryDto` over a `pageOf(...)` of supplier rows). Both ride the
+raw-fetch path (`src/lib/data/purchase-orders.ts`: `readPurchaseOrder`,
+`extractPurchaseOrderPage`, `readSupplier`, `extractSupplierPage`) and fail closed
+on a body that is not the page the service answers. The order projection carries
+`unitCost` as a Prisma `Decimal` serialized to a decimal string (ADR-029); the
+reader deliberately does not touch it, because the screen reports coverage
+(ordered against received), not value.
+
+Three F6 write loops still have **no read counterpart**, so they are not wired:
+
+- `POST /pharmacy/transfers` (+ `/:id/action`, `/:id/receive`) and
+  `POST /pharmacy/stock/counts` (+ `/:countId/items/:itemId`, `/:id/apply`) expose
+  only writes — there is no `GET /pharmacy/transfers` or `GET /pharmacy/stock/counts`
+  to list what exists, and the app has no branch picker to choose a transfer
+  destination. A client cannot render a durable transfers or counts desk without
+  one of those.
+- `POST /purchase-orders` (+ `/:id/action`, `/:id/receive`) has a list read now but
+  no composer on the client: raising or receiving an order needs a supplier
+  catalogue, a line composer and the optimistic-lock version bump, which is more
+  than the read slice covers.
 
 **Same drift under the billing reads/writes (F7 slice 1).** Verified against
 `src/modules/billing` — the controller is declared `@Controller()` (empty base

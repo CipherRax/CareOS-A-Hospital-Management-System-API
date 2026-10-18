@@ -179,6 +179,18 @@ patient-facing path is verified end to end through the e2e stub and MSW; it has 
 been exercised against a booted API, because no seeded patient account can log in
 (see the session section above).
 
+### Purchase orders are read-only, and only the first page
+
+`/pharmacy/purchase-orders` reads `GET /purchase-orders` — a list the contract only
+recently grew — and nothing else. Raising an order, moving it through
+submit/approve/cancel, and receiving it (`POST /purchase-orders`, `/:id/action`,
+`/:id/receive`) have no composer on the client: each needs a supplier catalogue, a
+line editor and the optimistic-lock version bump, which is more than the read
+covers. As with the portal lists, only the first 25 rows are requested and a footer
+names how many of the total are shown — there are no next/previous controls. The
+supplier column resolves names from `GET /suppliers`, which the contract mis-types
+the same way (the query DTO on the 200), so it is validated structurally too.
+
 ### The intake tracking page is built on a contract whose success body is untyped
 
 `/request` is built against the live `POST /public/emergency-requests` contract

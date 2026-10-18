@@ -12,6 +12,7 @@ import { clinicalNotesHandlers } from './clinical-notes-handlers';
 import { medicationsHandlers } from './medications-handlers';
 import { prescriptionsHandlers } from './prescriptions-handlers';
 import { inventoryHandlers } from './inventory-handlers';
+import { purchaseOrderHandlers } from './purchase-order-handlers';
 import { billingHandlers } from './billing-handlers';
 import { emergencyHandlers } from './emergency-handlers';
 import { adminHandlers } from './admin-handlers';
@@ -185,6 +186,10 @@ export const handlers = [
   // FEFO dispense write that advances a prescription. See
   // ./inventory-handlers.ts.
   ...inventoryHandlers(),
+  // F6 procurement (purchase-order worklist): the order page (mis-typed as the
+  // query DTO in the export, GAP-020) and the supplier name lookup. See
+  // ./purchase-order-handlers.ts.
+  ...purchaseOrderHandlers(),
   // F7 billing (invoices desk): invoice list/detail, the issue/cancel/refund
   // lifecycle, and desk payments with their refunds. See ./billing-handlers.ts.
   ...billingHandlers(),
