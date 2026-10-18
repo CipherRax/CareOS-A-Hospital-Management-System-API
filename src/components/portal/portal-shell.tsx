@@ -29,6 +29,7 @@ const NAV = [
   { href: '/portal', key: 'profile' },
   { href: '/portal/appointments', key: 'appointments' },
   { href: '/portal/lab-results', key: 'labResults' },
+  { href: '/portal/feedback', key: 'feedback' },
 ] as const;
 
 export function PortalShell({ user, children }: { user: SessionUser; children: React.ReactNode }) {

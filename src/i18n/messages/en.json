@@ -2465,7 +2465,8 @@
     "nav": {
       "profile": "Your details",
       "appointments": "Appointments",
-      "labResults": "Test results"
+      "labResults": "Test results",
+      "feedback": "Feedback"
     },
     "profile": {
       "title": "Your details",
@@ -2513,6 +2514,38 @@
       "critical": "Needs attention",
       "abnormal": "Outside range",
       "normal": "Within range"
+    },
+    "feedback": {
+      "title": "Tell us how it went",
+      "description": "Your feedback goes to the clinic, not to the public. It helps us improve.",
+      "ratingLegend": "How would you rate your care?",
+      "rating1": "1 — Poor",
+      "rating2": "2 — Fair",
+      "rating3": "3 — Good",
+      "rating4": "4 — Very good",
+      "rating5": "5 — Excellent",
+      "ratingError": "Please choose a rating.",
+      "categoryLabel": "What was this about?",
+      "categoryPlaceholder": "Choose a category",
+      "categoryError": "Please choose a category.",
+      "category": {
+        "service": "Care and service",
+        "waitingTime": "Waiting time",
+        "staff": "Staff",
+        "billing": "Billing",
+        "facility": "Facilities",
+        "pharmacy": "Pharmacy",
+        "laboratory": "Laboratory",
+        "other": "Something else"
+      },
+      "commentLabel": "Anything else?",
+      "commentHint": "Optional — up to 500 characters.",
+      "commentPlaceholder": "Tell us more…",
+      "submit": "Send feedback",
+      "sending": "Sending…",
+      "error": "We couldn't send your feedback right now.",
+      "success": "Thank you — your feedback has been sent.",
+      "sendAnother": "Send another"
     },
     "status": {
       "active": "Active",

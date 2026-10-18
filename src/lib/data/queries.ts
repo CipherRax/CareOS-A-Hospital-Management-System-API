@@ -301,12 +301,15 @@ import {
   fetchPortalAppointments,
   fetchPortalLabResults,
   fetchPortalMe,
+  readPortalFeedback,
   type PortalAppointmentPage,
   type PortalAppointmentQuery,
   type PortalCallError,
+  type PortalFeedback,
   type PortalLabResultPage,
   type PortalLabResultQuery,
   type PortalPatient,
+  type SubmitPortalFeedbackInput,
 } from '@/lib/data/portal';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
@@ -4766,5 +4769,41 @@ export function usePortalLabResults(
     },
     staleTime: 60_000,
     retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Submits feedback as the signed-in patient `POST /portal/me/feedback` — the
+ * portal's only mutating call. `branchId` is optional and the patient id is
+ * stamped server-side from the session, so there is no id for a caller to forge.
+ * The 201 body is read structurally, so the confirmation shows a real record
+ * instead of trusting a typed response.
+ */
+export function useSubmitPortalFeedback(): UseMutationResult<
+  Fetched<PortalFeedback>,
+  QueryError,
+  SubmitPortalFeedbackInput
+> {
+  return useMutation<Fetched<PortalFeedback>, QueryError, SubmitPortalFeedbackInput>({
+    mutationFn: async (input) => {
+      const result = await api.POST('/portal/me/feedback', {
+        body: {
+          branchId: input.branchId ?? undefined,
+          category: input.category,
+          rating: input.rating,
+          comment: input.comment ?? undefined,
+        },
+      });
+      const fetched = await unwrap<unknown>(result);
+      const feedback = readPortalFeedback(fetched.data);
+      if (!feedback) {
+        throw {
+          code: 'INTERNAL_ERROR',
+          status: fetched.response.status,
+          resolved: resolveApiError('INTERNAL_ERROR'),
+        } satisfies QueryError;
+      }
+      return { data: feedback, response: fetched.response } satisfies Fetched<PortalFeedback>;
+    },
   });
 }

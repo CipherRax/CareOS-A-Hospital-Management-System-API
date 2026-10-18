@@ -74,6 +74,7 @@ const ROUTES = [
   { path: '/portal', name: 'Patient portal' },
   { path: '/portal/appointments', name: 'Patient portal' },
   { path: '/portal/lab-results', name: 'Patient portal' },
+  { path: '/portal/feedback', name: 'Patient portal' },
   // Named by their real h1, not by what the route is called. On a patient record
   // the heading is the patient — that is the design decision under review — and
   // on the board it is whatever the clinic called itself.
@@ -522,6 +523,23 @@ test.describe('patient portal', () => {
 
     const results = await analyse(page);
     expect(results.violations, describe(results.violations)).toEqual([]);
+  });
+
+  test("sends the patient's own feedback", async ({ page }) => {
+    await usePatientPersona(page);
+    await signInViaUi(page);
+    await page.goto('/portal/feedback');
+
+    await expect(page.getByRole('heading', { name: 'Tell us how it went', exact: true })).toBeVisible();
+
+    const results = await analyse(page);
+    expect(results.violations, describe(results.violations)).toEqual([]);
+
+    await page.getByRole('radio', { name: '3 — Good', exact: true }).check();
+    await page.locator('#portal-feedback-category').selectOption('SERVICE');
+    await page.getByRole('button', { name: 'Send feedback' }).click();
+
+    await expect(page.getByText('Thank you — your feedback has been sent.')).toBeVisible();
   });
 
   test('withholds the portal from a staff session and points back to staff', async ({ page }) => {

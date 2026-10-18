@@ -735,19 +735,33 @@ and `src/modules/roles`:
   component's `score` and `raw` inputs, and the staff payload carries the
   service's "not for individual employment decisions" caveat as
   `interpretation`; both are surfaced verbatim rather than paraphrased.
-- **Patient portal (F11 slices 1–2).** Same GAP-020 family under
-  `src/modules/portal`. `GET /portal/me` is typed as unknown and answers
-  `{ patient }`, and `GET /portal/me/appointments` types its response as the request
-  DTO while answering a `pageOf(...)` envelope of `toPublicAppointment` rows — both
-  validated structurally in `src/lib/data/portal.ts` and failing closed on drift.
-  The patient projection is the `toPublicPatient` demographics allowlist (no
-  clinical fields, no `otherNames`/`sex`); the appointment projection is ids only
-  (`departmentId`/`providerId`, no names — the portal has no provider lookup). The
-  endpoints are self-scoped: the patient id is derived from the session
+- **Patient portal (F11 slices 1–4).** Same GAP-020 family under
+  `src/modules/portal`, on all three reads:
+  * `GET /portal/me` is typed as unknown and answers `{ patient }` — the
+    `toPublicPatient` demographics allowlist (no clinical fields, no `otherNames`/
+    `sex`).
+  * `GET /portal/me/appointments` is typed as the singular
+    `PortalAppointmentResponseDto` while the service returns `pageOf(...)` of
+    `toPublicAppointment` rows.
+  * `GET /portal/me/lab-results` is typed as the singular
+    `PortalLabResultResponseDto` while the service returns `pageOf(...)` of
+    `toPublicLabResult` rows (released orders only).
+
+  Each is therefore read with the raw fetch + structural validation path
+  (`src/lib/data/portal.ts`, `readPortal*`/`extractPortal*`) and fails closed on
+  drift. Both projections are ids only (`departmentId`/`providerId`, `testId`/
+  `orderId` — no names, no provider or department lookup in the portal), and the
+  lab projection carries values with their reference range rather than a verdict.
+  The fourth endpoint, `POST /portal/me/feedback`, *is* typed correctly
+  (`SubmitPortalFeedbackDto` → 201 `FeedbackResponseDto`), so it uses the normal
+  `api.POST` + `unwrap` path; only the 201 body is re-read structurally.
+  Every endpoint is self-scoped: the patient id is derived from the session
   (`resolvePatientScope`, `src/common/auth/patient-scope.ts`), never the URL — so
   the client sends no id and a staff principal with no self-scope is a **403
-  `PATIENT_ACCESS_DENIED`**. `/auth/me` gained `roles` and `patientLink`, which is
-  how the client tells a patient principal (role **and** link) from staff.
+  `PATIENT_ACCESS_DENIED`**. On feedback the id is stamped server-side, and
+  `branchId` is left unset because the portal has no branch picker (GAP-018).
+  `/auth/me` gained `roles` and `patientLink`, which is how the client tells a
+  patient principal (role **and** link) from staff.
 - **Not built:** the audit-log viewing screen is **not buildable**: there is no
   audit-list endpoint (writes happen inside the API via
   `src/database/audit.service.ts`).

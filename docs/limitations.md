@@ -153,13 +153,21 @@ live path is verified end to end through the e2e stub (the stub is upstream of
 the real proxy) and through MSW+unit tests; it has not been exercised against a
 booted API, because no seeded account can reach the challenge (see above).
 
-### The patient portal is partial, and its session model is new
+### The patient portal covers the API's four endpoints, and no more
 
-The portal has one screen (the profile, `GET /portal/me`). The API's other portal
-endpoints — `GET /portal/me/appointments`, `GET /portal/me/lab-results` and
-`POST /portal/me/feedback` — are contract-verified but not yet built, so a patient
-can see their demographics and nothing else. The F11 row in `PROGRESS.md` tracks
-the remainder.
+Four screens sit behind `PortalGate`: the profile (`GET /portal/me`), appointments
+(`GET /portal/me/appointments`), released lab results (`GET /portal/me/lab-results`)
+and the feedback write (`POST /portal/me/feedback`). Together those are every
+endpoint `src/modules/portal` exposes, so there is nothing left unbuilt on the
+portal side. What a patient still cannot do, because the API has no endpoint for it:
+
+- **Book or reschedule an appointment.** The portal is read-only for bookings;
+  appointment creation is staff-only (`POST /appointments`).
+- **Page past the first 25 rows** of either list. The API accepts `page`/`limit` and
+  the UI requests page 1, naming how many of the total it is showing rather than
+  truncating silently — but there are no next/prev controls.
+- **See a reply to their feedback.** The 201 returns `status` and `response`, but
+  there is no feedback read endpoint, so the confirmation is the end of the line.
 
 Staff and patient are two gates over one session (ADR-011). The principal is
 derived from `/auth/me`'s `roles` and `patientLink` — fields that exist in the live

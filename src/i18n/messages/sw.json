@@ -2480,7 +2480,8 @@
     "nav": {
       "profile": "Maelezo yako",
       "appointments": "Miadi",
-      "labResults": "Matokeo ya vipimo"
+      "labResults": "Matokeo ya vipimo",
+      "feedback": "Maoni"
     },
     "profile": {
       "title": "Maelezo yako",
@@ -2528,6 +2529,38 @@
       "critical": "Inahitaji uangalizi",
       "abnormal": "Nje ya kiwango",
       "normal": "Ndani ya kiwango"
+    },
+    "feedback": {
+      "title": "Tuambie ulivyofanya",
+      "description": "Maoni yako yanaenda kwenye kliniki, si kwa umma. Yanatusaidia kuboresha huduma.",
+      "ratingLegend": "Ungepaje huduma yako?",
+      "rating1": "1 — Mbovu",
+      "rating2": "2 — Wastani",
+      "rating3": "3 — Nzuri",
+      "rating4": "4 — Nzuri sana",
+      "rating5": "5 — Bora kabisa",
+      "ratingError": "Tafadhali chagua alama.",
+      "categoryLabel": "Huu ni kuhusu nini?",
+      "categoryPlaceholder": "Chagua aina",
+      "categoryError": "Tafadhali chagua aina.",
+      "category": {
+        "service": "Huduma na matendo",
+        "waitingTime": "Muda wa kusubiri",
+        "staff": "Wafanyakazi",
+        "billing": "Malipo",
+        "facility": "Miundombinu",
+        "pharmacy": "Duka la dawa",
+        "laboratory": "Maabara",
+        "other": "Kitu kingine"
+      },
+      "commentLabel": "Kuna kitu kingine?",
+      "commentHint": "Hiari — hadi herufi 500.",
+      "commentPlaceholder": "Tuambie zaidi…",
+      "submit": "Tuma maoni",
+      "sending": "Inatuma…",
+      "error": "Hatuwezi kutuma maoni yako kwa sasa.",
+      "success": "Asante — maoni yako yametumwa.",
+      "sendAnother": "Tuma mwingine"
     },
     "status": {
       "active": "Hai",

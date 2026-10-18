@@ -5,6 +5,7 @@ import {
   extractPortalLabResults,
   extractPortalPatient,
   readPortalAppointment,
+  readPortalFeedback,
   readPortalLabResult,
   readPortalPatient,
   type PortalAppointment,
@@ -197,5 +198,44 @@ describe('extractPortalLabResults', () => {
     expect(extractPortalLabResults({ rows: [] }, null).ok).toBe(false);
     expect(extractPortalLabResults([{ id: 'x', value: '5' }], null).ok).toBe(false);
     expect(extractPortalLabResults(null, null).ok).toBe(false);
+  });
+});
+
+const feedback = {
+  id: 'fb_example_0001',
+  organizationId: 'org_example_1',
+  branchId: null,
+  patientId: 'pat_example_1001',
+  submittedById: null,
+  category: 'SERVICE',
+  rating: 4,
+  comment: 'Kind staff.',
+  status: 'NEW',
+  response: null,
+  handledById: null,
+  handledAt: null,
+  createdAt: '2026-02-14T10:00:00.000Z',
+  updatedAt: '2026-02-14T10:00:00.000Z',
+} as const;
+
+describe('readPortalFeedback', () => {
+  it('reads the confirmed record', () => {
+    const parsed = readPortalFeedback(feedback);
+    expect(parsed?.id).toBe('fb_example_0001');
+    expect(parsed?.rating).toBe(4);
+    expect(parsed?.category).toBe('SERVICE');
+  });
+
+  it('tolerates the nullable attribution and comment', () => {
+    const parsed = readPortalFeedback({ ...feedback, comment: null, patientId: null });
+    expect(parsed?.comment).toBeNull();
+    expect(parsed?.patientId).toBeNull();
+  });
+
+  it('fails closed on a missing id, bad category or non-numeric rating', () => {
+    expect(readPortalFeedback({ ...feedback, id: '' })).toBeNull();
+    expect(readPortalFeedback({ ...feedback, category: 'RANDOM' })).toBeNull();
+    expect(readPortalFeedback({ ...feedback, rating: '5' })).toBeNull();
+    expect(readPortalFeedback(null)).toBeNull();
   });
 });

@@ -283,3 +283,61 @@ export async function fetchPortalLabResults(
     signal,
   );
 }
+
+export const PORTAL_FEEDBACK_CATEGORIES = [
+  'SERVICE',
+  'WAITING_TIME',
+  'STAFF',
+  'BILLING',
+  'FACILITY',
+  'PHARMACY',
+  'LABORATORY',
+  'OTHER',
+] as const;
+export type PortalFeedbackCategory = (typeof PORTAL_FEEDBACK_CATEGORIES)[number];
+
+export interface SubmitPortalFeedbackInput {
+  readonly branchId?: string | null;
+  readonly category: PortalFeedbackCategory;
+  readonly rating: number;
+  readonly comment?: string | null;
+}
+
+export interface PortalFeedback {
+  readonly id: string;
+  readonly organizationId: string;
+  readonly branchId: string | null;
+  readonly patientId: string | null;
+  readonly submittedById: string | null;
+  readonly category: PortalFeedbackCategory;
+  readonly rating: number;
+  readonly comment: string | null;
+}
+
+/**
+ * Reads the `POST /portal/me/feedback` response (201 `FeedbackResponseDto`) so the
+ * success screen shows a confirmed record rather than trusting a typed body. The
+ * write is the portal's only mutating call; the patient id is set server-side from
+ * the session, so the client sends no id to forge and no id to validate.
+ */
+export function readPortalFeedback(value: unknown): PortalFeedback | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== 'string' || value.id.length === 0) return null;
+  if (typeof value.rating !== 'number') return null;
+  if (
+    typeof value.category !== 'string' ||
+    !PORTAL_FEEDBACK_CATEGORIES.includes(value.category as PortalFeedbackCategory)
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    organizationId: typeof value.organizationId === 'string' ? value.organizationId : '',
+    branchId: typeof value.branchId === 'string' ? value.branchId : null,
+    patientId: typeof value.patientId === 'string' ? value.patientId : null,
+    submittedById: typeof value.submittedById === 'string' ? value.submittedById : null,
+    category: value.category as PortalFeedbackCategory,
+    rating: value.rating,
+    comment: nullableString(value.comment),
+  };
+}

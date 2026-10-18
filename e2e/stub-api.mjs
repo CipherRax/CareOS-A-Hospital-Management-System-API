@@ -1856,6 +1856,49 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (url.pathname === '/portal/me/feedback' && request.method === 'POST') {
+    if (request.headers.authorization !== `Bearer ${TOKENS.accessToken}`) {
+      send(response, 401, { success: false, error: { code: 'UNAUTHORIZED' } });
+      return;
+    }
+    if (!((request.headers.cookie ?? '').includes('careos-e2e=patient'))) {
+      send(response, 403, { success: false, error: { code: 'PATIENT_ACCESS_DENIED' } });
+      return;
+    }
+    let parsed;
+    try { parsed = JSON.parse((await readBody(request)) || '{}'); } catch {
+      send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'bad json' } });
+      return;
+    }
+    const categories = ['SERVICE', 'WAITING_TIME', 'STAFF', 'BILLING', 'FACILITY', 'PHARMACY', 'LABORATORY', 'OTHER'];
+    if (!categories.includes(parsed.category) || typeof parsed.rating !== 'number' || parsed.rating < 1 || parsed.rating > 5) {
+      send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'invalid' } });
+      return;
+    }
+    // patientId is stamped server-side from the session, never read from the body.
+    send(response, 201, {
+      success: true,
+      data: {
+        id: 'fb_example_0001',
+        organizationId: 'org-example-1',
+        branchId: null,
+        patientId: PORTAL_PATIENT_ID,
+        submittedById: null,
+        category: parsed.category,
+        rating: parsed.rating,
+        comment: typeof parsed.comment === 'string' ? parsed.comment : null,
+        status: 'NEW',
+        response: null,
+        handledById: null,
+        handledAt: null,
+        createdAt: '2026-02-14T10:00:00.000Z',
+        updatedAt: '2026-02-14T10:00:00.000Z',
+      },
+      meta: { requestId: 'req-stub' },
+    });
+    return;
+  }
+
 
   if (url.pathname === '/patients' && request.method === 'GET') {
     const q = (url.searchParams.get('q') || '').toLowerCase();

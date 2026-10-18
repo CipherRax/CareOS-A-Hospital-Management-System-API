@@ -23,7 +23,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
 | F9 Administration & audit      | **complete** — users administration (slice 1), role management (slice 2), staff directory (slice 3), organization profile (slice 4)                   | audit-log viewing has no API endpoint |
 | F10 Analytics & reports        | complete — reports desk; analytics metrics; journey bottlenecks + capacity; forecast explorer, patient experience and staff analytics (`/analytics`) | audit-log viewing is not buildable (no API list endpoint) |
-| F11 Portal & queue display     | partial — display board done; patient portal in progress (slice 1: patient-session gate + portal shell + profile `/portal`; slice 2: appointments `/portal/appointments`) | portal lab results and feedback |
+| F11 Portal & queue display     | **complete** — display board; patient portal gate + profile `/portal`, then appointments, lab results and feedback (`/portal/*`)                   | patient booking has no portal endpoint (booking is staff-only) |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
 | F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine     |
 
@@ -1579,9 +1579,81 @@ write remain.
   unknown-enum, `extractPortalAppointments` meta/fallback/fail-closed); the a11y sweep
   gained `/portal/appointments` and a "lists the patient's own appointments" case.
 
-Gate: lint clean, `tsc --noEmit` 0, unit 583 (+6: `portal.test.ts` +6), `build:prod` OK
-(routes `/portal/appointments`, `/portal/lab-results`), e2e/a11y **241** (was 236: +4
+Gate: lint clean, `tsc --noEmit` 0, unit 577 (+7), `build:prod` OK (route
+`/portal/appointments`), e2e/a11y **236** (was 231: +4 `/portal/appointments`
+route variants in four themes, +1 patient appointments view test).
+
+## F11 — Patient portal, slice 3: the released lab results
+
+**Status:** in progress (slice 3 of 4). Slice 1 built the session/gate/profile and
+slice 2 the appointments list; this adds the second list read, `GET
+/portal/me/lab-results`, at `/portal/lab-results`. The feedback write remains.
+
+- **Lab results screen** (`src/components/portal/portal-lab-results.tsx`). Released
+  results only — the API filters to orders whose `status` is `RELEASED`, so a result
+  a clinician has not signed out never reaches the client and the client never
+  filters for it. Value and unit are rendered verbatim beside a degrading reference
+  range (`min – max`, `≥ min`, `≤ max`, else "Not recorded"), so a patient can see
+  for themselves rather than being told only a verdict.
+- **Tri-state status, never colour alone.** `isCritical` outranks `isAbnormal`; the
+  pill reads "Needs attention" / "Outside range" / "Within range" with three
+  different tones. The critical row is the one thing on this page that must not be
+  skimmed past, so it is the only critical-toned pill.
+- **Data layer + hook** (`src/lib/data/portal.ts`, `usePortalLabResults`). Same
+  GAP-020 raw-fetch path as appointments: `readPortalLabResult` fails closed on a
+  non-string `value` or non-boolean flags, `extractPortalLabResults` reads the page
+  from `data` + `meta`. Self-scoped — no patient id in the path or query.
+- **Same pagination honesty** as slice 2: page 1 (`limit: 25`) and a
+  `Showing {shown} of {total} results` footer when the page is partial.
+- **Mocks/stub.** `PORTAL_LAB_RESULTS` (one in-range row and one critical row, so
+  both pill paths are exercised) added to `src/mocks/fixtures/portal-registry.ts` and
+  mirrored in `e2e/stub-api.mjs`; `portalHandlers` and the stub gained the paginated
+  route (401 unsigned, 403 non-patient).
+- **i18n.** `portal.nav.labResults`, `portal.labResults.*`, `portal.labResultStatus.*`
+  (en+sw, key parity checked).
+- **Tests.** `portal.test.ts` +6 (reader nullable/fail-closed, extractor meta/
+  fallback/fail-closed); the a11y sweep gained `/portal/lab-results` and a patient
+  test asserting "Needs attention" appears.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 583 (+6: `portal.test.ts` +6),
+`build:prod` OK (route `/portal/lab-results`), e2e/a11y **241** (was 236: +4
 `/portal/lab-results` route variants in four themes, +1 patient lab-results test).
+
+
+## F11 — Patient portal, slice 4: the feedback write
+
+**Status:** the last portal slice. Slices 1–3 built the session, gate, profile and
+both list reads; this is `POST /portal/me/feedback` at `/portal/feedback`, the
+portal's only mutating call.
+
+- **Feedback screen** (`src/components/portal/portal-feedback.tsx`). A 1–5 radio
+  group (fieldset + legend, so it has a name a screen reader can announce), a
+  required category select from the eight enum values, and an optional comment
+  capped at 500. Inline `role="alert"` for errors and `role="status"` for the
+  confirmation — no toasts, matching the rest of the app. The submit button becomes
+  "Sending…" while in flight so a slow tap does not read as a dead one.
+- **No branch is guessed at.** `branchId` is optional in the DTO and the portal has
+  no branch picker (GAP-018); filing the feedback under an invented branch would be
+  worse than filing it unattributed, so the field is left out. The patient id is
+  stamped server-side from the session, so the form sends no id at all.
+- **Mutation** (`useSubmitPortalFeedback` in `queries.ts`). Follows the codebase's
+  standard write path — `api.POST` + `unwrap` — and then reads the 201 body through
+  `readPortalFeedback`, so the confirmation shows a validated record rather than a
+  trusted typed response. Only endpoint in `src/lib/data/portal.ts` that is not a
+  raw GET; the three reads stay raw because the export types their responses wrong.
+- **Mocks/stub.** `portalHandlers` and the stub gained `POST /portal/me/feedback`
+  (401 unsigned, 403 non-patient, 400 on a bad category/rating, 201 otherwise) with
+  `patientId` stamped from the session. `PORTAL_PATIENT_ID` is now imported by the
+  handlers.
+- **i18n.** `portal.nav.feedback`, `portal.feedback.*` including the eight category
+  labels (en+sw, key parity checked).
+- **Tests.** `portal.test.ts` +3 (`readPortalFeedback` confirmed/nullable/fail-
+  closed); the a11y sweep gained `/portal/feedback` and a patient test that fills the
+  radio, picks a category, submits and asserts the confirmation.
+
+Gate: lint clean, `tsc --noEmit` 0, unit 586 (+3: `portal.test.ts` +3),
+`build:prod` OK (route `/portal/feedback`), e2e/a11y **246** (was 241: +4
+`/portal/feedback` route variants in four themes, +1 patient feedback test).
 
 
 
