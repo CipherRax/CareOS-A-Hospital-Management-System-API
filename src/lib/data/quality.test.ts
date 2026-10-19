@@ -5,11 +5,13 @@ import {
   extractComplaintPage,
   extractFeedbackPage,
   extractIncidentPage,
+  FEEDBACK_NEXT,
   FEEDBACK_STATUSES,
   INCIDENT_SEVERITIES,
   INCIDENT_STATUSES,
   readComplaint,
   readFeedback,
+  readFeedbackRecord,
   readIncident,
   type ComplaintRow,
   type FeedbackRow,
@@ -169,6 +171,29 @@ describe('readIncident', () => {
       'RESOLVED',
       'CLOSED',
     ]);
+  });
+});
+
+describe('readFeedbackRecord', () => {
+  it('unwraps the { feedback } envelope the single read and the write answer', () => {
+    expect(readFeedbackRecord({ feedback })).toEqual({ ok: true, feedback });
+  });
+
+  it('fails closed on the bare entity, on drift, and on a non-object body', () => {
+    expect(readFeedbackRecord(feedback).ok).toBe(false);
+    expect(readFeedbackRecord({ feedback: { ...feedback, status: 'PENDING' } }).ok).toBe(false);
+    expect(readFeedbackRecord(null).ok).toBe(false);
+  });
+});
+
+describe('FEEDBACK_NEXT', () => {
+  it('is the single forward move the server allows from each state', () => {
+    expect(FEEDBACK_NEXT).toEqual({
+      NEW: 'ACKNOWLEDGED',
+      ACKNOWLEDGED: 'RESOLVED',
+      RESOLVED: 'CLOSED',
+      CLOSED: null,
+    });
   });
 });
 

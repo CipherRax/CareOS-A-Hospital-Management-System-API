@@ -2577,6 +2577,7 @@
       "filterCategory": "Category",
       "allCategories": "All categories",
       "tableCaption": "Feedback",
+      "linkLabel": "View {category} feedback",
       "columnCategory": "Category",
       "columnRating": "Rating",
       "columnComment": "Comment",
@@ -2603,6 +2604,43 @@
         "PHARMACY": "Pharmacy",
         "LABORATORY": "Laboratory",
         "OTHER": "Other"
+      },
+      "workspace": {
+        "back": "Back to feedback",
+        "loading": "Loading feedback…",
+        "unavailableTitle": "Feedback unavailable",
+        "unavailableBody": "This feedback record could not be loaded. Try again shortly.",
+        "notFoundTitle": "Feedback not found",
+        "notFoundBody": "This feedback record does not exist or is not visible to you.",
+        "heading": "{category} feedback",
+        "summaryHeading": "Feedback",
+        "submittedBy": "Submitted by",
+        "submittedByPatient": "Patient",
+        "submittedByStaff": "Staff",
+        "handled": "Handled",
+        "notRecorded": "Not recorded",
+        "responseHeading": "Response",
+        "noResponse": "No response recorded.",
+        "respondHeading": "Respond",
+        "respondLabel": "Response",
+        "respondHint": "A response is required before this feedback can leave New.",
+        "respondPlaceholder": "What was done about this feedback…",
+        "noActions": "This feedback is closed. There is nothing further to record.",
+        "submitting": "Saving…",
+        "action": {
+          "ACKNOWLEDGED": "Acknowledge",
+          "RESOLVED": "Mark resolved",
+          "CLOSED": "Close"
+        },
+        "errors": {
+          "respondRequired": "A response is required before this feedback can leave New.",
+          "staleTitle": "This feedback has already moved on",
+          "staleBody": "Someone else changed this record. Reload the page to see the current status.",
+          "invalidTitle": "That change was not accepted",
+          "invalidBody": "The record could not accept this response. Reload and try again.",
+          "failedTitle": "Could not save the response",
+          "failedBody": "The response could not be saved. Try again shortly."
+        }
       }
     },
     "complaints": {

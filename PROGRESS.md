@@ -25,7 +25,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F10 Analytics & reports        | complete — reports desk; analytics metrics; journey bottlenecks + capacity; forecast explorer, patient experience and staff analytics (`/analytics`) | audit-log viewing is not buildable (no API list endpoint) |
 | F11 Portal & queue display     | **complete** — display board; patient portal gate + profile `/portal`, then appointments, lab results and feedback (`/portal/*`)                   | patient booking has no portal endpoint (booking is staff-only) |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
-| Quality desk (feedback, complaints, incidents) | **in progress** — three filtered read worklists at `/quality/feedback`, `/quality/complaints`, `/quality/incidents`; the detail workspaces and the status writes remain | assignee names need a staff-directory read            |
+| Quality desk (feedback, complaints, incidents) | **in progress** — three filtered read worklists (`/quality/feedback`, `/quality/complaints`, `/quality/incidents`); feedback detail workspace with the respond write (`/quality/feedback/[id]`); the complaint/incident workspaces and their writes remain | assignee names need a staff-directory read            |
 | F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine     |
 
 **Signature components (brief §2.4): 20 of 20.**
@@ -1851,3 +1851,49 @@ Gate: lint clean, `tsc --noEmit` 0, unit 616 (+12: `quality.test.ts`),
 `build:prod` OK (routes `/quality/feedback`, `/quality/complaints`,
 `/quality/incidents`), e2e/a11y **272** (was 257: +12 route variants in four
 themes, +3 filter tests).
+
+## Quality desk, slice 2: the feedback workspace and its respond write
+
+**Status:** slice 1 built the three read worklists with no detail route. This
+slice makes the feedback desk end to end: a row link into
+`/quality/feedback/[id]`, one record read back and the single write the resource
+has — a response that advances it NEW → ACKNOWLEDGED → RESOLVED → CLOSED. It is
+the first of the three entities; the complaint and incident workspaces (with
+their create/assign/investigate/action-plan writes) come next.
+
+- **Screen** (`src/components/staff/feedback-workspace.tsx`). One record with its
+  category, rating, submitter (patient or staff), submitted/handled stamps and
+  comment; a response panel; and a respond panel whose only move is the server's
+  next state. The service's business rule is held client-side rather than
+  discovered from a failed submit: feedback may not leave NEW without a response,
+  so the response is required while none is recorded and optional afterwards (a
+  re-stated status keeps the stored text). A move that races a stale tab resolves
+  to a 409 rendered in place with a "reload" message.
+- **Worklist gains a row link.** `FeedbackWorklistScreen` now passes `rowHref`
+  (`/quality/feedback/{id}`) and a readable `rowLinkLabel` ("View {category}
+  feedback"), and drops `scrollable` — with an in-row link the scroll region would
+  be a redundant tab stop (the complaints/incidents tables keep it until their
+  rows link too).
+- **Data layer** (`src/lib/data/quality.ts`). `readFeedbackRecord` unwraps the
+  `{ feedback }` envelope every single read *and* the write answers while the
+  export types the bare `FeedbackResponseDto` (GAP-020); `FEEDBACK_NEXT` mirrors
+  `FEEDBACK_TRANSITIONS` in `domain/quality-flow.ts` so the one offered move is the
+  server's.
+- **Hooks** (`src/lib/data/queries.ts`). `useFeedback(id)` and
+  `useRespondToFeedback()` (PATCH, structurally validated, invalidating the list
+  and the record).
+- **Mocks/stub.** `quality-handlers.ts` and `e2e/stub-api.mjs` gain
+  `GET /feedback/{id}` and `PATCH /feedback/{id}`; the stub keeps a mutable clone
+  of the feedback fixtures and mirrors the transition table plus the
+  response-required rule, so a respond moves the record the worklist reads back.
+- **i18n.** The `quality.feedback.workspace` block (back, loading, unavailable /
+  not-found, summary / response / respond headings, the per-state action labels
+  and the error copy) in `en.json` and `sw.json`, key parity checked.
+- **Tests.** `quality.test.ts` +3 (`readFeedbackRecord` unwrap and fail-closed,
+  the `FEEDBACK_NEXT` table); the a11y sweep gained the detail route and a
+  workspace test that opens a record from the worklist and advances it with a
+  response.
+
+Gate: lint clean, `tsc --noEmit` 0, unit **619** (+3: `quality.test.ts`),
+`build:prod` OK (route `/quality/feedback/[id]`), e2e/a11y **277** (was 272:
++4 route variants in four themes, +1 workspace test).

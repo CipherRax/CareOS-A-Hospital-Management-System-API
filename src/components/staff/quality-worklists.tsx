@@ -223,7 +223,8 @@ export function FeedbackWorklistScreen() {
           columns={columns}
           rows={rows}
           rowKey={(row) => row.id}
-          scrollable
+          rowHref={(row) => `/quality/feedback/${row.id}`}
+          rowLinkLabel={(row) => t('linkLabel', { category: t(`category.${row.category}`) })}
           loading={feedback.isLoading}
           emptyMessage={t('empty')}
         />

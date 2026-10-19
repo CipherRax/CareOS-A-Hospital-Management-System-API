@@ -216,18 +216,22 @@ this slice's scope:
   and the UI requests page 1 with no next/previous controls, so a busy quality
   queue shows the newest 20 and nothing older. The same constraint as every other
   worklist here.
-- **No names.** A complaint carries `assignedToId`, and feedback and incidents
-  carry `patientId`/`submittedById`/`reportedById`, but the lists show the
-  assignment *state* and the complaint's origin rather than resolving an id to a
-  person. Naming them needs a staff-directory or patient read keyed by id, and a
-  name pulled from a different page of a different module is worse than no name.
-  The detail workspaces will resolve them on demand.
-- **Read-only so far.** The lists open no detail screen yet, and none of the status
-  transitions the API exposes is wired — feedback respond, complaint
-  assign/investigate/resolve/close, incident investigate/action-plan/resolve/close.
-  Because the rows carry no link, each table opts into the focusable scroll region
-  instead; the detail slice will replace that with row links. Nothing on these
-  screens writes.
+- **No names, in the list or the detail.** A complaint carries `assignedToId`, and
+  feedback and incidents carry `patientId`/`submittedById`/`reportedById`, but
+  neither the lists nor the feedback detail resolve an id to a person — the list
+  shows the assignment *state* and the feedback shows its submitter as
+  patient-or-staff, and the detail view shows the same. Naming them needs a
+  staff-directory or patient read keyed by id, and a name pulled from a different
+  page of a different module is worse than no name.
+- **Feedback is end to end; complaints and incidents are still read-only.** The
+  feedback desk links a row to `/quality/feedback/[id]` and wires the resource's
+  one write — a response, which advances NEW → ACKNOWLEDGED → RESOLVED → CLOSED —
+  so the feedback table's rows are links and it no longer needs a scroll region.
+  The complaint and incident lists open no detail screen yet, and none of their
+  status transitions is wired (complaint assign/investigate/resolve/close,
+  incident investigate/action-plan/resolve/close). Because those rows carry no
+  link, each keeps the focusable scroll region; their detail slices will replace
+  that with row links and the writes.
 
 ### The intake tracking page is built on a contract whose success body is untyped
 

@@ -178,6 +178,53 @@ export async function fetchFeedback(
   );
 }
 
+/**
+ * The linear feedback lifecycle, mirroring `FEEDBACK_TRANSITIONS` in
+ * `src/modules/quality/domain/quality-flow.ts`: each state has exactly one move
+ * forward and the last has none.
+ */
+export const FEEDBACK_NEXT: Record<FeedbackStatus, FeedbackStatus | null> = {
+  NEW: 'ACKNOWLEDGED',
+  ACKNOWLEDGED: 'RESOLVED',
+  RESOLVED: 'CLOSED',
+  CLOSED: null,
+};
+
+/**
+ * Reads the `{ feedback }` body every single-record read and write answers. The
+ * export types those as the bare `FeedbackResponseDto` while the service wraps it
+ * (GAP-020), so the unwrapped body is validated structurally.
+ */
+export function readFeedbackRecord(
+  payload: unknown,
+): { ok: true; feedback: FeedbackRow } | { ok: false } {
+  if (!isRecord(payload)) return { ok: false };
+  const feedback = readFeedback(payload.feedback);
+  return feedback ? { ok: true, feedback } : { ok: false };
+}
+
+/** Raw read against `GET /feedback/{id}` (answers `{ feedback }`, GAP-020). */
+export async function fetchFeedbackRecord(
+  id: string,
+  signal?: AbortSignal,
+): Promise<FeedbackRow> {
+  const url = `${publicEnv.apiBasePath}/feedback/${encodeURIComponent(id)}`;
+  return readEnvelope<FeedbackRow>(
+    url,
+    (data) => {
+      const parsed = readFeedbackRecord(data);
+      return parsed.ok ? { ok: true, value: parsed.feedback } : { ok: false };
+    },
+    signal,
+  );
+}
+
+export interface RespondFeedbackInput {
+  readonly id: string;
+  readonly status: FeedbackStatus;
+  readonly response?: string;
+}
+
 // ─── Complaints ───────────────────────────────────────────────────────────────
 
 /** A complaint as `ComplaintsService.serialize` reports it. */

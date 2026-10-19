@@ -329,14 +329,18 @@ import {
 import {
   fetchComplaints,
   fetchFeedback,
+  fetchFeedbackRecord,
   fetchIncidents,
+  readFeedbackRecord,
   type ComplaintPage,
   type ComplaintQuery,
   type FeedbackPage,
   type FeedbackQuery,
+  type FeedbackRow,
   type IncidentPage,
   type IncidentQuery,
   type QualityCallError,
+  type RespondFeedbackInput,
 } from '@/lib/data/quality';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
@@ -5113,5 +5117,68 @@ export function useIncidentsList(
     },
     staleTime: 15_000,
     retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * One feedback record `GET /feedback/{id}`. The export types the 200 as the bare
+ * `FeedbackResponseDto` while the service answers `{ feedback }` (GAP-020), so
+ * the record is validated through `readFeedbackRecord`.
+ */
+export function useFeedback(id: string): UseQueryResult<Fetched<FeedbackRow>, QueryError> {
+  return useQuery<Fetched<FeedbackRow>, QueryError>({
+    queryKey: ['quality', 'feedback', 'detail', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const feedback = await fetchFeedbackRecord(id, signal);
+        return { data: feedback, response: new Response(null, { status: 200 }) } satisfies Fetched<
+          FeedbackRow
+        >;
+      } catch (call) {
+        throw toQueryError(call as QualityCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/** The write-side failure shape when a 200 body cannot be read as `{ feedback }`. */
+function feedbackWriteError(status = 200): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+/**
+ * Responds to a feedback record `PATCH /feedback/{id}` (the only write the
+ * resource has). The service answers `{ feedback }` while the export types the
+ * bare entity (GAP-020), so the unwrapped body is validated structurally. A move
+ * the server refuses — out of order, or leaving NEW with no response — resolves
+ * to a 409/422 rendered in place.
+ */
+export function useRespondToFeedback(): UseMutationResult<
+  FeedbackRow,
+  QueryError,
+  RespondFeedbackInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<FeedbackRow, QueryError, RespondFeedbackInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/feedback/{id}', {
+          params: { path: { id: input.id } },
+          body: {
+            status: input.status,
+            ...(input.response ? { response: input.response } : {}),
+          },
+        }),
+      );
+      const parsed = readFeedbackRecord(fetched.data);
+      if (!parsed.ok) throw feedbackWriteError();
+      return parsed.feedback;
+    },
+    onSuccess: (feedback) => {
+      queryClient.invalidateQueries({ queryKey: ['quality', 'feedback', 'detail', feedback.id] });
+      queryClient.invalidateQueries({ queryKey: ['quality', 'feedback'] });
+    },
   });
 }

@@ -798,19 +798,20 @@ and `src/modules/roles`:
   * `GET /incidents` is declared as the request DTO `ListIncidentsQueryDto` while
     the service returns `pageOf(...)`.
 
-  So each read rides the raw fetch + structural validation path
+  So each list read rides the raw fetch + structural validation path
   (`src/lib/data/quality.ts`, `readFeedback`/`readComplaint`/`readIncident` and
   the three page extractors) and fails closed on drift — a bare `id` or an unknown
-  enum is a rejected row, not an empty worklist. The single reads
-  (`GET /feedback/{id}` and the two peers) and the status writes (the two creates
-  plus `PATCH /feedback/{id}`, `PATCH /complaints/{id}`, `PATCH /incidents/{id}`)
-  are not yet consumed by a screen; when they are, the same family applies — each
-  single read is typed as the bare entity but answers `{ feedback }` /
-  `{ complaint }` / `{ incident }`. The lifecycle guards live in
-  `src/modules/quality/domain/quality-flow.ts`: feedback may not leave `NEW`
-  without a recorded response, a complaint cannot be closed without a resolution
-  and may only be assigned while `ASSIGNED`/`INVESTIGATING`, and a same-status
-  patch is a no-op.
+  enum is a rejected row, not an empty worklist. The feedback single read
+  (`GET /feedback/{id}`) and the one write it has (`PATCH /feedback/{id}`) are now
+  consumed and ride the same path through `readFeedbackRecord`, which unwraps the
+  `{ feedback }` envelope the export types as the bare entity. The complaint and
+  incident single reads and writes are not yet consumed by a screen; when they are,
+  the same family applies — each single read is typed as the bare entity but
+  answers `{ feedback }` / `{ complaint }` / `{ incident }`. The lifecycle guards
+  live in `src/modules/quality/domain/quality-flow.ts`: feedback may not leave
+  `NEW` without a recorded response, a complaint cannot be closed without a
+  resolution and may only be assigned while `ASSIGNED`/`INVESTIGATING`, and a
+  same-status patch is a no-op.
 - **Not built:** the audit-log viewing screen is **not buildable**: there is no
   audit-list endpoint (writes happen inside the API via
   `src/database/audit.service.ts`).

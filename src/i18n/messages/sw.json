@@ -2592,6 +2592,7 @@
       "filterCategory": "Kategoria",
       "allCategories": "Kategoria zote",
       "tableCaption": "Maoni",
+      "linkLabel": "Ona maoni ya {category}",
       "columnCategory": "Kategoria",
       "columnRating": "Kiwango",
       "columnComment": "Maelezo",
@@ -2618,6 +2619,43 @@
         "PHARMACY": "Duka la dawa",
         "LABORATORY": "Maabara",
         "OTHER": "Nyingine"
+      },
+      "workspace": {
+        "back": "Rudi kwa maoni",
+        "loading": "Inapakia maoni…",
+        "unavailableTitle": "Maoni hayapatikani",
+        "unavailableBody": "Rekodi hii ya maoni haikuweza kupakiwa. Jaribu tena baada ya muda mfupi.",
+        "notFoundTitle": "Maoni hayakupatikana",
+        "notFoundBody": "Rekodi hii ya maoni haipo au haionekani kwako.",
+        "heading": "Maoni ya {category}",
+        "summaryHeading": "Maoni",
+        "submittedBy": "Iliyowasilishwa na",
+        "submittedByPatient": "Mgonjwa",
+        "submittedByStaff": "Mtumishi",
+        "handled": "Ilishughulikiwa",
+        "notRecorded": "Haijarekodiwa",
+        "responseHeading": "Majibu",
+        "noResponse": "Hakuna majibu yaliyorekodiwa.",
+        "respondHeading": "Jibu",
+        "respondLabel": "Jibu",
+        "respondHint": "Jibu linahitajika kabla maoni haya kuondoka kwenye Mpya.",
+        "respondPlaceholder": "Kilichofanyika kuhusu maoni haya…",
+        "noActions": "Maoni haya yamefungwa. Hakuna kingine cha kurekodi.",
+        "submitting": "Inahifadhi…",
+        "action": {
+          "ACKNOWLEDGED": "Tambua",
+          "RESOLVED": "Weka kama imetatuliwa",
+          "CLOSED": "Funga"
+        },
+        "errors": {
+          "respondRequired": "Jibu linahitajika kabla maoni haya kuondoka kwenye Mpya.",
+          "staleTitle": "Maoni haya yamekwenda mbele",
+          "staleBody": "Mtu mwingine alibadilisha rekodi hii. Pakia upya ukurasa kuona hali ya sasa.",
+          "invalidTitle": "Badiliko hilo halikukubaliwa",
+          "invalidBody": "Rekodi haikuweza kupokea jibu hili. Pakia upya na ujaribu tena.",
+          "failedTitle": "Haikuweza kuhifadhi jibu",
+          "failedBody": "Jibu halikuweza kuhifadhiwa. Jaribu tena baada ya muda mfupi."
+        }
       }
     },
     "complaints": {

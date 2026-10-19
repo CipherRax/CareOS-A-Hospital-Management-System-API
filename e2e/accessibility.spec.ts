@@ -53,6 +53,7 @@ const ROUTES = [
   { path: '/insurance/payers', name: 'Insurance payers' },
   { path: '/insurance/claim_example_5001', name: 'CLM-2026-000001' },
   { path: '/quality/feedback', name: 'Feedback' },
+  { path: '/quality/feedback/fb_example_6105', name: 'Billing feedback' },
   { path: '/quality/complaints', name: 'Complaints' },
   { path: '/quality/incidents', name: 'Incidents' },
   { path: '/wards', name: 'Ward board' },
@@ -707,6 +708,36 @@ test.describe('quality worklists', () => {
     await expect(
       table.getByText('EXAMPLE count found 12 fewer amoxicillin units than the ledger records.'),
     ).toBeHidden();
+  });
+});
+
+test.describe('feedback workspace', () => {
+  test('opens a record from the worklist and advances it with a response', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/quality/feedback');
+
+    // The row's link carries a readable label, not the raw id. The record is the
+    // BILLING one: the worklist test asserts on the waiting-time record, so the
+    // write here stays off the fixtures that sibling test reads.
+    await page.getByRole('link', { name: /View Billing feedback/ }).click();
+
+    await expect(page.getByRole('heading', { name: 'Billing feedback', exact: true })).toBeVisible();
+
+    const results = await analyse(page);
+    expect(results.violations, describe(results.violations)).toEqual([]);
+
+    // New with no response: the move is blocked until a response is written.
+    const acknowledge = page.getByRole('button', { name: 'Acknowledge' });
+    await expect(acknowledge).toBeDisabled();
+
+    await page
+      .locator('#feedback-response')
+      .fill('EXAMPLE reversed the duplicate charge and wrote to the patient.');
+    await acknowledge.click();
+
+    // The record answers the moved status, so only the next move is offered.
+    await expect(page.getByRole('button', { name: 'Mark resolved' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Acknowledge' })).toHaveCount(0);
   });
 });
 

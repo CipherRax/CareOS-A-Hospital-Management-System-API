@@ -791,6 +791,7 @@ const LIVE_FEEDBACK = [
   { id: 'fb_example_6104', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, patientId: null, submittedById: QUALITY_REPORTER, category: 'FACILITY', rating: 2, comment: 'EXAMPLE reported that the outpatient waiting bay has no working fan.', status: 'CLOSED', response: 'EXAMPLE maintenance replaced the fan on 2026-09-28.', handledById: QUALITY_HANDLER, handledAt: '2026-09-27T10:00:00.000Z', createdAt: '2026-09-26T11:20:00.000Z', updatedAt: '2026-09-28T09:00:00.000Z' },
   { id: 'fb_example_6105', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, patientId: 'pat_example_1001', submittedById: null, category: 'BILLING', rating: 1, comment: 'EXAMPLE was charged twice for the same laboratory test.', status: 'NEW', response: null, handledById: null, handledAt: null, createdAt: '2026-10-04T16:10:00.000Z', updatedAt: '2026-10-04T16:10:00.000Z' },
 ];
+const FEEDBACK_NEXT = { NEW: 'ACKNOWLEDGED', ACKNOWLEDGED: 'RESOLVED', RESOLVED: 'CLOSED', CLOSED: null };
 const LIVE_COMPLAINTS = [
   { id: 'cmp_example_6201', organizationId: QUALITY_ORG, branchId: null, origin: 'PATIENT', patientId: 'pat_example_1001', submittedById: null, category: 'Billing dispute', description: 'EXAMPLE claims a duplicate charge on invoice INV-2026-000004.', status: 'OPEN', assignedToId: null, dueAt: '2026-10-09T00:00:00.000Z', resolution: null, closedById: null, closedAt: null, createdAt: '2026-10-02T10:00:00.000Z', updatedAt: '2026-10-02T10:00:00.000Z' },
   { id: 'cmp_example_6202', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, origin: 'STAFF', patientId: null, submittedById: QUALITY_REPORTER, category: 'Handover delay', description: 'EXAMPLE reports handover regularly starting more than 30 minutes late.', status: 'ASSIGNED', assignedToId: QUALITY_HANDLER, dueAt: '2026-10-10T00:00:00.000Z', resolution: null, closedById: null, closedAt: null, createdAt: '2026-10-01T19:45:00.000Z', updatedAt: '2026-10-02T09:05:00.000Z' },
@@ -3171,6 +3172,40 @@ const server = createServer(async (request, response) => {
     const items = LIVE_FEEDBACK.filter((row) =>
       (!status || row.status === status) && (!category || row.category === category));
     send(response, 200, listEnvelope(items.map((row) => ({ ...row }))));
+    return;
+  }
+
+  if (url.pathname.match(/^\/feedback\/[^/]+$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const feedback = LIVE_FEEDBACK.find((row) => row.id === id);
+    if (!feedback) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { feedback: { ...feedback } } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/feedback\/[^/]+$/) && request.method === 'PATCH') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const feedback = LIVE_FEEDBACK.find((row) => row.id === id);
+    if (!feedback) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const next = body.status;
+    if (!(next in FEEDBACK_NEXT)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (feedback.status !== next && FEEDBACK_NEXT[feedback.status] !== next) {
+      send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return;
+    }
+    const hasResponseText = typeof body.response === 'string' && body.response.trim().length > 0;
+    if (next !== 'NEW') {
+      const effective = hasResponseText ? body.response : (feedback.response || '');
+      if (effective.trim().length === 0) { send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return; }
+    }
+    const now = new Date().toISOString();
+    feedback.status = next;
+    if (hasResponseText) feedback.response = body.response;
+    feedback.handledById = QUALITY_HANDLER;
+    feedback.handledAt = now;
+    feedback.updatedAt = now;
+    send(response, 200, { success: true, data: { feedback: { ...feedback } } });
     return;
   }
 
