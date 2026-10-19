@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  COMPLAINT_ASSIGNABLE,
+  COMPLAINT_NEXT,
   COMPLAINT_STATUSES,
   extractComplaintPage,
   extractFeedbackPage,
@@ -10,6 +12,7 @@ import {
   INCIDENT_SEVERITIES,
   INCIDENT_STATUSES,
   readComplaint,
+  readComplaintRecord,
   readFeedback,
   readFeedbackRecord,
   readIncident,
@@ -194,6 +197,36 @@ describe('FEEDBACK_NEXT', () => {
       RESOLVED: 'CLOSED',
       CLOSED: null,
     });
+  });
+});
+
+describe('readComplaintRecord', () => {
+  it('unwraps the { complaint } envelope every single read and write answer', () => {
+    expect(readComplaintRecord({ complaint })).toEqual({ ok: true, complaint });
+  });
+
+  it('fails closed on the bare entity, on drift, and on a non-object body', () => {
+    expect(readComplaintRecord(complaint).ok).toBe(false);
+    expect(readComplaintRecord({ complaint: { ...complaint, status: 'PENDING' } }).ok).toBe(false);
+    expect(readComplaintRecord(null).ok).toBe(false);
+  });
+});
+
+describe('COMPLAINT_NEXT', () => {
+  it('is the single forward move the server allows from each state', () => {
+    expect(COMPLAINT_NEXT).toEqual({
+      OPEN: 'ASSIGNED',
+      ASSIGNED: 'INVESTIGATING',
+      INVESTIGATING: 'RESOLVED',
+      RESOLVED: 'CLOSED',
+      CLOSED: null,
+    });
+  });
+});
+
+describe('COMPLAINT_ASSIGNABLE', () => {
+  it('is exactly the states a complaint may be (re)assigned while in', () => {
+    expect([...COMPLAINT_ASSIGNABLE]).toEqual(['ASSIGNED', 'INVESTIGATING']);
   });
 });
 

@@ -782,8 +782,8 @@ function insuranceFindClaim(id) {
 // src/mocks/fixtures/quality-registry.ts record for record.
 const QUALITY_ORG = 'org_example_1';
 const QUALITY_BRANCH_ID = 'br_example_0001';
-const QUALITY_REPORTER = 'usr-example-1';
-const QUALITY_HANDLER = 'usr-example-2';
+const QUALITY_REPORTER = 'usr_example_0001';
+const QUALITY_HANDLER = 'usr_example_0002';
 const LIVE_FEEDBACK = [
   { id: 'fb_example_6101', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, patientId: 'pat_example_1001', submittedById: null, category: 'WAITING_TIME', rating: 2, comment: 'EXAMPLE waited over an hour to be triaged during the morning rush.', status: 'NEW', response: null, handledById: null, handledAt: null, createdAt: '2026-10-02T09:15:00.000Z', updatedAt: '2026-10-02T09:15:00.000Z' },
   { id: 'fb_example_6102', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, patientId: 'pat_example_1002', submittedById: null, category: 'PHARMACY', rating: 3, comment: 'EXAMPLE had to come back twice for a prescription that was out of stock.', status: 'ACKNOWLEDGED', response: null, handledById: QUALITY_HANDLER, handledAt: '2026-10-03T08:00:00.000Z', createdAt: '2026-10-01T14:40:00.000Z', updatedAt: '2026-10-03T08:00:00.000Z' },
@@ -792,6 +792,10 @@ const LIVE_FEEDBACK = [
   { id: 'fb_example_6105', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, patientId: 'pat_example_1001', submittedById: null, category: 'BILLING', rating: 1, comment: 'EXAMPLE was charged twice for the same laboratory test.', status: 'NEW', response: null, handledById: null, handledAt: null, createdAt: '2026-10-04T16:10:00.000Z', updatedAt: '2026-10-04T16:10:00.000Z' },
 ];
 const FEEDBACK_NEXT = { NEW: 'ACKNOWLEDGED', ACKNOWLEDGED: 'RESOLVED', RESOLVED: 'CLOSED', CLOSED: null };
+const COMPLAINT_NEXT = { OPEN: 'ASSIGNED', ASSIGNED: 'INVESTIGATING', INVESTIGATING: 'RESOLVED', RESOLVED: 'CLOSED', CLOSED: null };
+const COMPLAINT_ASSIGNABLE = new Set(['ASSIGNED', 'INVESTIGATING']);
+const COMPLAINT_ORIGINS = new Set(['PATIENT', 'STAFF', 'OTHER']);
+let complaintSeq = 6206;
 const LIVE_COMPLAINTS = [
   { id: 'cmp_example_6201', organizationId: QUALITY_ORG, branchId: null, origin: 'PATIENT', patientId: 'pat_example_1001', submittedById: null, category: 'Billing dispute', description: 'EXAMPLE claims a duplicate charge on invoice INV-2026-000004.', status: 'OPEN', assignedToId: null, dueAt: '2026-10-09T00:00:00.000Z', resolution: null, closedById: null, closedAt: null, createdAt: '2026-10-02T10:00:00.000Z', updatedAt: '2026-10-02T10:00:00.000Z' },
   { id: 'cmp_example_6202', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, origin: 'STAFF', patientId: null, submittedById: QUALITY_REPORTER, category: 'Handover delay', description: 'EXAMPLE reports handover regularly starting more than 30 minutes late.', status: 'ASSIGNED', assignedToId: QUALITY_HANDLER, dueAt: '2026-10-10T00:00:00.000Z', resolution: null, closedById: null, closedAt: null, createdAt: '2026-10-01T19:45:00.000Z', updatedAt: '2026-10-02T09:05:00.000Z' },
@@ -3215,6 +3219,90 @@ const server = createServer(async (request, response) => {
     const items = LIVE_COMPLAINTS.filter((row) =>
       (!status || row.status === status) && (!assignedToId || row.assignedToId === assignedToId));
     send(response, 200, listEnvelope(items.map((row) => ({ ...row }))));
+    return;
+  }
+
+  if (url.pathname === '/complaints' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const origin = typeof body.origin === 'string' ? body.origin : '';
+    if (!COMPLAINT_ORIGINS.has(origin)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const category = typeof body.category === 'string' ? body.category.trim() : '';
+    if (!category || category.length > 200) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const description = typeof body.description === 'string' ? body.description.trim() : '';
+    if (!description || description.length > 5000) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const assignedToId = typeof body.assignedToId === 'string' ? body.assignedToId : null;
+    if (assignedToId && !LIVE_ADMIN_USERS.some((user) => user.id === assignedToId)) {
+      send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return;
+    }
+    const now = new Date().toISOString();
+    const complaint = {
+      id: `cmp_example_${complaintSeq++}`,
+      organizationId: QUALITY_ORG,
+      branchId: typeof body.branchId === 'string' ? body.branchId : null,
+      origin,
+      patientId: typeof body.patientId === 'string' ? body.patientId : null,
+      submittedById: QUALITY_REPORTER,
+      category,
+      description,
+      status: assignedToId ? 'ASSIGNED' : 'OPEN',
+      assignedToId,
+      dueAt: typeof body.dueAt === 'string' ? body.dueAt : null,
+      resolution: null,
+      closedById: null,
+      closedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    LIVE_COMPLAINTS.unshift(complaint);
+    send(response, 201, { success: true, data: { complaint: { ...complaint } } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/complaints\/[^/]+$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const complaint = LIVE_COMPLAINTS.find((row) => row.id === id);
+    if (!complaint) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { complaint: { ...complaint } } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/complaints\/[^/]+$/) && request.method === 'PATCH') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const complaint = LIVE_COMPLAINTS.find((row) => row.id === id);
+    if (!complaint) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const next = body.status;
+    if (typeof next !== 'string' || !(next in COMPLAINT_NEXT)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (complaint.status !== next && COMPLAINT_NEXT[complaint.status] !== next) {
+      send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return;
+    }
+    const appliesAssignment =
+      body.assignedToId !== undefined || body.dueAt !== undefined || next === 'ASSIGNED';
+    if (appliesAssignment && !COMPLAINT_ASSIGNABLE.has(next)) {
+      send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return;
+    }
+    if (appliesAssignment && typeof body.assignedToId === 'string' && body.assignedToId) {
+      if (!LIVE_ADMIN_USERS.some((user) => user.id === body.assignedToId)) {
+        send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return;
+      }
+    }
+    const effectiveResolution =
+      body.resolution !== undefined && body.resolution !== null ? String(body.resolution) : complaint.resolution;
+    if (complaint.status !== next && next === 'CLOSED') {
+      if (!effectiveResolution || effectiveResolution.trim().length === 0) {
+        send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return;
+      }
+    }
+    const now = new Date().toISOString();
+    complaint.status = next;
+    if (body.assignedToId !== undefined) complaint.assignedToId = typeof body.assignedToId === 'string' ? body.assignedToId : null;
+    if (body.dueAt !== undefined) complaint.dueAt = typeof body.dueAt === 'string' ? body.dueAt : null;
+    if (body.resolution !== undefined) complaint.resolution = typeof body.resolution === 'string' ? body.resolution : null;
+    if (next === 'CLOSED') { complaint.closedById = QUALITY_HANDLER; complaint.closedAt = now; }
+    complaint.updatedAt = now;
+    send(response, 200, { success: true, data: { complaint: { ...complaint } } });
     return;
   }
 

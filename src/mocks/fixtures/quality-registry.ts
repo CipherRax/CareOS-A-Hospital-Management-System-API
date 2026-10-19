@@ -84,8 +84,8 @@ export interface RegistryIncident {
 
 export const QUALITY_ORGANIZATION_ID = 'org_example_1';
 export const QUALITY_BRANCH_ID = 'br_example_0001';
-const REPORTER = 'usr-example-1';
-const HANDLER = 'usr-example-2';
+const REPORTER = 'usr_example_0001';
+const HANDLER = 'usr_example_0002';
 
 export const QUALITY_FEEDBACK: readonly RegistryFeedback[] = [
   {

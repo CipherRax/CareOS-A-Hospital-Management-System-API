@@ -1,12 +1,14 @@
 'use client';
 
-import { ClipboardList, MessageSquareText, TriangleAlert } from 'lucide-react';
+import { ClipboardList, MessageSquareText, Plus, TriangleAlert } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useState } from 'react';
 
 import { DataTable, type DataTableColumn } from '@/components/clinical/data-table';
 import { EmptyState } from '@/components/clinical/empty-state';
 import { StatusPill, type StatusTone } from '@/components/clinical/status-pill';
+import { RaiseComplaintDialog } from '@/components/staff/complaint-dialog';
+import { Button } from '@/components/ui/button';
 import { Field, Select } from '@/components/ui/field';
 import {
   COMPLAINT_STATUSES,
@@ -38,10 +40,9 @@ import { useComplaintsList, useFeedbackList, useIncidentsList } from '@/lib/data
  * the app yet (see docs/limitations.md).
  *
  * Complaints are shown by assignment *state* — "Assigned" or "Unassigned" — not by
- * assignee name. Naming the assignee needs a staff-directory read keyed by id,
- * which this desk does not make; a name resolved from a different page of a
- * different module would be exactly the kind of half-truth that misleads a
- * reviewer. The detail view will name it.
+ * assignee name. Naming the assignee in a list needs a user-directory read keyed by
+ * id, which this desk does not make; the complaint detail view does, so it names the
+ * assignee there.
  */
 
 function formatUtc(iso: string | null, locale: string): string | null {
@@ -120,11 +121,22 @@ function SelectFilter({
   );
 }
 
-function WorklistHeader({ title, intro }: { title: string; intro: string }) {
+function WorklistHeader({
+  title,
+  intro,
+  action,
+}: {
+  title: string;
+  intro: string;
+  action?: React.ReactNode;
+}) {
   return (
-    <header>
-      <h1 className="text-heading font-semibold text-primary">{title}</h1>
-      <p className="text-meta text-secondary">{intro}</p>
+    <header className="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 className="text-heading font-semibold text-primary">{title}</h1>
+        <p className="text-meta text-secondary">{intro}</p>
+      </div>
+      {action}
     </header>
   );
 }
@@ -239,6 +251,7 @@ export function ComplaintsWorklistScreen() {
   const t = useTranslations('quality.complaints');
   const locale = useLocale();
   const [status, setStatus] = useState<ComplaintStatus | ''>('');
+  const [raiseOpen, setRaiseOpen] = useState(false);
 
   const complaints = useComplaintsList({ status: status || undefined });
   const rows = complaints.data?.data.rows ?? [];
@@ -293,7 +306,16 @@ export function ComplaintsWorklistScreen() {
 
   return (
     <div className="flex flex-col gap-4 px-6 py-6">
-      <WorklistHeader title={t('pageTitle')} intro={t('pageIntro')} />
+      <WorklistHeader
+        title={t('pageTitle')}
+        intro={t('pageIntro')}
+        action={
+          <Button variant="primary" onClick={() => setRaiseOpen(true)}>
+            <Plus aria-hidden className="size-4" />
+            {t('raise')}
+          </Button>
+        }
+      />
 
       <SelectFilter
         id="complaints-status-filter"
@@ -317,11 +339,14 @@ export function ComplaintsWorklistScreen() {
           columns={columns}
           rows={rows}
           rowKey={(row) => row.id}
-          scrollable
+          rowHref={(row) => `/quality/complaints/${row.id}`}
+          rowLinkLabel={(row) => t('linkLabel', { category: row.category })}
           loading={complaints.isLoading}
           emptyMessage={t('empty')}
         />
       )}
+
+      <RaiseComplaintDialog open={raiseOpen} onOpenChange={setRaiseOpen} />
     </div>
   );
 }

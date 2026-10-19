@@ -328,12 +328,16 @@ import {
 } from '@/lib/data/portal';
 import {
   fetchComplaints,
+  fetchComplaintRecord,
   fetchFeedback,
   fetchFeedbackRecord,
   fetchIncidents,
+  readComplaintRecord,
   readFeedbackRecord,
   type ComplaintPage,
   type ComplaintQuery,
+  type ComplaintRow,
+  type CreateComplaintInput,
   type FeedbackPage,
   type FeedbackQuery,
   type FeedbackRow,
@@ -341,6 +345,7 @@ import {
   type IncidentQuery,
   type QualityCallError,
   type RespondFeedbackInput,
+  type UpdateComplaintInput,
 } from '@/lib/data/quality';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
@@ -5179,6 +5184,106 @@ export function useRespondToFeedback(): UseMutationResult<
     onSuccess: (feedback) => {
       queryClient.invalidateQueries({ queryKey: ['quality', 'feedback', 'detail', feedback.id] });
       queryClient.invalidateQueries({ queryKey: ['quality', 'feedback'] });
+    },
+  });
+}
+
+/**
+ * One complaint `GET /complaints/{id}`. The export types the 200 as the bare
+ * `ComplaintResponseDto` while the service answers `{ complaint }` (GAP-020), so
+ * the record is validated through `readComplaintRecord`.
+ */
+export function useComplaint(id: string): UseQueryResult<Fetched<ComplaintRow>, QueryError> {
+  return useQuery<Fetched<ComplaintRow>, QueryError>({
+    queryKey: ['quality', 'complaints', 'detail', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const complaint = await fetchComplaintRecord(id, signal);
+        return { data: complaint, response: new Response(null, { status: 200 }) } satisfies Fetched<
+          ComplaintRow
+        >;
+      } catch (call) {
+        throw toQueryError(call as QualityCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/** The write-side failure shape when a body cannot be read as `{ complaint }`. */
+function complaintWriteError(status = 200): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+/**
+ * Raises a complaint `POST /complaints` (opens at OPEN, or ASSIGNED when an
+ * assignee is given). The service answers `{ complaint }` while the export types
+ * the bare entity (GAP-020), so the unwrapped body is validated structurally.
+ */
+export function useCreateComplaint(): UseMutationResult<
+  ComplaintRow,
+  QueryError,
+  CreateComplaintInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<ComplaintRow, QueryError, CreateComplaintInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/complaints', {
+          body: {
+            origin: input.origin,
+            category: input.category,
+            description: input.description,
+            ...(input.branchId ? { branchId: input.branchId } : {}),
+            ...(input.patientId ? { patientId: input.patientId } : {}),
+            ...(input.assignedToId ? { assignedToId: input.assignedToId } : {}),
+            ...(input.dueAt ? { dueAt: input.dueAt } : {}),
+          },
+        }),
+      );
+      const parsed = readComplaintRecord(fetched.data);
+      if (!parsed.ok) throw complaintWriteError(201);
+      return parsed.complaint;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quality', 'complaints'] });
+    },
+  });
+}
+
+/**
+ * Moves a complaint `PATCH /complaints/{id}` — the linear lifecycle plus the
+ * assignment and resolution data that rides a given move. A move the server
+ * refuses (out of order, assignment into a non-assignable state, closing with no
+ * resolution) resolves to a 409/400 rendered in place.
+ */
+export function useUpdateComplaintStatus(): UseMutationResult<
+  ComplaintRow,
+  QueryError,
+  UpdateComplaintInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<ComplaintRow, QueryError, UpdateComplaintInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/complaints/{id}', {
+          params: { path: { id: input.id } },
+          body: {
+            status: input.status,
+            ...(input.resolution !== undefined ? { resolution: input.resolution } : {}),
+            ...(input.assignedToId !== undefined ? { assignedToId: input.assignedToId } : {}),
+            ...(input.dueAt !== undefined ? { dueAt: input.dueAt } : {}),
+          },
+        }),
+      );
+      const parsed = readComplaintRecord(fetched.data);
+      if (!parsed.ok) throw complaintWriteError();
+      return parsed.complaint;
+    },
+    onSuccess: (complaint) => {
+      queryClient.invalidateQueries({ queryKey: ['quality', 'complaints', 'detail', complaint.id] });
+      queryClient.invalidateQueries({ queryKey: ['quality', 'complaints'] });
     },
   });
 }

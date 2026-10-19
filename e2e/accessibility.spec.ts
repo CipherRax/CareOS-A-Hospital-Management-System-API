@@ -55,6 +55,7 @@ const ROUTES = [
   { path: '/quality/feedback', name: 'Feedback' },
   { path: '/quality/feedback/fb_example_6105', name: 'Billing feedback' },
   { path: '/quality/complaints', name: 'Complaints' },
+  { path: '/quality/complaints/cmp_example_6201', name: 'Billing dispute' },
   { path: '/quality/incidents', name: 'Incidents' },
   { path: '/wards', name: 'Ward board' },
   { path: '/wards/ward_example_3001', name: 'EXAMPLE Medical Ward' },
@@ -683,12 +684,16 @@ test.describe('quality worklists', () => {
     await page.goto('/quality/complaints');
 
     await expect(page.getByRole('heading', { name: 'Complaints', exact: true })).toBeVisible();
-    const table = page.getByRole('table');
-    await expect(table.getByText('Billing dispute')).toBeVisible();
 
-    await page.locator('#complaints-status-filter').selectOption('CLOSED');
-    await expect(table.getByText('Lost records')).toBeVisible();
-    await expect(table.getByText('Billing dispute')).toBeHidden();
+    // The row link carries the category in its label, so assert on the link role
+    // rather than the bare cell text (which the sr-only label also contains). The
+    // fixtures this test reads (an ASSIGNED one and a RESOLVED one) are the ones
+    // the workspace tests do not write to.
+    await expect(page.getByRole('link', { name: /View Handover delay complaint/ })).toBeVisible();
+
+    await page.locator('#complaints-status-filter').selectOption('RESOLVED');
+    await expect(page.getByRole('link', { name: /View Noise at night complaint/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: /View Handover delay complaint/ })).toHaveCount(0);
   });
 
   test('filters incidents by severity', async ({ page }) => {
@@ -738,6 +743,58 @@ test.describe('feedback workspace', () => {
     // The record answers the moved status, so only the next move is offered.
     await expect(page.getByRole('button', { name: 'Mark resolved' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Acknowledge' })).toHaveCount(0);
+  });
+});
+
+test.describe('complaints workspace', () => {
+  test('opens a complaint and walks it from assignment to closure', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/quality/complaints');
+
+    // The row's link carries a readable label, not the raw id. The record is the
+    // OPEN one; the worklist filter test reads the ASSIGNED and RESOLVED ones, so
+    // this walk stays off the fixtures that sibling test reads.
+    await page.getByRole('link', { name: /View Billing dispute complaint/ }).click();
+    await expect(page.getByRole('heading', { name: 'Billing dispute', exact: true })).toBeVisible();
+
+    const results = await analyse(page);
+    expect(results.violations, describe(results.violations)).toEqual([]);
+
+    // OPEN → ASSIGNED carries the assignment; the detail names the assignee.
+    await page.locator('#complaint-assignee').selectOption({ label: 'Amina Odhiambo' });
+    await page.getByRole('button', { name: 'Assign' }).click();
+    await expect(page.getByText('Amina Odhiambo', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Start investigating' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Start investigating' }).click();
+    await expect(page.getByRole('button', { name: 'Mark resolved' })).toBeVisible();
+
+    await page
+      .locator('#complaint-resolution')
+      .fill('EXAMPLE refunded the duplicate charge and wrote to the patient.');
+    await page.getByRole('button', { name: 'Mark resolved' }).click();
+    await expect(page.getByRole('button', { name: 'Close' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect(
+      page.getByText('This complaint is closed; no further action is offered.'),
+    ).toBeVisible();
+  });
+
+  test('raises a complaint from the worklist', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/quality/complaints');
+
+    await page.getByRole('button', { name: 'Raise a complaint' }).click();
+    await page.locator('#complaint-category').fill('EXAMPLE overbilling on a scan');
+    await page
+      .locator('#complaint-description')
+      .fill('EXAMPLE charged twice for the same scan.');
+    await page.getByRole('button', { name: 'Raise complaint' }).click();
+
+    await expect(
+      page.getByRole('link', { name: /View EXAMPLE overbilling on a scan complaint/ }),
+    ).toBeVisible();
   });
 });
 

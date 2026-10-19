@@ -205,7 +205,7 @@ how many of the total are shown — there are no next/previous controls. The sup
 column resolves names from `GET /suppliers`, which the contract mis-types the same
 way (the query DTO on the 200), so it is validated structurally too.
 
-### The quality desk lists one page, and names nobody
+### The quality desk lists one page
 
 Three worklists read the API's quality module — feedback (`/quality/feedback`),
 complaints (`/quality/complaints`) and incidents (`/quality/incidents`) — each
@@ -216,22 +216,25 @@ this slice's scope:
   and the UI requests page 1 with no next/previous controls, so a busy quality
   queue shows the newest 20 and nothing older. The same constraint as every other
   worklist here.
-- **No names, in the list or the detail.** A complaint carries `assignedToId`, and
-  feedback and incidents carry `patientId`/`submittedById`/`reportedById`, but
-  neither the lists nor the feedback detail resolve an id to a person — the list
-  shows the assignment *state* and the feedback shows its submitter as
-  patient-or-staff, and the detail view shows the same. Naming them needs a
-  staff-directory or patient read keyed by id, and a name pulled from a different
-  page of a different module is worse than no name.
-- **Feedback is end to end; complaints and incidents are still read-only.** The
-  feedback desk links a row to `/quality/feedback/[id]` and wires the resource's
-  one write — a response, which advances NEW → ACKNOWLEDGED → RESOLVED → CLOSED —
-  so the feedback table's rows are links and it no longer needs a scroll region.
-  The complaint and incident lists open no detail screen yet, and none of their
-  status transitions is wired (complaint assign/investigate/resolve/close,
-  incident investigate/action-plan/resolve/close). Because those rows carry no
-  link, each keeps the focusable scroll region; their detail slices will replace
-  that with row links and the writes.
+- **No names in the lists; the complaint detail names its assignee.** A complaint
+  carries `assignedToId`, and feedback and incidents carry
+  `patientId`/`submittedById`/`reportedById`, but the lists resolve no id to a
+  person — the complaint list shows the assignment *state* and the feedback shows
+  its submitter as patient-or-staff. Naming them would need a directory read keyed
+  by id which the lists do not make; a name pulled from a different page of a
+  different module is worse than no name. The complaint **detail** is the exception:
+  it loads the user directory to offer the assignee picker, so it names the assignee
+  from that same list. Feedback and incident ids are still not resolved.
+- **Feedback and complaints are end to end; incidents are read-only.** The feedback
+  desk links a row to `/quality/feedback/[id]` and wires the resource's one write —
+  a response, which advances NEW → ACKNOWLEDGED → RESOLVED → CLOSED. The complaints
+  desk links a row to `/quality/complaints/[id]`, offers a raise dialog and wires the
+  lifecycle ASSIGNED → INVESTIGATING → RESOLVED → CLOSED (assigning on the ASSIGNED
+  move, resolving on the way, closing only with a resolution). Both tables' rows are
+  links, so neither needs a focusable scroll region. The incident list opens no
+  detail screen yet and none of its transitions is wired (investigate/action-plan/
+  resolve/close); because its rows carry no link it keeps the scroll region, which
+  its detail slice will replace with row links and the writes.
 
 ### The intake tracking page is built on a contract whose success body is untyped
 

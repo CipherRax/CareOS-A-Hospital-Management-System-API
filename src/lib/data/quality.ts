@@ -321,6 +321,69 @@ export async function fetchComplaints(
   );
 }
 
+/** The linear complaint lifecycle, mirroring `COMPLAINT_TRANSITIONS`. */
+export const COMPLAINT_NEXT: Record<ComplaintStatus, ComplaintStatus | null> = {
+  OPEN: 'ASSIGNED',
+  ASSIGNED: 'INVESTIGATING',
+  INVESTIGATING: 'RESOLVED',
+  RESOLVED: 'CLOSED',
+  CLOSED: null,
+};
+
+/**
+ * The statuses a complaint may be (re)assigned while in, per the service
+ * (`COMPLAINT_ASSIGNABLE_STATUSES`). Assignment data must not ride a move into any
+ * other status.
+ */
+export const COMPLAINT_ASSIGNABLE: readonly ComplaintStatus[] = ['ASSIGNED', 'INVESTIGATING'];
+
+/**
+ * Reads the `{ complaint }` body every single-record read and write answers. The
+ * export types those as the bare `ComplaintResponseDto` while the service wraps it
+ * (GAP-020), so the unwrapped body is validated structurally.
+ */
+export function readComplaintRecord(
+  payload: unknown,
+): { ok: true; complaint: ComplaintRow } | { ok: false } {
+  if (!isRecord(payload)) return { ok: false };
+  const complaint = readComplaint(payload.complaint);
+  return complaint ? { ok: true, complaint } : { ok: false };
+}
+
+/** Raw read against `GET /complaints/{id}` (answers `{ complaint }`, GAP-020). */
+export async function fetchComplaintRecord(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ComplaintRow> {
+  const url = `${publicEnv.apiBasePath}/complaints/${encodeURIComponent(id)}`;
+  return readEnvelope<ComplaintRow>(
+    url,
+    (data) => {
+      const parsed = readComplaintRecord(data);
+      return parsed.ok ? { ok: true, value: parsed.complaint } : { ok: false };
+    },
+    signal,
+  );
+}
+
+export interface CreateComplaintInput {
+  readonly origin: ComplaintOrigin;
+  readonly category: string;
+  readonly description: string;
+  readonly branchId?: string;
+  readonly patientId?: string;
+  readonly assignedToId?: string;
+  readonly dueAt?: string;
+}
+
+export interface UpdateComplaintInput {
+  readonly id: string;
+  readonly status: ComplaintStatus;
+  readonly resolution?: string;
+  readonly assignedToId?: string | null;
+  readonly dueAt?: string | null;
+}
+
 // ─── Incidents ────────────────────────────────────────────────────────────────
 
 /** An incident as `IncidentsService.serialize` reports it. */

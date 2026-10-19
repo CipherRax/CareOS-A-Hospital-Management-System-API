@@ -25,7 +25,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F10 Analytics & reports        | complete — reports desk; analytics metrics; journey bottlenecks + capacity; forecast explorer, patient experience and staff analytics (`/analytics`) | audit-log viewing is not buildable (no API list endpoint) |
 | F11 Portal & queue display     | **complete** — display board; patient portal gate + profile `/portal`, then appointments, lab results and feedback (`/portal/*`)                   | patient booking has no portal endpoint (booking is staff-only) |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
-| Quality desk (feedback, complaints, incidents) | **in progress** — three filtered read worklists (`/quality/feedback`, `/quality/complaints`, `/quality/incidents`); feedback detail workspace with the respond write (`/quality/feedback/[id]`); the complaint/incident workspaces and their writes remain | assignee names need a staff-directory read            |
+| Quality desk (feedback, complaints, incidents) | **in progress** — three filtered read worklists (`/quality/feedback`, `/quality/complaints`, `/quality/incidents`); feedback and complaint detail workspaces with their writes (`/quality/feedback/[id]`, `/quality/complaints/[id]`); the incident workspace and its writes remain | incident actions-taken/resolution flow not yet built             |
 | F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine     |
 
 **Signature components (brief §2.4): 20 of 20.**
@@ -1897,3 +1897,58 @@ their create/assign/investigate/action-plan writes) come next.
 Gate: lint clean, `tsc --noEmit` 0, unit **619** (+3: `quality.test.ts`),
 `build:prod` OK (route `/quality/feedback/[id]`), e2e/a11y **277** (was 272:
 +4 route variants in four themes, +1 workspace test).
+
+## Quality desk, slice 3: the complaints workspace, its raise and its lifecycle
+
+**Status:** slice 2 made feedback end to end. This slice does the same for
+complaints: a row link into `/quality/complaints/[id]`, the record read back, a
+raise write from the worklist and the linear lifecycle that carries a complaint
+OPEN → ASSIGNED → INVESTIGATING → RESOLVED → CLOSED. The incident workspace is the
+remaining entity.
+
+- **Screen** (`src/components/staff/complaint-workspace.tsx`). One complaint with
+  its origin, description, assigned-to name, due/submitted/closed stamps and its
+  resolution; an action panel whose only move is the server's next state. Two
+  service rules are held client-side rather than discovered from a failed submit:
+  a complaint is assigned only as it enters ASSIGNED, so the assignee picker appears
+  only on that move; and it cannot close without a resolution, so the resolution
+  field is required on CLOSED and optional while resolving. A move that races a
+  stale tab resolves to a 409 rendered in place.
+- **The detail names the assignee** where the worklist shows only the state. The
+  screen loads the user directory anyway to offer the picker, so the name is read
+  from the same list (`useUsers`) rather than left as a bare id; the worklist keeps
+  showing "Assigned"/"Unassigned" and makes no such read.
+- **Raise from the worklist** (`src/components/staff/complaint-dialog.tsx`). The
+  complaints desk gains a "Raise a complaint" action opening a dialog (origin,
+  category, description, optional due date and assignee). Choosing an assignee opens
+  the complaint ASSIGNED, exactly as the service does; no assignee opens it OPEN.
+- **Worklist gains a row link.** `ComplaintsWorklistScreen` now passes `rowHref`
+  (`/quality/complaints/{id}`) and a readable `rowLinkLabel` ("View {category}
+  complaint"), and drops `scrollable` — the incidents table keeps it until its rows
+  link too.
+- **Data layer** (`src/lib/data/quality.ts`). `readComplaintRecord` unwraps the
+  `{ complaint }` envelope every single read *and* both writes answer while the
+  export types the bare `ComplaintResponseDto` (GAP-020); `COMPLAINT_NEXT` mirrors
+  `COMPLAINT_TRANSITIONS` and `COMPLAINT_ASSIGNABLE` mirrors
+  `COMPLAINT_ASSIGNABLE_STATUSES` in `domain/quality-flow.ts` so the one offered move
+  is the server's.
+- **Hooks** (`src/lib/data/queries.ts`). `useComplaint(id)`, `useCreateComplaint()`
+  (POST, opens at OPEN/ASSIGNED) and `useUpdateComplaintStatus()`, each structurally
+  validated and invalidating the list and the record.
+- **Mocks/stub.** `quality-handlers.ts` and `e2e/stub-api.mjs` gain
+  `GET /complaints/{id}`, `POST /complaints` and `PATCH /complaints/{id}`; the stub
+  keeps a mutable clone of the complaint fixtures and mirrors the transition table,
+  the assign-only-while-ASSIGNED/INVESTIGATING rule, the closure rule and the
+  `ensureUserInOrg` 404. The quality fixtures' user ids were re-pointed at the admin
+  registry's (`usr_example_0001`/`0002`) so the assignee resolves to a real example
+  user.
+- **i18n.** The `quality.complaints.raise`, `.linkLabel`, `.create.*` and
+  `.workspace.*` blocks in `en.json` and `sw.json`, key parity checked.
+- **Tests.** `quality.test.ts` +4 (`readComplaintRecord` unwrap and fail-closed, the
+  `COMPLAINT_NEXT` and `COMPLAINT_ASSIGNABLE` tables); the a11y sweep gained the
+  detail route and a complaints-workspace describe (one test walking a complaint from
+  assignment to closure, one test raising a complaint from the worklist).
+
+Gate: lint clean, `tsc --noEmit` 0, unit **623** (+4: `quality.test.ts`),
+`build:prod` OK (route `/quality/complaints/[id]`), e2e/a11y **283** (was 277:
++4 route variants in four themes, +2 workspace tests).
