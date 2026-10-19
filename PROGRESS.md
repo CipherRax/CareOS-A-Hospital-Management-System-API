@@ -25,6 +25,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F10 Analytics & reports        | complete — reports desk; analytics metrics; journey bottlenecks + capacity; forecast explorer, patient experience and staff analytics (`/analytics`) | audit-log viewing is not buildable (no API list endpoint) |
 | F11 Portal & queue display     | **complete** — display board; patient portal gate + profile `/portal`, then appointments, lab results and feedback (`/portal/*`)                   | patient booking has no portal endpoint (booking is staff-only) |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
+| Quality desk (feedback, complaints, incidents) | **in progress** — three filtered read worklists at `/quality/feedback`, `/quality/complaints`, `/quality/incidents`; the detail workspaces and the status writes remain | assignee names need a staff-directory read            |
 | F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine     |
 
 **Signature components (brief §2.4): 20 of 20.**
@@ -1792,3 +1793,61 @@ Gate: lint clean, `tsc --noEmit` 0, unit 604 (+7: `purchase-orders.test.ts`),
 `build:prod` OK (route `/pharmacy/purchase-orders/[id]`), e2e/a11y **257** (was
 251: +4 `/pharmacy/purchase-orders/po_example_3001` route variants in four themes,
 +2 write tests).
+
+
+## Quality desk, slice 1: feedback, complaints and incidents worklists
+
+**Status:** the API's quality module (`GET /feedback`, `GET /complaints`,
+`GET /incidents`, plus single reads and status writes) had no screen in the web
+app. This slice builds the three **read** worklists at `/quality/feedback`,
+`/quality/complaints` and `/quality/incidents`, reached from a new `Quality`
+section in the rail. It is the read half; the detail workspaces and the status
+transitions (feedback respond, complaint assign/investigate/resolve/close,
+incident investigate/action-plan/resolve/close) come in the next slice.
+
+- **Screens** (`src/components/staff/quality-worklists.tsx`). Three desks sharing
+  one header, one labelled filter-select and the standard `DataTable`. Feedback
+  filters by status and category (buttons on the rating and the exact text are set
+  through `StatusPill` and a truncated comment); complaints filter by status and
+  show assignment as a **state** ("Assigned"/"Unassigned"), never a name;
+  incidents filter by status, severity and category and carry a severity pill.
+  Each table opts into the focusable scroll region (`scrollable`) because the rows
+  have no detail route to land on yet; the captions ("Feedback", "Complaints",
+  "Incidents") differ from the page headings only where the heading differs, and
+  the region names stay distinct (landmark-unique).
+- **No assignee names on the list.** A complaint carries `assignedToId`; naming it
+  would need a staff-directory read keyed by id, and a name resolved from a
+  different page of a different module is exactly the kind of half-truth that
+  misleads a reviewer. The worklist says assigned/unassigned; the detail view will
+  name the person.
+- **Data layer** (`src/lib/data/quality.ts`). Every list is the GAP-020 mis-typing
+  again: `GET /feedback` is declared as the item `FeedbackResponseDto`, and the
+  complaints/incidents lists as their *request* DTOs, while the service answers
+  `pageOf(rows.map(serialize), …)` for all three. Each read rides the raw-fetch
+  path and validates every row structurally — a known category/status/severity
+  enum, a required id, and the nullable display fields — so a drifted body fails
+  loudly rather than rendering as an empty worklist, which a quality officer would
+  read as "nothing reported".
+- **Hooks** (`src/lib/data/queries.ts`). `useFeedbackList`, `useComplaintsList` and
+  `useIncidentsList`, each keyed on its filter set and on the raw-fetch path with
+  `toQueryError`; `QualityCallError` joins the `toQueryError` union.
+- **Mocks/stub.** `src/mocks/fixtures/quality-registry.ts` holds five EXAMPLE
+  records per resource spanning each lifecycle state end to end (feedback NEW →
+  ACKNOWLEDGED → RESOLVED → CLOSED; complaints OPEN → ASSIGNED → INVESTIGATING →
+  RESOLVED → CLOSED; incidents OPEN → INVESTIGATING → ACTION_PLAN → RESOLVED →
+  CLOSED) with varied categories and severities so every filter has something to
+  select; the same records are duplicated in `e2e/stub-api.mjs`, filterable and
+  paged like the other lists.
+- **i18n.** A new `quality` namespace (`feedback.*`, `complaints.*`,
+  `incidents.*`: headings, filters, columns, empty/unavailable copy, and the
+  status/severity/category/origin labels) in `en.json` and `sw.json`, key parity
+  checked.
+- **Tests.** `quality.test.ts` +12 (one reader per resource incl. fail-closed on
+  an unknown enum, the three page extractors, and the enum vocabularies); the a11y
+  sweep gained the three routes and three filter tests (feedback by status then
+  category, complaints by status, incidents by severity).
+
+Gate: lint clean, `tsc --noEmit` 0, unit 616 (+12: `quality.test.ts`),
+`build:prod` OK (routes `/quality/feedback`, `/quality/complaints`,
+`/quality/incidents`), e2e/a11y **272** (was 257: +12 route variants in four
+themes, +3 filter tests).

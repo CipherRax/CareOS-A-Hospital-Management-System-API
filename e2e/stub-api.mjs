@@ -777,6 +777,35 @@ function insuranceFindClaim(id) {
   return LIVE_CLAIMS.find((claim) => claim.id === id);
 }
 
+// --- quality (feedback, complaints, incidents — brief Phase 10) ----------
+// Read-only for now: the three filtered list reads. Mirrors
+// src/mocks/fixtures/quality-registry.ts record for record.
+const QUALITY_ORG = 'org_example_1';
+const QUALITY_BRANCH_ID = 'br_example_0001';
+const QUALITY_REPORTER = 'usr-example-1';
+const QUALITY_HANDLER = 'usr-example-2';
+const LIVE_FEEDBACK = [
+  { id: 'fb_example_6101', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, patientId: 'pat_example_1001', submittedById: null, category: 'WAITING_TIME', rating: 2, comment: 'EXAMPLE waited over an hour to be triaged during the morning rush.', status: 'NEW', response: null, handledById: null, handledAt: null, createdAt: '2026-10-02T09:15:00.000Z', updatedAt: '2026-10-02T09:15:00.000Z' },
+  { id: 'fb_example_6102', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, patientId: 'pat_example_1002', submittedById: null, category: 'PHARMACY', rating: 3, comment: 'EXAMPLE had to come back twice for a prescription that was out of stock.', status: 'ACKNOWLEDGED', response: null, handledById: QUALITY_HANDLER, handledAt: '2026-10-03T08:00:00.000Z', createdAt: '2026-10-01T14:40:00.000Z', updatedAt: '2026-10-03T08:00:00.000Z' },
+  { id: 'fb_example_6103', organizationId: QUALITY_ORG, branchId: null, patientId: 'pat_example_1003', submittedById: null, category: 'STAFF', rating: 5, comment: 'EXAMPLE praised the night-shift nurse who stayed past handover.', status: 'RESOLVED', response: 'EXAMPLE shared with the ward team and recorded in the staff file.', handledById: QUALITY_HANDLER, handledAt: '2026-10-02T07:30:00.000Z', createdAt: '2026-09-29T21:05:00.000Z', updatedAt: '2026-10-02T07:30:00.000Z' },
+  { id: 'fb_example_6104', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, patientId: null, submittedById: QUALITY_REPORTER, category: 'FACILITY', rating: 2, comment: 'EXAMPLE reported that the outpatient waiting bay has no working fan.', status: 'CLOSED', response: 'EXAMPLE maintenance replaced the fan on 2026-09-28.', handledById: QUALITY_HANDLER, handledAt: '2026-09-27T10:00:00.000Z', createdAt: '2026-09-26T11:20:00.000Z', updatedAt: '2026-09-28T09:00:00.000Z' },
+  { id: 'fb_example_6105', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, patientId: 'pat_example_1001', submittedById: null, category: 'BILLING', rating: 1, comment: 'EXAMPLE was charged twice for the same laboratory test.', status: 'NEW', response: null, handledById: null, handledAt: null, createdAt: '2026-10-04T16:10:00.000Z', updatedAt: '2026-10-04T16:10:00.000Z' },
+];
+const LIVE_COMPLAINTS = [
+  { id: 'cmp_example_6201', organizationId: QUALITY_ORG, branchId: null, origin: 'PATIENT', patientId: 'pat_example_1001', submittedById: null, category: 'Billing dispute', description: 'EXAMPLE claims a duplicate charge on invoice INV-2026-000004.', status: 'OPEN', assignedToId: null, dueAt: '2026-10-09T00:00:00.000Z', resolution: null, closedById: null, closedAt: null, createdAt: '2026-10-02T10:00:00.000Z', updatedAt: '2026-10-02T10:00:00.000Z' },
+  { id: 'cmp_example_6202', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, origin: 'STAFF', patientId: null, submittedById: QUALITY_REPORTER, category: 'Handover delay', description: 'EXAMPLE reports handover regularly starting more than 30 minutes late.', status: 'ASSIGNED', assignedToId: QUALITY_HANDLER, dueAt: '2026-10-10T00:00:00.000Z', resolution: null, closedById: null, closedAt: null, createdAt: '2026-10-01T19:45:00.000Z', updatedAt: '2026-10-02T09:05:00.000Z' },
+  { id: 'cmp_example_6203', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, origin: 'PATIENT', patientId: 'pat_example_1002', submittedById: null, category: 'Long wait for results', description: 'EXAMPLE waited five days for a radiology report that was marked urgent.', status: 'INVESTIGATING', assignedToId: QUALITY_HANDLER, dueAt: '2026-10-07T00:00:00.000Z', resolution: null, closedById: null, closedAt: null, createdAt: '2026-09-30T08:30:00.000Z', updatedAt: '2026-10-03T11:00:00.000Z' },
+  { id: 'cmp_example_6204', organizationId: QUALITY_ORG, branchId: null, origin: 'OTHER', patientId: null, submittedById: QUALITY_REPORTER, category: 'Noise at night', description: 'EXAMPLE raised construction noise outside the maternity wing after hours.', status: 'RESOLVED', assignedToId: QUALITY_HANDLER, dueAt: null, resolution: 'EXAMPLE contractor moved noisy work to daytime hours.', closedById: null, closedAt: null, createdAt: '2026-09-25T22:15:00.000Z', updatedAt: '2026-10-01T12:00:00.000Z' },
+  { id: 'cmp_example_6205', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, origin: 'PATIENT', patientId: 'pat_example_1003', submittedById: null, category: 'Lost records', description: 'EXAMPLE reported that a paper referral file could not be found.', status: 'CLOSED', assignedToId: QUALITY_HANDLER, dueAt: null, resolution: 'EXAMPLE file located and scanned into the encounter record.', closedById: QUALITY_HANDLER, closedAt: '2026-09-24T15:00:00.000Z', createdAt: '2026-09-20T09:00:00.000Z', updatedAt: '2026-09-24T15:00:00.000Z' },
+];
+const LIVE_INCIDENTS = [
+  { id: 'inc_example_6301', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, category: 'STOCK_DISCREPANCY', severity: 'HIGH', description: 'EXAMPLE count found 12 fewer amoxicillin units than the ledger records.', reportedById: QUALITY_REPORTER, status: 'OPEN', actionsTaken: null, resolution: null, resolvedById: null, resolvedAt: null, closedById: null, closedAt: null, createdAt: '2026-10-02T11:30:00.000Z', updatedAt: '2026-10-02T11:30:00.000Z' },
+  { id: 'inc_example_6302', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, category: 'OUTAGE', severity: 'CRITICAL', description: 'EXAMPLE laboratory analyser lost network connectivity for three hours.', reportedById: QUALITY_REPORTER, status: 'INVESTIGATING', actionsTaken: null, resolution: null, resolvedById: null, resolvedAt: null, closedById: null, closedAt: null, createdAt: '2026-10-01T06:00:00.000Z', updatedAt: '2026-10-02T06:30:00.000Z' },
+  { id: 'inc_example_6303', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, category: 'EQUIPMENT', severity: 'MEDIUM', description: 'EXAMPLE theatre diathermy machine failed its safety check sticker date.', reportedById: QUALITY_HANDLER, status: 'ACTION_PLAN', actionsTaken: 'EXAMPLE unit quarantined and a service call booked for 2026-10-06.', resolution: null, resolvedById: null, resolvedAt: null, closedById: null, closedAt: null, createdAt: '2026-09-28T13:10:00.000Z', updatedAt: '2026-10-01T09:00:00.000Z' },
+  { id: 'inc_example_6304', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, category: 'PATIENT_SAFETY', severity: 'HIGH', description: 'EXAMPLE wristband printed with the wrong admission number was caught before use.', reportedById: QUALITY_REPORTER, status: 'RESOLVED', actionsTaken: 'EXAMPLE label printer firmware updated and a double-check step added.', resolution: 'EXAMPLE no patient was affected; process change verified over one week.', resolvedById: QUALITY_HANDLER, resolvedAt: '2026-09-27T16:00:00.000Z', closedById: null, closedAt: null, createdAt: '2026-09-22T10:45:00.000Z', updatedAt: '2026-09-27T16:00:00.000Z' },
+  { id: 'inc_example_6305', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, category: 'DATA_ACCESS', severity: 'LOW', description: 'EXAMPLE shared account was used to view a record outside the requester’s unit.', reportedById: QUALITY_HANDLER, status: 'CLOSED', actionsTaken: 'EXAMPLE shared login retired and individual accounts issued.', resolution: 'EXAMPLE access review completed with no further out-of-scope views found.', resolvedById: QUALITY_HANDLER, resolvedAt: '2026-09-18T12:00:00.000Z', closedById: QUALITY_HANDLER, closedAt: '2026-09-19T09:00:00.000Z', createdAt: '2026-09-15T08:00:00.000Z', updatedAt: '2026-09-19T09:00:00.000Z' },
+];
+
 // --- inpatient (F8 ward board) ------------------------------------------
 // Wards carry their rooms and beds nested; beds are mutable so a status change
 // lands on the next board read.
@@ -3132,6 +3161,37 @@ const server = createServer(async (request, response) => {
     const claim = insuranceFindClaim(claimOne[1]);
     if (!claim) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
     send(response, 200, { success: true, data: { claim } });
+    return;
+  }
+
+  // --- quality (feedback, complaints, incidents — brief Phase 10) ---------
+  if (url.pathname === '/feedback' && request.method === 'GET') {
+    const status = url.searchParams.get('status');
+    const category = url.searchParams.get('category');
+    const items = LIVE_FEEDBACK.filter((row) =>
+      (!status || row.status === status) && (!category || row.category === category));
+    send(response, 200, listEnvelope(items.map((row) => ({ ...row }))));
+    return;
+  }
+
+  if (url.pathname === '/complaints' && request.method === 'GET') {
+    const status = url.searchParams.get('status');
+    const assignedToId = url.searchParams.get('assignedToId');
+    const items = LIVE_COMPLAINTS.filter((row) =>
+      (!status || row.status === status) && (!assignedToId || row.assignedToId === assignedToId));
+    send(response, 200, listEnvelope(items.map((row) => ({ ...row }))));
+    return;
+  }
+
+  if (url.pathname === '/incidents' && request.method === 'GET') {
+    const status = url.searchParams.get('status');
+    const severity = url.searchParams.get('severity');
+    const category = url.searchParams.get('category');
+    const items = LIVE_INCIDENTS.filter((row) =>
+      (!status || row.status === status) &&
+      (!severity || row.severity === severity) &&
+      (!category || row.category === category));
+    send(response, 200, listEnvelope(items.map((row) => ({ ...row }))));
     return;
   }
 

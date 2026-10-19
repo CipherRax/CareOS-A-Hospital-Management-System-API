@@ -205,6 +205,30 @@ how many of the total are shown — there are no next/previous controls. The sup
 column resolves names from `GET /suppliers`, which the contract mis-types the same
 way (the query DTO on the 200), so it is validated structurally too.
 
+### The quality desk lists one page, and names nobody
+
+Three worklists read the API's quality module — feedback (`/quality/feedback`),
+complaints (`/quality/complaints`) and incidents (`/quality/incidents`) — each
+filtered by the axis its desk triages on. Two constraints are the API's and one is
+this slice's scope:
+
+- **Only the first page.** All three list endpoints default to a page size of 20
+  and the UI requests page 1 with no next/previous controls, so a busy quality
+  queue shows the newest 20 and nothing older. The same constraint as every other
+  worklist here.
+- **No names.** A complaint carries `assignedToId`, and feedback and incidents
+  carry `patientId`/`submittedById`/`reportedById`, but the lists show the
+  assignment *state* and the complaint's origin rather than resolving an id to a
+  person. Naming them needs a staff-directory or patient read keyed by id, and a
+  name pulled from a different page of a different module is worse than no name.
+  The detail workspaces will resolve them on demand.
+- **Read-only so far.** The lists open no detail screen yet, and none of the status
+  transitions the API exposes is wired — feedback respond, complaint
+  assign/investigate/resolve/close, incident investigate/action-plan/resolve/close.
+  Because the rows carry no link, each table opts into the focusable scroll region
+  instead; the detail slice will replace that with row links. Nothing on these
+  screens writes.
+
 ### The intake tracking page is built on a contract whose success body is untyped
 
 `/request` is built against the live `POST /public/emergency-requests` contract

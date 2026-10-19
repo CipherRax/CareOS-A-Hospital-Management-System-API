@@ -2583,6 +2583,118 @@
       "revenue": "Mapato"
     }
   },
+  "quality": {
+    "feedback": {
+      "pageTitle": "Maoni",
+      "pageIntro": "Maoni ya wagonjwa na watumishi kwenye kituo, mapya kwanza.",
+      "filterStatus": "Hali",
+      "allStatuses": "Hali zote",
+      "filterCategory": "Kategoria",
+      "allCategories": "Kategoria zote",
+      "tableCaption": "Maoni",
+      "columnCategory": "Kategoria",
+      "columnRating": "Kiwango",
+      "columnComment": "Maelezo",
+      "columnStatus": "Hali",
+      "columnSubmitted": "Iliyowasilishwa",
+      "ratingValue": "{rating} / 5",
+      "noComment": "Hakuna maelezo",
+      "unknownDate": "Haijulikani",
+      "empty": "Hakuna maoni yanayolingana na kichujio hiki.",
+      "unavailableTitle": "Maoni hayapatikani",
+      "unavailableBody": "Orodha ya maoni haikuweza kupakiwa. Jaribu tena baada ya muda mfupi.",
+      "status": {
+        "NEW": "Mpya",
+        "ACKNOWLEDGED": "Imetambuliwa",
+        "RESOLVED": "Imetatuliwa",
+        "CLOSED": "Imefungwa"
+      },
+      "category": {
+        "SERVICE": "Huduma",
+        "WAITING_TIME": "Muda wa kusubiri",
+        "STAFF": "Watumishi",
+        "BILLING": "Malipo",
+        "FACILITY": "Kituo",
+        "PHARMACY": "Duka la dawa",
+        "LABORATORY": "Maabara",
+        "OTHER": "Nyingine"
+      }
+    },
+    "complaints": {
+      "pageTitle": "Malalamiko",
+      "pageIntro": "Malalamiko yaliyowasilishwa kwenye kituo, mapya kwanza.",
+      "filterStatus": "Hali",
+      "allStatuses": "Hali zote",
+      "tableCaption": "Malalamiko",
+      "columnCategory": "Kategoria",
+      "columnOrigin": "Iliyowasilishwa na",
+      "columnAssigned": "Ugawaji",
+      "columnDue": "Tarehe ya mwisho",
+      "columnStatus": "Hali",
+      "columnSubmitted": "Iliyowasilishwa",
+      "assigned": "Imepewa",
+      "unassigned": "Haijapewa",
+      "noDue": "Hakuna tarehe ya mwisho",
+      "unknownDate": "Haijulikani",
+      "empty": "Hakuna malalamiko yanayolingana na kichujio hiki.",
+      "unavailableTitle": "Malalamiko hayapatikani",
+      "unavailableBody": "Orodha ya malalamiko haikuweza kupakiwa. Jaribu tena baada ya muda mfupi.",
+      "status": {
+        "OPEN": "Wazi",
+        "ASSIGNED": "Imepewa",
+        "INVESTIGATING": "Inachunguzwa",
+        "RESOLVED": "Imetatuliwa",
+        "CLOSED": "Imefungwa"
+      },
+      "origin": {
+        "PATIENT": "Mgonjwa",
+        "STAFF": "Mtumishi",
+        "OTHER": "Nyingine"
+      }
+    },
+    "incidents": {
+      "pageTitle": "Matukio",
+      "pageIntro": "Matukio ya uendeshaji na usalama yaliyoripotiwa kwenye kituo, mapya kwanza.",
+      "filterStatus": "Hali",
+      "allStatuses": "Hali zote",
+      "filterSeverity": "Ukali",
+      "allSeverities": "Viwango vyote vya ukali",
+      "filterCategory": "Kategoria",
+      "allCategories": "Kategoria zote",
+      "tableCaption": "Matukio",
+      "columnCategory": "Kategoria",
+      "columnSeverity": "Ukali",
+      "columnDescription": "Maelezo",
+      "columnStatus": "Hali",
+      "columnReported": "Iliyoripotiwa",
+      "unknownDate": "Haijulikani",
+      "empty": "Hakuna matukio yanayolingana na kichujio hiki.",
+      "unavailableTitle": "Matukio hayapatikani",
+      "unavailableBody": "Orodha ya matukio haikuweza kupakiwa. Jaribu tena baada ya muda mfupi.",
+      "status": {
+        "OPEN": "Wazi",
+        "INVESTIGATING": "Inachunguzwa",
+        "ACTION_PLAN": "Mpango wa hatua",
+        "RESOLVED": "Imetatuliwa",
+        "CLOSED": "Imefungwa"
+      },
+      "severity": {
+        "LOW": "Chini",
+        "MEDIUM": "Kati",
+        "HIGH": "Juu",
+        "CRITICAL": "Hatari"
+      },
+      "category": {
+        "OUTAGE": "Hitilafu ya huduma",
+        "EQUIPMENT": "Vifaa",
+        "STOCK_DISCREPANCY": "Tofauti ya hisa",
+        "DATA_ACCESS": "Ufikiaji wa data",
+        "FACILITY": "Kituo",
+        "PATIENT_SAFETY": "Usalama wa mgonjwa",
+        "OTHER": "Nyingine"
+      }
+    }
+  },
   "portal": {
     "title": "Lango la mgonjwa",
     "navLabel": "Lango la mgonjwa",

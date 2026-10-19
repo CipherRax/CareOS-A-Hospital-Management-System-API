@@ -789,6 +789,28 @@ and `src/modules/roles`:
   `branchId` is left unset because the portal has no branch picker (GAP-018).
   `/auth/me` gained `roles` and `patientLink`, which is how the client tells a
   patient principal (role **and** link) from staff.
+- **Quality desk (feedback, complaints, incidents).** Same GAP-020 family under
+  `src/modules/quality`, on all three list reads:
+  * `GET /feedback` is declared as the singular `FeedbackResponseDto` while
+    `FeedbackService.list` returns `pageOf(rows.map(serialize), …)`.
+  * `GET /complaints` is declared as the request DTO `ListComplaintsQueryDto`
+    while the service returns `pageOf(...)`.
+  * `GET /incidents` is declared as the request DTO `ListIncidentsQueryDto` while
+    the service returns `pageOf(...)`.
+
+  So each read rides the raw fetch + structural validation path
+  (`src/lib/data/quality.ts`, `readFeedback`/`readComplaint`/`readIncident` and
+  the three page extractors) and fails closed on drift — a bare `id` or an unknown
+  enum is a rejected row, not an empty worklist. The single reads
+  (`GET /feedback/{id}` and the two peers) and the status writes (the two creates
+  plus `PATCH /feedback/{id}`, `PATCH /complaints/{id}`, `PATCH /incidents/{id}`)
+  are not yet consumed by a screen; when they are, the same family applies — each
+  single read is typed as the bare entity but answers `{ feedback }` /
+  `{ complaint }` / `{ incident }`. The lifecycle guards live in
+  `src/modules/quality/domain/quality-flow.ts`: feedback may not leave `NEW`
+  without a recorded response, a complaint cannot be closed without a resolution
+  and may only be assigned while `ASSIGNED`/`INVESTIGATING`, and a same-status
+  patch is a no-op.
 - **Not built:** the audit-log viewing screen is **not buildable**: there is no
   audit-list endpoint (writes happen inside the API via
   `src/database/audit.service.ts`).

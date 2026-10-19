@@ -60,6 +60,15 @@ const SECTIONS: readonly NavSection[] = [
     ],
   },
   {
+    id: 'quality',
+    label: 'Quality',
+    items: [
+      { href: '/quality/feedback', label: 'Feedback' },
+      { href: '/quality/complaints', label: 'Complaints' },
+      { href: '/quality/incidents', label: 'Incidents' },
+    ],
+  },
+  {
     id: 'admin',
     label: 'Administration',
     items: [

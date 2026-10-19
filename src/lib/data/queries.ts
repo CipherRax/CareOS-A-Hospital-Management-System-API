@@ -326,6 +326,18 @@ import {
   type PortalPatient,
   type SubmitPortalFeedbackInput,
 } from '@/lib/data/portal';
+import {
+  fetchComplaints,
+  fetchFeedback,
+  fetchIncidents,
+  type ComplaintPage,
+  type ComplaintQuery,
+  type FeedbackPage,
+  type FeedbackQuery,
+  type IncidentPage,
+  type IncidentQuery,
+  type QualityCallError,
+} from '@/lib/data/quality';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
  * Typed queries.
@@ -524,7 +536,8 @@ function toQueryError(
     | StaffCallError
     | ReportsCallError
     | AnalyticsCallError
-    | PortalCallError,
+    | PortalCallError
+    | QualityCallError,
 ): QueryError {
   const code = typeof call?.code === 'string' ? call.code : 'INTERNAL_ERROR';
   const status = typeof call?.status === 'number' ? call.status : 0;
@@ -5023,5 +5036,82 @@ export function useSubmitPortalFeedback(): UseMutationResult<
       }
       return { data: feedback, response: fetched.response } satisfies Fetched<PortalFeedback>;
     },
+  });
+}
+
+// --- quality (feedback, complaints, incidents) ------------------------------
+
+/**
+ * Feedback worklist `GET /feedback?{filters}`. The export types the 200 as the
+ * item response DTO while the service answers a `PageResult` (GAP-020 family), so
+ * it rides the raw-fetch path.
+ */
+export function useFeedbackList(
+  query: FeedbackQuery = {},
+): UseQueryResult<Fetched<FeedbackPage>, QueryError> {
+  return useQuery<Fetched<FeedbackPage>, QueryError>({
+    queryKey: ['quality', 'feedback', query.category ?? null, query.status ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchFeedback(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<FeedbackPage>;
+      } catch (call) {
+        throw toQueryError(call as QualityCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Complaints worklist `GET /complaints?{filters}`. The export types the 200 as
+ * the request DTO while the service answers a `PageResult` (GAP-020 family), so
+ * it rides the raw-fetch path.
+ */
+export function useComplaintsList(
+  query: ComplaintQuery = {},
+): UseQueryResult<Fetched<ComplaintPage>, QueryError> {
+  return useQuery<Fetched<ComplaintPage>, QueryError>({
+    queryKey: ['quality', 'complaints', query.status ?? null, query.assignedToId ?? null],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchComplaints(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<ComplaintPage>;
+      } catch (call) {
+        throw toQueryError(call as QualityCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Incidents worklist `GET /incidents?{filters}`. The export types the 200 as the
+ * request DTO while the service answers a `PageResult` (GAP-020 family), so it
+ * rides the raw-fetch path.
+ */
+export function useIncidentsList(
+  query: IncidentQuery = {},
+): UseQueryResult<Fetched<IncidentPage>, QueryError> {
+  return useQuery<Fetched<IncidentPage>, QueryError>({
+    queryKey: [
+      'quality',
+      'incidents',
+      query.status ?? null,
+      query.severity ?? null,
+      query.category ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      try {
+        const page = await fetchIncidents(query, signal);
+        return { data: page, response: new Response(null, { status: 200 }) } satisfies Fetched<IncidentPage>;
+      } catch (call) {
+        throw toQueryError(call as QualityCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
   });
 }

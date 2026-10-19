@@ -2568,6 +2568,118 @@
       "revenue": "Revenue"
     }
   },
+  "quality": {
+    "feedback": {
+      "pageTitle": "Feedback",
+      "pageIntro": "Patient and staff feedback across the facility, newest first.",
+      "filterStatus": "Status",
+      "allStatuses": "All statuses",
+      "filterCategory": "Category",
+      "allCategories": "All categories",
+      "tableCaption": "Feedback",
+      "columnCategory": "Category",
+      "columnRating": "Rating",
+      "columnComment": "Comment",
+      "columnStatus": "Status",
+      "columnSubmitted": "Submitted",
+      "ratingValue": "{rating} / 5",
+      "noComment": "No comment",
+      "unknownDate": "Unknown",
+      "empty": "No feedback matches this filter.",
+      "unavailableTitle": "Feedback unavailable",
+      "unavailableBody": "The feedback list could not be loaded. Try again shortly.",
+      "status": {
+        "NEW": "New",
+        "ACKNOWLEDGED": "Acknowledged",
+        "RESOLVED": "Resolved",
+        "CLOSED": "Closed"
+      },
+      "category": {
+        "SERVICE": "Service",
+        "WAITING_TIME": "Waiting time",
+        "STAFF": "Staff",
+        "BILLING": "Billing",
+        "FACILITY": "Facility",
+        "PHARMACY": "Pharmacy",
+        "LABORATORY": "Laboratory",
+        "OTHER": "Other"
+      }
+    },
+    "complaints": {
+      "pageTitle": "Complaints",
+      "pageIntro": "Complaints raised across the facility, newest first.",
+      "filterStatus": "Status",
+      "allStatuses": "All statuses",
+      "tableCaption": "Complaints",
+      "columnCategory": "Category",
+      "columnOrigin": "Raised by",
+      "columnAssigned": "Assignment",
+      "columnDue": "Due",
+      "columnStatus": "Status",
+      "columnSubmitted": "Raised",
+      "assigned": "Assigned",
+      "unassigned": "Unassigned",
+      "noDue": "No due date",
+      "unknownDate": "Unknown",
+      "empty": "No complaints match this filter.",
+      "unavailableTitle": "Complaints unavailable",
+      "unavailableBody": "The complaint list could not be loaded. Try again shortly.",
+      "status": {
+        "OPEN": "Open",
+        "ASSIGNED": "Assigned",
+        "INVESTIGATING": "Investigating",
+        "RESOLVED": "Resolved",
+        "CLOSED": "Closed"
+      },
+      "origin": {
+        "PATIENT": "Patient",
+        "STAFF": "Staff",
+        "OTHER": "Other"
+      }
+    },
+    "incidents": {
+      "pageTitle": "Incidents",
+      "pageIntro": "Operational and safety incidents reported across the facility, newest first.",
+      "filterStatus": "Status",
+      "allStatuses": "All statuses",
+      "filterSeverity": "Severity",
+      "allSeverities": "All severities",
+      "filterCategory": "Category",
+      "allCategories": "All categories",
+      "tableCaption": "Incidents",
+      "columnCategory": "Category",
+      "columnSeverity": "Severity",
+      "columnDescription": "Description",
+      "columnStatus": "Status",
+      "columnReported": "Reported",
+      "unknownDate": "Unknown",
+      "empty": "No incidents match this filter.",
+      "unavailableTitle": "Incidents unavailable",
+      "unavailableBody": "The incident list could not be loaded. Try again shortly.",
+      "status": {
+        "OPEN": "Open",
+        "INVESTIGATING": "Investigating",
+        "ACTION_PLAN": "Action plan",
+        "RESOLVED": "Resolved",
+        "CLOSED": "Closed"
+      },
+      "severity": {
+        "LOW": "Low",
+        "MEDIUM": "Medium",
+        "HIGH": "High",
+        "CRITICAL": "Critical"
+      },
+      "category": {
+        "OUTAGE": "Outage",
+        "EQUIPMENT": "Equipment",
+        "STOCK_DISCREPANCY": "Stock discrepancy",
+        "DATA_ACCESS": "Data access",
+        "FACILITY": "Facility",
+        "PATIENT_SAFETY": "Patient safety",
+        "OTHER": "Other"
+      }
+    }
+  },
   "portal": {
     "title": "Patient portal",
     "navLabel": "Patient portal",

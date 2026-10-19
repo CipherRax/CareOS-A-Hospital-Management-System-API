@@ -17,6 +17,7 @@ import { billingHandlers } from './billing-handlers';
 import { emergencyHandlers } from './emergency-handlers';
 import { adminHandlers } from './admin-handlers';
 import { analyticsHandlers } from './analytics-handlers';
+import { qualityHandlers } from './quality-handlers';
 import { reportHandlers } from './report-handlers';
 import { staffHandlers } from './staff-handlers';
 import { portalHandlers } from './portal-handlers';
@@ -222,6 +223,9 @@ export const handlers = [
   // F10 analytics (operational metrics): the large metrics payload, windowed. See
   // ./analytics-handlers.ts.
   ...analyticsHandlers(),
+  // Phase 10 quality (feedback, complaints, incidents), read side: the three
+  // filtered list reads. See ./quality-handlers.ts.
+  ...qualityHandlers(),
   // The live contract: GET /public/facilities/search returns a flat array (the
   // partial document's `{ items, total }` envelope and `/public/facilities` path
   // do not exist upstream).

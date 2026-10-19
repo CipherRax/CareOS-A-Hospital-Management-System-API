@@ -52,6 +52,9 @@ const ROUTES = [
   { path: '/insurance', name: 'Insurance' },
   { path: '/insurance/payers', name: 'Insurance payers' },
   { path: '/insurance/claim_example_5001', name: 'CLM-2026-000001' },
+  { path: '/quality/feedback', name: 'Feedback' },
+  { path: '/quality/complaints', name: 'Complaints' },
+  { path: '/quality/incidents', name: 'Incidents' },
   { path: '/wards', name: 'Ward board' },
   { path: '/wards/ward_example_3001', name: 'EXAMPLE Medical Ward' },
   { path: '/admissions', name: 'Admissions' },
@@ -636,6 +639,74 @@ test.describe('pharmacy purchase orders', () => {
     // The action answers the moved order, so the bar swaps to the next move only.
     await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Submit for approval' })).toHaveCount(0);
+  });
+});
+
+test.describe('quality worklists', () => {
+  test('filters feedback by status and category', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/quality/feedback');
+
+    await expect(page.getByRole('heading', { name: 'Feedback', exact: true })).toBeVisible();
+    const table = page.getByRole('table');
+    await expect(
+      table.getByText('EXAMPLE waited over an hour to be triaged during the morning rush.'),
+    ).toBeVisible();
+    await expect(
+      table.getByText('EXAMPLE had to come back twice for a prescription that was out of stock.'),
+    ).toBeVisible();
+
+    const results = await analyse(page);
+    expect(results.violations, describe(results.violations)).toEqual([]);
+
+    await page.locator('#feedback-status-filter').selectOption('ACKNOWLEDGED');
+    await expect(
+      table.getByText('EXAMPLE had to come back twice for a prescription that was out of stock.'),
+    ).toBeVisible();
+    await expect(
+      table.getByText('EXAMPLE waited over an hour to be triaged during the morning rush.'),
+    ).toBeHidden();
+
+    await page.locator('#feedback-status-filter').selectOption('');
+    await page.locator('#feedback-category-filter').selectOption('PHARMACY');
+    await expect(
+      table.getByText('EXAMPLE had to come back twice for a prescription that was out of stock.'),
+    ).toBeVisible();
+    await expect(
+      table.getByText('EXAMPLE waited over an hour to be triaged during the morning rush.'),
+    ).toBeHidden();
+  });
+
+  test('filters complaints by status', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/quality/complaints');
+
+    await expect(page.getByRole('heading', { name: 'Complaints', exact: true })).toBeVisible();
+    const table = page.getByRole('table');
+    await expect(table.getByText('Billing dispute')).toBeVisible();
+
+    await page.locator('#complaints-status-filter').selectOption('CLOSED');
+    await expect(table.getByText('Lost records')).toBeVisible();
+    await expect(table.getByText('Billing dispute')).toBeHidden();
+  });
+
+  test('filters incidents by severity', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/quality/incidents');
+
+    await expect(page.getByRole('heading', { name: 'Incidents', exact: true })).toBeVisible();
+    const table = page.getByRole('table');
+    await expect(
+      table.getByText('EXAMPLE count found 12 fewer amoxicillin units than the ledger records.'),
+    ).toBeVisible();
+
+    await page.locator('#incidents-severity-filter').selectOption('CRITICAL');
+    await expect(
+      table.getByText('EXAMPLE laboratory analyser lost network connectivity for three hours.'),
+    ).toBeVisible();
+    await expect(
+      table.getByText('EXAMPLE count found 12 fewer amoxicillin units than the ledger records.'),
+    ).toBeHidden();
   });
 });
 
