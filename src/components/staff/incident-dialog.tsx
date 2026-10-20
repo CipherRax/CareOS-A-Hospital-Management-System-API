@@ -12,11 +12,10 @@ import {
   DialogHeader,
 } from '@/components/ui/dialog';
 import { Field, Select, Textarea } from '@/components/ui/field';
-import { useCreateIncident } from '@/lib/data/queries';
+import { useBranchOptions, useCreateIncident } from '@/lib/data/queries';
 import {
   INCIDENT_CATEGORIES,
   INCIDENT_SEVERITIES,
-  QUALITY_BRANCH_ID,
   type IncidentCategory,
   type IncidentSeverity,
 } from '@/lib/data/quality';
@@ -25,10 +24,11 @@ import {
  * Report an incident (Phase 10 — `POST /incidents`).
  *
  * The incident always opens OPEN — unlike a complaint there is no assignee — and
- * the service offers no create-time status. The create DTO requires a `branchId`
- * and there is no branch picker in the app (GAP-018), so it is raised against the
- * single example branch the same way admissions and appointments are. The response
- * is `{ incident }` (GAP-020), validated in `src/lib/data/quality.ts`.
+ * the service offers no create-time status. The create DTO requires a `branchId`,
+ * so the reporter picks one from `GET /branches` (`useBranchOptions()`, GAP-018);
+ * with one example branch that is unambiguous, and the picker is the same one the
+ * invoice composer uses. The response is `{ incident }` (GAP-020), validated in
+ * `src/lib/data/quality.ts`.
  */
 
 export function ReportIncidentDialog({
@@ -40,13 +40,17 @@ export function ReportIncidentDialog({
 }) {
   const t = useTranslations('quality.incidents');
   const create = useCreateIncident();
+  const branches = useBranchOptions();
+  const activeBranches = (branches.data?.data ?? []).filter((branch) => branch.status === 'ACTIVE');
 
+  const [branchId, setBranchId] = useState('');
   const [category, setCategory] = useState<IncidentCategory>('EQUIPMENT');
   const [severity, setSeverity] = useState<IncidentSeverity>('MEDIUM');
   const [description, setDescription] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const close = () => {
+    setBranchId('');
     setCategory('EQUIPMENT');
     setSeverity('MEDIUM');
     setDescription('');
@@ -57,13 +61,17 @@ export function ReportIncidentDialog({
 
   const submit = () => {
     setError(null);
+    if (!branchId) {
+      setError(t('create.errors.branchRequired'));
+      return;
+    }
     if (description.trim() === '') {
       setError(t('create.errors.descriptionRequired'));
       return;
     }
     create.mutate(
       {
-        branchId: QUALITY_BRANCH_ID,
+        branchId,
         category,
         severity,
         description: description.trim(),
@@ -87,6 +95,26 @@ export function ReportIncidentDialog({
                 : t('create.errors.failed')}
             </p>
           ) : null}
+
+          <Field id="incident-branch" label={t('create.branchLabel')} required>
+            {({ controlId }) => (
+              <Select
+                id={controlId}
+                value={branchId}
+                onChange={(event) => {
+                  setBranchId(event.target.value);
+                  if (error) setError(null);
+                }}
+              >
+                <option value="">{t('create.chooseBranch')}</option>
+                {activeBranches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
 
           <div className="flex flex-wrap gap-4">
             <div className="w-56">

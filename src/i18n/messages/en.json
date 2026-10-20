@@ -1308,6 +1308,8 @@
       "openOrder": "Open purchase order {number}",
       "createTitle": "New purchase order",
       "createBody": "The order is saved as a draft; submit, approve and order it from its own screen.",
+      "branchLabel": "Branch",
+      "chooseBranch": "Choose a branch",
       "supplierLabel": "Supplier",
       "chooseSupplier": "Choose a supplier",
       "noSuppliers": "No suppliers are on file yet, so an order cannot be raised.",
@@ -2789,6 +2791,8 @@
       "create": {
         "title": "Report an incident",
         "body": "Record an operational or safety incident. It opens for investigation.",
+        "branchLabel": "Branch",
+        "chooseBranch": "Choose a branch",
         "categoryLabel": "Category",
         "severityLabel": "Severity",
         "descriptionLabel": "Description",
@@ -2796,6 +2800,7 @@
         "submit": "Report incident",
         "submitting": "Reporting…",
         "errors": {
+          "branchRequired": "Choose a branch.",
           "descriptionRequired": "Enter a description.",
           "invalid": "The incident was rejected. Check the fields and try again.",
           "failed": "The incident could not be reported. Try again shortly."

@@ -2,7 +2,7 @@
 
 import { Plus, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -13,7 +13,13 @@ import {
   DialogHeader,
 } from '@/components/ui/dialog';
 import { Field, Input, Select, Textarea } from '@/components/ui/field';
-import { useCreatePurchaseOrder, useMedications, useStockOnHand, useSuppliers } from '@/lib/data/queries';
+import {
+  useBranchOptions,
+  useCreatePurchaseOrder,
+  useMedications,
+  useStockOnHand,
+  useSuppliers,
+} from '@/lib/data/queries';
 
 /**
  * Raise a purchase order (F6 — procurement write, `POST /purchase-orders`).
@@ -22,16 +28,13 @@ import { useCreatePurchaseOrder, useMedications, useStockOnHand, useSuppliers } 
  * separate submit/approve/order moves, so this composer does not offer to jump
  * the workflow — the new order's own screen carries the next move.
  *
- * There is no branch picker in the app (GAP-018), so the order is raised against
- * the branch the stock read reports, exactly as the stock movements are. With one
- * example branch that is unambiguous; a multi-branch build would take the active
- * branch from the session.
- *
- * A medication may appear on only one line: the service rejects duplicates by
- * comparing the distinct id count, so the form refuses them before the request
- * goes out. `unitCost` is the one field the API's DTO genuinely wants as a number
- * (`z.coerce.number().nonnegative()`); the server stores it as `Decimal(12, 2)`,
- * and nothing here reads a money value back.
+ * The order is raised against a branch picked from `GET /branches`
+ * (`useBranchOptions()`, GAP-018), defaulting to the branch the stock read reports
+ * so the common case needs no change. A medication may appear on only one line:
+ * the service rejects duplicates by comparing the distinct id count, so the form
+ * refuses them before the request goes out. `unitCost` is the one field the API's
+ * DTO genuinely wants as a number (`z.coerce.number().nonnegative()`); the server
+ * stores it as `Decimal(12, 2)`, and nothing here reads a money value back.
  */
 
 interface DraftLine {
@@ -55,18 +58,28 @@ export function RaisePurchaseOrderDialog({
   const suppliers = useSuppliers({ limit: 100 });
   const medications = useMedications({ isActive: 'true' });
   const stock = useStockOnHand({});
+  const branches = useBranchOptions();
 
-  const branchId = stock.data?.data[0]?.branchId ?? null;
+  const stockBranchId = stock.data?.data[0]?.branchId ?? null;
+  const activeBranches = (branches.data?.data ?? []).filter((branch) => branch.status === 'ACTIVE');
   const catalog = medications.data?.data.items ?? [];
   const supplierRows = suppliers.data?.data.rows.filter((supplier) => supplier.isActive) ?? [];
 
+  const [branchId, setBranchId] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [expectedAt, setExpectedAt] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([{ key: 1, ...EMPTY_LINE }]);
   const [error, setError] = useState<string | null>(null);
 
+  // Seed the picker from the stock branch once either read settles, but never
+  // overwrite a choice the operator has already made.
+  useEffect(() => {
+    if (!branchId && stockBranchId) setBranchId(stockBranchId);
+  }, [branchId, stockBranchId]);
+
   const close = () => {
+    setBranchId('');
     setSupplierId('');
     setExpectedAt('');
     setNotes('');
@@ -117,7 +130,7 @@ export function RaisePurchaseOrderDialog({
       }
       items.push({ medicationId: line.medicationId, quantityOrdered: quantity, ...(unitCost !== undefined ? { unitCost } : {}) });
     }
-    if (branchId === null) {
+    if (!branchId) {
       setError(t('errorNoBranch'));
       return;
     }
@@ -146,6 +159,26 @@ export function RaisePurchaseOrderDialog({
               {create.error?.code === 'VALIDATION_ERROR' ? t('createInvalid') : t('createFailed')}
             </p>
           ) : null}
+
+          <Field id="po-branch" label={t('branchLabel')} required>
+            {({ controlId }) => (
+              <Select
+                id={controlId}
+                value={branchId}
+                onChange={(event) => {
+                  setBranchId(event.target.value);
+                  if (error) setError(null);
+                }}
+              >
+                <option value="">{t('chooseBranch')}</option>
+                {activeBranches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
 
           <Field id="po-supplier" label={t('supplierLabel')} required>
             {({ controlId }) => (
@@ -274,17 +307,12 @@ export function RaisePurchaseOrderDialog({
               {error}
             </p>
           ) : null}
-          {branchId === null && stock.isSuccess ? (
-            <p role="alert" className="text-caption text-status-critical">
-              {t('errorNoBranch')}
-            </p>
-          ) : null}
         </DialogBody>
         <DialogFooter>
           <Button variant="secondary" onClick={close}>
             {t('cancel')}
           </Button>
-          <Button variant="primary" disabled={create.isPending || branchId === null} onClick={submit}>
+          <Button variant="primary" disabled={create.isPending} onClick={submit}>
             {create.isPending ? t('creating') : t('createSubmit')}
           </Button>
         </DialogFooter>

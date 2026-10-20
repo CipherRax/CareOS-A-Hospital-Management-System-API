@@ -1324,6 +1324,8 @@
       "openOrder": "Fungua oda ya manunuzi {number}",
       "createTitle": "Oda mpya ya manunuzi",
       "createBody": "Oda huhifadhiwa kama rasimu; itume, iidhinishe na kuiagiza kwenye skrini yake.",
+      "branchLabel": "Tawi",
+      "chooseBranch": "Chagua tawi",
       "supplierLabel": "Msambazaji",
       "chooseSupplier": "Chagua msambazaji",
       "noSuppliers": "Hakuna wasambazaji walioandikwa bado, hivyo oda haiwezi kutolewa.",
@@ -2804,6 +2806,8 @@
       "create": {
         "title": "Ripoti tukio",
         "body": "Rekodi tukio la uendeshaji au usalama. Hufunguliwa kwa uchunguzi.",
+        "branchLabel": "Tawi",
+        "chooseBranch": "Chagua tawi",
         "categoryLabel": "Kategoria",
         "severityLabel": "Ukali",
         "descriptionLabel": "Maelezo",
@@ -2811,6 +2815,7 @@
         "submit": "Ripoti tukio",
         "submitting": "Inaripoti…",
         "errors": {
+          "branchRequired": "Chagua tawi.",
           "descriptionRequired": "Weka maelezo.",
           "invalid": "Tukio lilikataliwa. Angalia sehemu na ujaribu tena.",
           "failed": "Tukio halikuweza kuripotiwa. Jaribu tena baada ya muda mfupi."
