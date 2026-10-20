@@ -849,6 +849,32 @@ test.describe('incidents workspace', () => {
   });
 });
 
+test.describe('billing invoices', () => {
+  test('raises an invoice from the worklist with a chosen branch', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/billing');
+
+    await page.getByRole('button', { name: 'Raise an invoice' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: 'Raise an invoice', exact: true })).toBeVisible();
+
+    // The composer refuses a branch-less invoice in place rather than round-tripping.
+    await dialog.getByRole('button', { name: 'Raise invoice', exact: true }).click();
+    await expect(dialog.getByText('Choose a branch.')).toBeVisible();
+
+    await dialog.locator('#invoice-branch').selectOption('br_example_0001');
+    await dialog.locator('#invoice-patient-search').fill('Amina');
+    await dialog.getByRole('button', { name: /EXAMPLE Amina Yusuf/ }).click();
+    await dialog.locator('#invoice-line-description-1').fill('EXAMPLE Consultation — general');
+    await dialog.locator('#invoice-line-price-1').fill('1500.00');
+    await dialog.getByRole('button', { name: 'Raise invoice', exact: true }).click();
+
+    await expect(dialog).toBeHidden();
+    // The stub numbers the new invoice after the six fixtures, and it lands as a draft.
+    await expect(page.getByRole('link', { name: /INV-2026-000007/ })).toBeVisible();
+  });
+});
+
 test.describe('staff second factor', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/login');

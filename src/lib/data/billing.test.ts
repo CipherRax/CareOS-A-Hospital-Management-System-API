@@ -6,6 +6,7 @@ import {
   extractPaymentRecord,
   readInvoice,
   readPayment,
+  toCreateInvoiceBody,
 } from '@/lib/data/billing';
 
 /**
@@ -164,5 +165,33 @@ describe('extractPaymentRecord', () => {
   it('fails closed on a bare payment or a broken body', () => {
     expect(extractPaymentRecord(payment)).toEqual({ ok: false });
     expect(extractPaymentRecord(null)).toEqual({ ok: false });
+  });
+});
+
+describe('toCreateInvoiceBody', () => {
+  it('keeps the required branch and patient and the priced lines', () => {
+    const body = toCreateInvoiceBody({
+      branchId: 'br_example_0001',
+      patientId: 'pat_example_0001',
+      items: [{ description: 'EXAMPLE Consultation', quantity: 2, unitPrice: '1500.00' }],
+    });
+    expect(body.branchId).toBe('br_example_0001');
+    expect(body.patientId).toBe('pat_example_0001');
+    expect(body.items).toEqual([
+      { description: 'EXAMPLE Consultation', quantity: 2, unitPrice: '1500.00' },
+    ]);
+  });
+
+  it('drops blank optional fields rather than sending empty strings', () => {
+    const body = toCreateInvoiceBody({
+      branchId: 'br_example_0001',
+      patientId: 'pat_example_0001',
+      notes: '',
+      dueAt: '',
+      items: [{ description: 'EXAMPLE X-ray', quantity: 1, unitPrice: '1200.00', referenceId: '' }],
+    });
+    expect(body.notes).toBeUndefined();
+    expect(body.dueAt).toBeUndefined();
+    expect((body.items as Record<string, unknown>[])[0]?.referenceId).toBeUndefined();
   });
 });

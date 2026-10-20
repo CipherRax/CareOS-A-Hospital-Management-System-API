@@ -19,7 +19,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F4 Doctor workspace            | encounters + clinical notes + prescriptions + results **complete** — encounter list (`/encounters`) with status/department filters, workspace (`/encounters/[id]`) with the workflow moves OPEN → IN_PROGRESS → COMPLETED (COMPLETED locked, stale 409 surfaced in place), the clinical-notes panel (structured DRAFT → Finalize → Amend with version history), the prescriptions panel (medication orders: DRAFT → issue → pharmacy dispense, cancel while un-/partially-dispensed), and the read-only results panel (released laboratory results + imaging reports); MSW fixtures + stub + e2e swept | live API round-trip Docker-gated; GAP-020 documented |
 | F5 Laboratory & radiology      | **complete** — laboratory worklist + order workspace, radiology worklist + imaging workspace, and order entry from the encounter | billing |
 | F6 Pharmacy & inventory        | **complete** — pharmacy dispense worklist (`/pharmacy`), stock control (`/pharmacy/stock`: on-hand, risk advisories, receiving), wastage write-offs, and procurement (order worklist `/pharmacy/purchase-orders`, plus raising, advancing and receiving an order at `/pharmacy/purchase-orders/[id]`) | transfer/count reads still have no endpoint |
-| F7 Billing & insurance         | **complete** — invoices desk (slice 1); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | create-invoice needs a branch picker; M-PESA |
+| F7 Billing & insurance         | **complete** — invoices desk (slice 1) with raise-invoice (slice 4); insurance claims desk (slice 2): claims worklist (`/insurance`) + claim workspace (`/insurance/[id]`) with submit/approve/partial-approve/deny/pay and raise-claim from the invoice workspace; insurance administration (slice 3): payers management (`/insurance/payers`) and patient policy enrolment (Insurance tab on the patient record) | M-PESA |
 | F8 Inpatient & emergency       | **complete** — ward & bed board (slice 1), admissions desk (slice 2), emergency desk (slice 3) |                                                           |
 | F9 Administration & audit      | **complete** — users administration (slice 1), role management (slice 2), staff directory (slice 3), organization profile (slice 4)                   | audit-log viewing has no API endpoint |
 | F10 Analytics & reports        | complete — reports desk; analytics metrics; journey bottlenecks + capacity; forecast explorer, patient experience and staff analytics (`/analytics`) | audit-log viewing is not buildable (no API list endpoint) |
@@ -2001,3 +2001,43 @@ are now end to end, and no quality list keeps a focusable scroll region.
 Gate: lint clean, `tsc --noEmit` 0, unit **627** (+4: `quality.test.ts`),
 `build:prod` OK (route `/quality/incidents/[id]`), e2e/a11y **289** (was 283:
 +4 route variants in four themes, +2 workspace tests).
+
+## F7 — Billing, slice 4: raising an invoice with a branch picker
+
+**Status:** the invoices desk carried create as an unbuilt note because `POST
+/invoices` needs a `branchId` and the app had no branch picker (GAP-018). This
+slice builds the picker — the first screen in the app to choose a branch rather
+than assume the single example one — and the raise-invoice flow around it.
+
+- **Branch picker** (`src/components/staff/invoice-create-dialog.tsx`). A select
+  fed by `GET /branches` (the existing `useBranchOptions()`), filtered to ACTIVE
+  branches. The chosen branch is the invoice's `branchId`; nothing is forced.
+- **Raise an invoice** (`POST /invoices`). The composer takes a branch, a patient
+  (chosen from the same `usePatientSearch` the other desks use), a due date, notes
+  and one or more charge lines. Each line is priced free-hand — `description`,
+  `quantity`, `unitPrice` — which the service accepts without a billable item or
+  medication, so this slice needs no price-list read. The invoice opens DRAFT; the
+  composer does not jump the lifecycle. A branch-less or patient-less submit is
+  refused in place, and a `VALIDATION_ERROR` from the server is surfaced.
+- **Data layer** (`src/lib/data/billing.ts`, `src/lib/data/queries.ts`).
+  `CreateInvoiceInput`/`CreateInvoiceItemInput`, `toCreateInvoiceBody` (drops blank
+  optionals so the request carries only what was filled in), and `useCreateInvoice()`
+  (POST → structurally validated `{ invoice }`, list invalidated). The create body
+  answers `{ invoice }` while the export types the bare entity (GAP-020).
+- **Worklist gains the action.** `BillingWorklistScreen` gains a "Raise an invoice"
+  header button opening the dialog; a successful raise invalidates the list and the
+  new DRAFT row appears.
+- **Mocks/stub.** `billing-handlers.ts` and `e2e/stub-api.mjs` gain `POST /invoices`
+  with the same guards as the service: branch 404, patient 404, one-to-100 lines,
+  and a `resolveLine` that requires `description` + a decimal `unitPrice` + a
+  positive whole quantity, totalling the line and the invoice in integer cents. The
+  stub numbers the new invoice after the six fixtures (`INV-2026-000007`).
+- **i18n.** The `billing.createOpen` label and the `billing.create.*` block in
+  `en.json` and `sw.json`, key parity checked.
+- **Tests.** `billing.test.ts` +2 (`toCreateInvoiceBody`: required fields kept,
+  blank optionals dropped); the a11y sweep gained a billing describe (raising an
+  invoice with a chosen branch and asserting the new draft row).
+
+Gate: lint clean, `tsc --noEmit` 0, unit **629** (+2: `billing.test.ts`),
+`build:prod` OK, e2e/a11y **290** (+1 workspace test; no new route, so no new
+theme variants).

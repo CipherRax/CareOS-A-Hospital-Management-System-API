@@ -263,6 +263,18 @@ The desk is therefore single-branch and posts a constant
 real source (a per-user branch list, or a branch on each department) before this
 is correct.
 
+**Update (F7 billing slice 4 — a partial branch source).** There *is* a branch
+list: `GET /branches` (used since F9 for the assignment editor via
+`useBranchOptions()`), the same call the analytics and reports pickers read. The
+raise-invoice flow (`src/components/staff/invoice-create-dialog.tsx`) is the first
+screen to use it for a required write field, choosing `branchId` from the ACTIVE
+branches rather than forcing the example one. What is still missing is the
+*caller's permitted* branches — `GET /branches` returns every branch in the
+organization, and `/auth/me` still carries `branch: { current: null }` — so this
+is a real choice among all branches, not a session-scoped one. The older create
+dialogs (appointment booking, admissions, incident/complaint reporting) still
+post a constant; rolling the picker out to them is the remaining work.
+
 ## GAP-019 — Schedule overrides can be written but not listed
 
 **Status: open (F3 schedule admin).** The schedules module exposes mutations for

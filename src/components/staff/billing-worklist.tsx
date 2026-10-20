@@ -8,6 +8,8 @@ import { EmptyState } from '@/components/clinical/empty-state';
 import { MoneyText } from '@/components/clinical/money-text';
 import { StatusPill, type StatusTone } from '@/components/clinical/status-pill';
 import { DataTable, type DataTableColumn } from '@/components/clinical/data-table';
+import { CreateInvoiceDialog } from '@/components/staff/invoice-create-dialog';
+import { Button } from '@/components/ui/button';
 import { Field, Select } from '@/components/ui/field';
 import { useInvoices, useOrgCurrency, usePatientName } from '@/lib/data/queries';
 import { INVOICE_STATUSES, type InvoiceRow, type InvoiceStatus } from '@/lib/data/billing';
@@ -36,6 +38,7 @@ export function BillingWorklistScreen() {
   const locale = useLocale();
   const currency = useOrgCurrency();
   const [status, setStatus] = useState<InvoiceStatus | ''>('');
+  const [createOpen, setCreateOpen] = useState(false);
 
   const invoices = useInvoices({ status: status || undefined });
   const rows = invoices.data?.data.rows ?? [];
@@ -90,9 +93,14 @@ export function BillingWorklistScreen() {
 
   return (
     <div className="flex flex-col gap-4 px-6 py-6">
-      <header>
-        <h1 className="text-heading font-semibold text-primary">{t('pageTitle')}</h1>
-        <p className="text-meta text-secondary">{t('pageIntro')}</p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-heading font-semibold text-primary">{t('pageTitle')}</h1>
+          <p className="text-meta text-secondary">{t('pageIntro')}</p>
+        </div>
+        <Button variant="primary" onClick={() => setCreateOpen(true)}>
+          {t('createOpen')}
+        </Button>
       </header>
 
       <div className="w-48">
@@ -133,6 +141,8 @@ export function BillingWorklistScreen() {
           emptyMessage={t('empty')}
         />
       )}
+
+      <CreateInvoiceDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }

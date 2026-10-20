@@ -3,8 +3,11 @@ import { http, HttpResponse } from 'msw';
 import {
   BILLING_INVOICES,
   type RegistryInvoice,
+  type RegistryInvoiceItem,
   type RegistryPayment,
 } from '@/mocks/fixtures/billing-registry';
+import { STAFF_BRANCHES } from '@/mocks/fixtures/staff-registry';
+import { registryById } from '@/mocks/fixtures/patients-registry';
 import { apiError, apiOk, apiPage, delay, MOCK_LATENCY_MS } from '@/mocks/handlers';
 
 /**
@@ -29,13 +32,15 @@ interface MutablePayment extends Mutable<RegistryPayment> {
   patientId: string;
 }
 
-interface MutableInvoice extends Mutable<Omit<RegistryInvoice, 'payments'>> {
+interface MutableInvoice extends Mutable<Omit<RegistryInvoice, 'payments' | 'items'>> {
+  items: Mutable<RegistryInvoiceItem>[];
   payments: MutablePayment[];
 }
 
 function clone(): MutableInvoice[] {
   return BILLING_INVOICES.map((invoice) => ({
     ...invoice,
+    items: invoice.items.map((item) => ({ ...item })),
     payments: invoice.payments.map((payment) => ({
       ...payment,
       invoiceId: invoice.id,
@@ -47,6 +52,8 @@ function clone(): MutableInvoice[] {
 const invoices = clone();
 let receiptSeq = 104;
 let paymentSeq = 9004;
+let invoiceSeq = 7;
+let invoiceItemSeq = 8007;
 
 /** Integer cents: split on the decimal point, never route money through a float. */
 function toCents(value: string): number {
@@ -96,8 +103,121 @@ function stringField(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+function moneyField(value: unknown): string | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : null;
+  }
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/;
+
+/** Resolves one requested line, mirroring the service's `resolveLine`. */
+function resolveLine(
+  line: Record<string, unknown>,
+): { ok: true; item: Omit<RegistryInvoiceItem, 'id'> } | { ok: false; message: string } {
+  const quantity = typeof line.quantity === 'number' ? line.quantity : Number(line.quantity);
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    return { ok: false, message: 'Each line needs a positive whole quantity.' };
+  }
+  const unitPrice = moneyField(line.unitPrice);
+  const description = stringField(line.description);
+  if (!description || !unitPrice || !MONEY_PATTERN.test(unitPrice)) {
+    return {
+      ok: false,
+      message: 'Each line needs a description plus a unit price, for example 1500.00.',
+    };
+  }
+  return {
+    ok: true,
+    item: {
+      description,
+      quantity,
+      unitPrice,
+      lineTotal: fromCents(toCents(unitPrice) * quantity),
+      referenceType: stringField(line.referenceType),
+      referenceId: stringField(line.referenceId),
+    },
+  };
+}
+
 export function billingHandlers() {
   return [
+    http.post('*/api/v1/invoices', async ({ request }) => {
+      await delay(MOCK_LATENCY_MS);
+      const body = await readJson(request);
+      if (!body) {
+        return HttpResponse.json(apiError('VALIDATION_ERROR', 'A request body is required.'), {
+          status: 400,
+        });
+      }
+      const branchId = stringField(body.branchId);
+      if (!branchId || !STAFF_BRANCHES.some((branch) => branch.id === branchId)) {
+        return HttpResponse.json(apiError('RESOURCE_NOT_FOUND', 'Branch not found'), { status: 404 });
+      }
+      const patientId = stringField(body.patientId);
+      if (!patientId || !registryById(patientId)) {
+        return HttpResponse.json(apiError('RESOURCE_NOT_FOUND', 'Patient not found'), {
+          status: 404,
+        });
+      }
+      const rawItems = Array.isArray(body.items) ? body.items : null;
+      if (!rawItems || rawItems.length === 0 || rawItems.length > 100) {
+        return HttpResponse.json(
+          apiError('VALIDATION_ERROR', 'An invoice needs between one and 100 lines.'),
+          { status: 400 },
+        );
+      }
+      const items: RegistryInvoiceItem[] = [];
+      let subtotalCents = 0;
+      for (const raw of rawItems) {
+        if (!raw || typeof raw !== 'object') {
+          return HttpResponse.json(apiError('VALIDATION_ERROR', 'Invalid invoice line.'), {
+            status: 400,
+          });
+        }
+        const resolved = resolveLine(raw as Record<string, unknown>);
+        if (!resolved.ok) {
+          return HttpResponse.json(apiError('VALIDATION_ERROR', resolved.message), { status: 400 });
+        }
+        subtotalCents += toCents(resolved.item.lineTotal);
+        items.push({ id: `item_example_${invoiceItemSeq++}`, ...resolved.item });
+      }
+      const discountAmount = moneyField(body.discountAmount) ?? '0.00';
+      const taxAmount = moneyField(body.taxAmount) ?? '0.00';
+      const totalCents =
+        subtotalCents - toCents(discountAmount) + toCents(taxAmount);
+      const total = fromCents(Math.max(0, totalCents));
+      const seq = invoiceSeq++;
+      const invoice: MutableInvoice = {
+        id: `inv_example_${8000 + seq}`,
+        organizationId: 'org_example_1',
+        branchId,
+        patientId,
+        invoiceNumber: `INV-2026-${String(seq).padStart(6, '0')}`,
+        status: 'DRAFT',
+        visitId: stringField(body.visitId),
+        encounterId: stringField(body.encounterId),
+        subtotal: fromCents(subtotalCents),
+        discountAmount,
+        taxAmount,
+        total,
+        balanceDue: total,
+        dueAt: stringField(body.dueAt),
+        notes: stringField(body.notes),
+        issuedAt: null,
+        cancelledAt: null,
+        cancelReason: null,
+        refundedAt: null,
+        refundReason: null,
+        version: 1,
+        items,
+        payments: [],
+      };
+      invoices.unshift(invoice);
+      return HttpResponse.json(apiOk({ invoice }, 'req_mock_invoice_create'), { status: 201 });
+    }),
+
     http.get('*/api/v1/invoices', async ({ request }) => {
       await delay(MOCK_LATENCY_MS);
       const url = new URL(request.url);

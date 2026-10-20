@@ -107,6 +107,37 @@ export interface InvoiceQuery {
   readonly limit?: number;
 }
 
+/**
+ * One requested invoice line. `billableItemId`/`medicationId` name a catalogue
+ * row the server resolves and prices; when neither is given the line must carry
+ * its own `description` and `unitPrice` (`CreateInvoiceDto`).
+ */
+export interface CreateInvoiceItemInput {
+  readonly billableItemId?: string;
+  readonly medicationId?: string;
+  readonly description?: string;
+  readonly quantity: number;
+  readonly unitPrice?: string;
+  readonly referenceType?: string;
+  readonly referenceId?: string;
+}
+
+/**
+ * Body of `POST /invoices` (`CreateInvoiceDto`). `branchId` and `patientId` are
+ * required; money stays a decimal string (ADR-029).
+ */
+export interface CreateInvoiceInput {
+  readonly branchId: string;
+  readonly patientId: string;
+  readonly visitId?: string;
+  readonly encounterId?: string;
+  readonly discountAmount?: string;
+  readonly taxAmount?: string;
+  readonly dueAt?: string;
+  readonly notes?: string;
+  readonly items: readonly CreateInvoiceItemInput[];
+}
+
 /** A full payment record (`GET /payments/{id}`, payment writes). */
 export interface PaymentRow {
   readonly id: string;
@@ -299,4 +330,31 @@ export async function fetchInvoice(id: string, signal?: AbortSignal): Promise<In
     },
     signal,
   );
+}
+
+/**
+ * Serializes a `CreateInvoiceInput` into the `CreateInvoiceDto` body. Empty
+ * optional fields are dropped so the request carries only what the operator
+ * filled in — the server treats an absent field the same as a blank one.
+ */
+export function toCreateInvoiceBody(input: CreateInvoiceInput): Record<string, unknown> {
+  return {
+    branchId: input.branchId,
+    patientId: input.patientId,
+    visitId: input.visitId || undefined,
+    encounterId: input.encounterId || undefined,
+    discountAmount: input.discountAmount || undefined,
+    taxAmount: input.taxAmount || undefined,
+    dueAt: input.dueAt || undefined,
+    notes: input.notes || undefined,
+    items: input.items.map((line) => ({
+      billableItemId: line.billableItemId || undefined,
+      medicationId: line.medicationId || undefined,
+      description: line.description || undefined,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice || undefined,
+      referenceType: line.referenceType || undefined,
+      referenceId: line.referenceId || undefined,
+    })),
+  };
 }

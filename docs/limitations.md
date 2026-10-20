@@ -205,6 +205,31 @@ how many of the total are shown — there are no next/previous controls. The sup
 column resolves names from `GET /suppliers`, which the contract mis-types the same
 way (the query DTO on the 200), so it is validated structurally too.
 
+### The invoice composer picks a branch, but only free-hand lines
+
+`/billing` raises an invoice from its header. Three constraints are the API's and
+this slice's scope, not the screen's:
+
+- **The branch picker offers every branch, not the caller's.** `POST /invoices`
+  requires a `branchId`, and the composer is the first screen to take one from
+  `GET /branches` rather than force the example branch. But that endpoint lists
+  every branch in the organization and `/auth/me` still carries
+  `branch: { current: null }`, so the choice is among all branches — a real
+  deployment wants a session-scoped list (GAP-018).
+- **Lines are priced free-hand.** Each charge is a `description`, a quantity and a
+  unit price. The DTO also accepts a `billableItemId` or a `medicationId` and would
+  price the line from the catalogue, but the app has no price-list read yet
+  (`GET /billable-items` is not wired), so the composer does not offer it.
+- **Money is a decimal string and is never summed here.** The line total and the
+  invoice total are the server's; the composer shows neither, which is the same
+  `MoneyText`-only discipline the rest of billing follows.
+
+The new invoice is always DRAFT: the contract offers one create call and separate
+issue/cancel moves, so the composer does not jump the lifecycle — the invoice's own
+screen carries the next move. The older create dialogs (appointment booking,
+admissions, incident/complaint reporting) still post a constant branch; rolling the
+picker out to them is the remaining work.
+
 ### The quality desk lists one page
 
 Three worklists read the API's quality module — feedback (`/quality/feedback`),

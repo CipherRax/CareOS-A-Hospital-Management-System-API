@@ -139,7 +139,9 @@ import {
   extractPaymentRecord,
   fetchInvoice,
   fetchInvoices,
+  toCreateInvoiceBody,
   type BillingCallError,
+  type CreateInvoiceInput,
   type InvoicePage,
   type InvoiceQuery,
   type InvoiceRow,
@@ -1357,6 +1359,30 @@ export function useInvoice(id: string): UseQueryResult<Fetched<InvoiceRow>, Quer
     enabled: id.length > 0,
     staleTime: 30_000,
     retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/**
+ * Create an invoice `POST /invoices`. The contract also fixes the branch: every
+ * invoice belongs to a branch, so `branchId` is picked from `GET /branches`
+ * rather than assumed. The service answers `{ invoice }` while the export types
+ * the bare entity (GAP-020), so the unwrapped body is validated structurally.
+ * The new invoice is DRAFT; the list is invalidated so it appears immediately.
+ */
+export function useCreateInvoice(): UseMutationResult<InvoiceRow, QueryError, CreateInvoiceInput> {
+  const queryClient = useQueryClient();
+  return useMutation<InvoiceRow, QueryError, CreateInvoiceInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/invoices', { body: toCreateInvoiceBody(input) as never }),
+      );
+      const parsed = extractInvoiceRecord(fetched.data);
+      if (!parsed.ok) throw billingWriteError();
+      return parsed.invoice;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
   });
 }
 

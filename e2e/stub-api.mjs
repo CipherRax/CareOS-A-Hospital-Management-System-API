@@ -721,6 +721,8 @@ const LIVE_INVOICES = [
 }));
 let billingReceiptSeq = 104;
 let billingPaymentSeq = 9004;
+let billingInvoiceSeq = 7;
+let billingItemSeq = 8007;
 function billingCents(value) {
   const negative = value.startsWith('-');
   const [whole, frac = ''] = (negative ? value.slice(1) : value).split('.');
@@ -738,6 +740,16 @@ function billingFind(id) {
 }
 function billingListRow(invoice) {
   return { ...invoice, payments: [] };
+}
+const BILLING_MONEY_PATTERN = /^\d+(\.\d{1,2})?$/;
+/** Resolves one requested line, mirroring the service's `resolveLine`. */
+function billingResolveLine(line) {
+  const quantity = typeof line.quantity === 'number' ? line.quantity : Number(line.quantity);
+  if (!Number.isInteger(quantity) || quantity <= 0) return { ok: false, message: 'Each line needs a positive whole quantity.' };
+  const unitPrice = typeof line.unitPrice === 'number' ? String(line.unitPrice) : (typeof line.unitPrice === 'string' && line.unitPrice.length > 0 ? line.unitPrice : null);
+  const description = typeof line.description === 'string' && line.description.length > 0 ? line.description : null;
+  if (!description || !unitPrice || !BILLING_MONEY_PATTERN.test(unitPrice)) return { ok: false, message: 'Each line needs a description plus a unit price, for example 1500.00.' };
+  return { ok: true, item: { description, quantity, unitPrice, lineTotal: billingFromCents(billingCents(unitPrice) * quantity), referenceType: typeof line.referenceType === 'string' && line.referenceType.length > 0 ? line.referenceType : null, referenceId: typeof line.referenceId === 'string' && line.referenceId.length > 0 ? line.referenceId : null } };
 }
 
 // --- insurance (F7 claims desk) ------------------------------------------
@@ -2943,6 +2955,47 @@ const server = createServer(async (request, response) => {
   }
 
   // --- billing (F7 invoices desk) -----------------------------------------
+  if (url.pathname === '/invoices' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A request body is required.' } }); return; }
+    if (typeof body !== 'object' || body === null) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'A request body is required.' } }); return; }
+    const branchId = typeof body.branchId === 'string' && body.branchId.length > 0 ? body.branchId : null;
+    if (!branchId || !findStaffBranch(branchId)) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Branch not found' } }); return; }
+    const patientId = typeof body.patientId === 'string' && body.patientId.length > 0 ? body.patientId : null;
+    if (!patientId || !PATIENT_REGISTRY[patientId]) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND', message: 'Patient not found' } }); return; }
+    const rawItems = Array.isArray(body.items) ? body.items : null;
+    if (!rawItems || rawItems.length === 0 || rawItems.length > 100) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'An invoice needs between one and 100 lines.' } }); return; }
+    const items = [];
+    let subtotalCents = 0;
+    for (const raw of rawItems) {
+      if (!raw || typeof raw !== 'object') { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid invoice line.' } }); return; }
+      const resolved = billingResolveLine(raw);
+      if (!resolved.ok) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR', message: resolved.message } }); return; }
+      subtotalCents += billingCents(resolved.item.lineTotal);
+      items.push({ id: `item_example_${billingItemSeq++}`, organizationId: 'org_example_0001', invoiceId: null, billableItemId: null, medicationId: null, createdById: null, createdAt: new Date().toISOString(), ...resolved.item });
+    }
+    const discountAmountRaw = typeof body.discountAmount === 'number' ? String(body.discountAmount) : (typeof body.discountAmount === 'string' && body.discountAmount.length > 0 ? body.discountAmount : '0.00');
+    const taxAmountRaw = typeof body.taxAmount === 'number' ? String(body.taxAmount) : (typeof body.taxAmount === 'string' && body.taxAmount.length > 0 ? body.taxAmount : '0.00');
+    const totalCents = subtotalCents - billingCents(discountAmountRaw) + billingCents(taxAmountRaw);
+    const total = billingFromCents(Math.max(0, totalCents));
+    const seq = billingInvoiceSeq++;
+    const now = new Date().toISOString();
+    const invoice = {
+      id: `inv_example_${8000 + seq}`, organizationId: 'org_example_0001', branchId, patientId, invoiceNumber: `INV-2026-${String(seq).padStart(6, '0')}`, status: 'DRAFT',
+      visitId: typeof body.visitId === 'string' && body.visitId.length > 0 ? body.visitId : null,
+      encounterId: typeof body.encounterId === 'string' && body.encounterId.length > 0 ? body.encounterId : null,
+      subtotal: billingFromCents(subtotalCents), discountAmount: discountAmountRaw, taxAmount: taxAmountRaw, total, balanceDue: total,
+      dueAt: typeof body.dueAt === 'string' && body.dueAt.length > 0 ? body.dueAt : null,
+      notes: typeof body.notes === 'string' && body.notes.length > 0 ? body.notes : null,
+      issuedById: null, issuedAt: null, cancelledById: null, cancelledAt: null, cancelReason: null, refundedById: null, refundedAt: null, refundReason: null,
+      version: 1, createdAt: now, updatedAt: now,
+      items: items.map((item) => ({ ...item, invoiceId: `inv_example_${8000 + seq}` })), payments: [],
+    };
+    LIVE_INVOICES.unshift(invoice);
+    send(response, 201, { success: true, data: { invoice } });
+    return;
+  }
+
   if (url.pathname === '/invoices' && request.method === 'GET') {
     const branchId = url.searchParams.get('branchId');
     const patientId = url.searchParams.get('patientId');
