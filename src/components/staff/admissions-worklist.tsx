@@ -22,12 +22,12 @@ import {
   usePatientSearch,
   usePatientName,
   useWards,
+  useBranchOptions,
 } from '@/lib/data/queries';
 import {
   activeAssignment,
   ADMISSION_STATUSES,
   collectBeds,
-  INPATIENT_BRANCH_ID,
   type AdmissionRow,
   type AdmissionStatus,
 } from '@/lib/data/inpatient';
@@ -196,12 +196,15 @@ function AdmitDialog({
 
   const [query, setQuery] = useState('');
   const [patient, setPatient] = useState<PatientListItem | null>(null);
+  const [branchId, setBranchId] = useState('');
   const [bedId, setBedId] = useState('');
   const [diagnosis, setDiagnosis] = useState('');
   const [expected, setExpected] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const search = usePatientSearch(query);
+  const branches = useBranchOptions();
+  const activeBranches = (branches.data?.data ?? []).filter((b) => b.status === 'ACTIVE');
   const wards = useWards({ active: true });
   const beds = collectBeds(wards.data?.data.rows ?? []);
   const available = beds.filter((bed) => bed.status === 'AVAILABLE');
@@ -210,6 +213,7 @@ function AdmitDialog({
   const close = () => {
     setQuery('');
     setPatient(null);
+    setBranchId('');
     setBedId('');
     setDiagnosis('');
     setExpected('');
@@ -226,6 +230,10 @@ function AdmitDialog({
       setError(t('patientRequired'));
       return;
     }
+    if (!branchId) {
+      setError(t('branchRequired'));
+      return;
+    }
     if (!bedId) {
       setError(t('bedRequired'));
       return;
@@ -233,7 +241,7 @@ function AdmitDialog({
     admit.mutate(
       {
         patientId: patient.id,
-        branchId: INPATIENT_BRANCH_ID,
+        branchId,
         bedId,
         provisionalDiagnosis: diagnosis.trim() || undefined,
         expectedDischargeAt: expected ? new Date(`${expected}T00:00:00.000Z`).toISOString() : undefined,
@@ -311,6 +319,26 @@ function AdmitDialog({
               ) : null}
             </>
           )}
+
+          <Field id="admit-branch" label={t('branch')} required>
+            {({ controlId }) => (
+              <Select
+                id={controlId}
+                value={branchId}
+                onChange={(event) => {
+                  setBranchId(event.target.value);
+                  if (error) setError(null);
+                }}
+              >
+                <option value="">{t('chooseBranch')}</option>
+                {activeBranches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
 
           <Field id="admit-bed" label={t('bed')} required>
             {({ controlId }) => (

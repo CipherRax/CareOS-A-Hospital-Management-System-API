@@ -23,6 +23,7 @@ import {
   useProviderDirectory,
   useRescheduleAppointment,
   useSlots,
+  useBranchOptions,
   useUpdateAppointmentStatus,
   useWaitlist,
 } from '@/lib/data/queries';
@@ -520,6 +521,7 @@ function BookingPanel({ departments }: { departments: readonly { id: string; nam
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
   const [patientId, setPatientId] = useState('');
+  const [branchId, setBranchId] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [providerId, setProviderId] = useState('');
   const [date, setDate] = useState(() => todayISO());
@@ -536,6 +538,8 @@ function BookingPanel({ departments }: { departments: readonly { id: string; nam
   }, [query]);
 
   const search = usePatientSearch(debounced);
+  const branches = useBranchOptions();
+  const activeBranches = (branches.data?.data ?? []).filter((b) => b.status === 'ACTIVE');
   const providers = useProviderDirectory(departmentId || undefined);
   const slots = useSlots(providerId && departmentId ? { providerId, departmentId, date } : null);
   const book = useBookAppointment();
@@ -551,7 +555,7 @@ function BookingPanel({ departments }: { departments: readonly { id: string; nam
 
   function submit() {
     setError(null);
-    if (!patientId || !departmentId || !providerId || !startsAt) {
+    if (!patientId || !branchId || !departmentId || !providerId || !startsAt) {
       setError({ title: t('missingTitle'), body: t('missingBody') });
       return;
     }
@@ -560,7 +564,7 @@ function BookingPanel({ departments }: { departments: readonly { id: string; nam
         patientId,
         providerId,
         departmentId,
-        branchId: SCHEDULING_BRANCH_ID,
+        branchId,
         startsAt,
         mode,
         ...(appointmentType.trim() ? { appointmentType: appointmentType.trim() } : {}),
@@ -582,6 +586,7 @@ function BookingPanel({ departments }: { departments: readonly { id: string; nam
     setQuery('');
     setDebounced('');
     setPatientId('');
+    setBranchId('');
     setDepartmentId('');
     setProviderId('');
     setDate(todayISO());
@@ -700,6 +705,25 @@ function BookingPanel({ departments }: { departments: readonly { id: string; nam
                       ? t('selected', { name: selectedPatient.displayName })
                       : t('selectPrompt')}
                   </div>
+
+                  <Field id="booking-branch" label={t('branch')} required>
+                    {({ controlId }) => (
+                      <Select
+                        id={controlId}
+                        value={branchId}
+                        onChange={(event) => {
+                          setBranchId(event.target.value);
+                        }}
+                      >
+                        <option value="">{t('chooseBranch')}</option>
+                        {activeBranches.map((branch) => (
+                          <option key={branch.id} value={branch.id}>
+                            {branch.name}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
+                  </Field>
 
                   <Field id="booking-department" label={t('department')} required>
                     {({ controlId, describedBy }) => (

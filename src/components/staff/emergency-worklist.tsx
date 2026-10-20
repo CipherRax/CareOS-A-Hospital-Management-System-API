@@ -21,6 +21,7 @@ import {
   useEmergencyVisits,
   usePatientName,
   usePatientSearch,
+  useBranchOptions,
   useRegisterEmergencyVisit,
 } from '@/lib/data/queries';
 import {
@@ -262,13 +263,17 @@ function RegisterDialog({
 
   const [query, setQuery] = useState('');
   const [patient, setPatient] = useState<PatientListItem | null>(null);
+  const [branchId, setBranchId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const search = usePatientSearch(query);
+  const branches = useBranchOptions();
+  const activeBranches = (branches.data?.data ?? []).filter((b) => b.status === 'ACTIVE');
 
   const close = () => {
     setQuery('');
     setPatient(null);
+    setBranchId('');
     setError(null);
     register.reset();
     onOpenChange(false);
@@ -279,7 +284,11 @@ function RegisterDialog({
       setError(t('patientRequired'));
       return;
     }
-    register.mutate({ patientId: patient.id }, { onSuccess: () => close() });
+    if (!branchId) {
+      setError(t('branchRequired'));
+      return;
+    }
+    register.mutate({ patientId: patient.id, branchId }, { onSuccess: () => close() });
   };
 
   return (
@@ -341,7 +350,27 @@ function RegisterDialog({
                     ))}
                   </ul>
                 )
-              ) : null}
+          ) : null}
+
+          <Field id="register-branch" label={t('branch')} required>
+            {({ controlId }) => (
+              <Select
+                id={controlId}
+                value={branchId}
+                onChange={(event) => {
+                  setBranchId(event.target.value);
+                  if (error) setError(null);
+                }}
+              >
+                <option value="">{t('chooseBranch')}</option>
+                {activeBranches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
             </>
           )}
 
