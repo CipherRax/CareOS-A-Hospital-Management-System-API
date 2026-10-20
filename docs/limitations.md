@@ -225,16 +225,16 @@ this slice's scope:
   different module is worse than no name. The complaint **detail** is the exception:
   it loads the user directory to offer the assignee picker, so it names the assignee
   from that same list. Feedback and incident ids are still not resolved.
-- **Feedback and complaints are end to end; incidents are read-only.** The feedback
-  desk links a row to `/quality/feedback/[id]` and wires the resource's one write —
-  a response, which advances NEW → ACKNOWLEDGED → RESOLVED → CLOSED. The complaints
-  desk links a row to `/quality/complaints/[id]`, offers a raise dialog and wires the
-  lifecycle ASSIGNED → INVESTIGATING → RESOLVED → CLOSED (assigning on the ASSIGNED
-  move, resolving on the way, closing only with a resolution). Both tables' rows are
-  links, so neither needs a focusable scroll region. The incident list opens no
-  detail screen yet and none of its transitions is wired (investigate/action-plan/
-  resolve/close); because its rows carry no link it keeps the scroll region, which
-  its detail slice will replace with row links and the writes.
+- **All three are end to end.** The feedback desk links a row to
+  `/quality/feedback/[id]` and wires the resource's one write — a response, which
+  advances NEW → ACKNOWLEDGED → RESOLVED → CLOSED. The complaints desk links a row
+  to `/quality/complaints/[id]`, offers a raise dialog and wires the lifecycle
+  ASSIGNED → INVESTIGATING → RESOLVED → CLOSED (assigning on the ASSIGNED move,
+  resolving on the way, closing only with a resolution). The incidents desk links a
+  row to `/quality/incidents/[id]`, offers a report dialog and wires the lifecycle
+  INVESTIGATING → ACTION_PLAN → RESOLVED → CLOSED (recording actions taken and the
+  resolution on the way). All three tables' rows are links, so no quality table
+  needs a focusable scroll region.
 
 ### The intake tracking page is built on a contract whose success body is untyped
 

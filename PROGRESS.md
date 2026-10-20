@@ -25,7 +25,7 @@ work does not exist, so the screen cannot be built without inventing an endpoint
 | F10 Analytics & reports        | complete — reports desk; analytics metrics; journey bottlenecks + capacity; forecast explorer, patient experience and staff analytics (`/analytics`) | audit-log viewing is not buildable (no API list endpoint) |
 | F11 Portal & queue display     | **complete** — display board; patient portal gate + profile `/portal`, then appointments, lab results and feedback (`/portal/*`)                   | patient booking has no portal endpoint (booking is staff-only) |
 | F11B Public website            | **complete** — search, intake, tracking, and the session start/end UI on the live contract | —                                                      |
-| Quality desk (feedback, complaints, incidents) | **in progress** — three filtered read worklists (`/quality/feedback`, `/quality/complaints`, `/quality/incidents`); feedback and complaint detail workspaces with their writes (`/quality/feedback/[id]`, `/quality/complaints/[id]`); the incident workspace and its writes remain | incident actions-taken/resolution flow not yet built             |
+| Quality desk (feedback, complaints, incidents) | **complete** — three filtered read worklists (`/quality/feedback`, `/quality/complaints`, `/quality/incidents`), each with a detail workspace and its writes: feedback respond, complaint raise/assign/investigate/resolve/close, incident report/investigate/action-plan/resolve/close | lists one page, no pager; assignee named only in the complaint detail |
 | F12 Hardening & release        | complete in this slice — strict CSP, deployment story, design review                       | image build unverified on a Docker-capable machine     |
 
 **Signature components (brief §2.4): 20 of 20.**
@@ -1951,4 +1951,53 @@ remaining entity.
 
 Gate: lint clean, `tsc --noEmit` 0, unit **623** (+4: `quality.test.ts`),
 `build:prod` OK (route `/quality/complaints/[id]`), e2e/a11y **283** (was 277:
++4 route variants in four themes, +2 workspace tests).
+
+## Quality desk, slice 4: the incidents workspace, reporting and its lifecycle
+
+**Status:** slice 3 did complaints. This last slice does incidents, closing the
+quality desk: a row link into `/quality/incidents/[id]`, the record read back, a
+report write from the worklist and the linear lifecycle that carries an incident
+OPEN → INVESTIGATING → ACTION_PLAN → RESOLVED → CLOSED. All three quality entities
+are now end to end, and no quality list keeps a focusable scroll region.
+
+- **Screen** (`src/components/staff/incident-workspace.tsx`). One incident with its
+  category, severity, description, reported/resolved/closed stamps, the actions
+  taken and the resolution; an action panel whose only move is the server's next
+  state. The service enforces no rule beyond the transition graph, so this screen
+  adds none: the actions-taken field appears on the ACTION_PLAN move and the
+  resolution on the RESOLVED move, both optional, and closure needs neither. A move
+  that races a stale tab resolves to a 409 rendered in place.
+- **Report from the worklist** (`src/components/staff/incident-dialog.tsx`). The
+  incidents desk gains a "Report an incident" action opening a dialog (category,
+  severity, description). The create DTO requires a `branchId` and there is no branch
+  picker (GAP-018), so the report is raised against the single example branch
+  (`QUALITY_BRANCH_ID`, mirroring `INPATIENT_BRANCH_ID`/`SCHEDULING_BRANCH_ID`); the
+  incident always opens OPEN.
+- **Worklist gains a row link.** `IncidentsWorklistScreen` now passes `rowHref`
+  (`/quality/incidents/{id}`) and a readable `rowLinkLabel` ("View {category}
+  incident"), and drops `scrollable` — no quality table needs the scroll region now.
+- **Data layer** (`src/lib/data/quality.ts`). `readIncidentRecord` unwraps the
+  `{ incident }` envelope every single read *and* both writes answer while the export
+  types the bare `IncidentResponseDto` (GAP-020); `INCIDENT_NEXT` mirrors
+  `INCIDENT_TRANSITIONS` in `domain/quality-flow.ts` so the one offered move is the
+  server's; `QUALITY_BRANCH_ID` is the single example branch a report is raised
+  against.
+- **Hooks** (`src/lib/data/queries.ts`). `useIncident(id)`, `useCreateIncident()`
+  (POST, opens OPEN) and `useUpdateIncidentStatus()`, each structurally validated and
+  invalidating the list and the record.
+- **Mocks/stub.** `quality-handlers.ts` and `e2e/stub-api.mjs` gain
+  `GET /incidents/{id}`, `POST /incidents` and `PATCH /incidents/{id}`; the stub
+  keeps a mutable clone of the incident fixtures and mirrors the transition table and
+  the resolver/closer stamping, so a move lands on the record the worklist reads
+  back.
+- **i18n.** The `quality.incidents.report`, `.linkLabel`, `.create.*` and
+  `.workspace.*` blocks in `en.json` and `sw.json`, key parity checked.
+- **Tests.** `quality.test.ts` +4 (`readIncidentRecord` unwrap and fail-closed, the
+  `INCIDENT_NEXT` table, the `QUALITY_BRANCH_ID` constant); the a11y sweep gained the
+  detail route and an incidents-workspace describe (one test walking an incident from
+  investigation to closure, one test reporting an incident from the worklist).
+
+Gate: lint clean, `tsc --noEmit` 0, unit **627** (+4: `quality.test.ts`),
+`build:prod` OK (route `/quality/incidents/[id]`), e2e/a11y **289** (was 283:
 +4 route variants in four themes, +2 workspace tests).

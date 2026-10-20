@@ -332,20 +332,25 @@ import {
   fetchFeedback,
   fetchFeedbackRecord,
   fetchIncidents,
+  fetchIncidentRecord,
   readComplaintRecord,
   readFeedbackRecord,
+  readIncidentRecord,
   type ComplaintPage,
   type ComplaintQuery,
   type ComplaintRow,
   type CreateComplaintInput,
+  type CreateIncidentInput,
   type FeedbackPage,
   type FeedbackQuery,
   type FeedbackRow,
   type IncidentPage,
   type IncidentQuery,
+  type IncidentRow,
   type QualityCallError,
   type RespondFeedbackInput,
   type UpdateComplaintInput,
+  type UpdateIncidentInput,
 } from '@/lib/data/quality';
 import { resolveApiError, type ResolvedApiError } from '@/lib/errors/catalog';
 /**
@@ -5284,6 +5289,102 @@ export function useUpdateComplaintStatus(): UseMutationResult<
     onSuccess: (complaint) => {
       queryClient.invalidateQueries({ queryKey: ['quality', 'complaints', 'detail', complaint.id] });
       queryClient.invalidateQueries({ queryKey: ['quality', 'complaints'] });
+    },
+  });
+}
+
+/**
+ * One incident `GET /incidents/{id}`. The export types the 200 as the bare
+ * `IncidentResponseDto` while the service answers `{ incident }` (GAP-020), so the
+ * record is validated through `readIncidentRecord`.
+ */
+export function useIncident(id: string): UseQueryResult<Fetched<IncidentRow>, QueryError> {
+  return useQuery<Fetched<IncidentRow>, QueryError>({
+    queryKey: ['quality', 'incidents', 'detail', id],
+    queryFn: async ({ signal }) => {
+      try {
+        const incident = await fetchIncidentRecord(id, signal);
+        return { data: incident, response: new Response(null, { status: 200 }) } satisfies Fetched<
+          IncidentRow
+        >;
+      } catch (call) {
+        throw toQueryError(call as QualityCallError);
+      }
+    },
+    staleTime: 15_000,
+    retry: (count, error) => count < 2 && (error.resolved?.retryable ?? false),
+  });
+}
+
+/** The write-side failure shape when a body cannot be read as `{ incident }`. */
+function incidentWriteError(status = 200): QueryError {
+  return { code: 'INTERNAL_ERROR', status, resolved: resolveApiError('INTERNAL_ERROR') };
+}
+
+/**
+ * Reports an incident `POST /incidents` (always opens at OPEN). The service answers
+ * `{ incident }` while the export types the bare entity (GAP-020), so the unwrapped
+ * body is validated structurally.
+ */
+export function useCreateIncident(): UseMutationResult<
+  IncidentRow,
+  QueryError,
+  CreateIncidentInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<IncidentRow, QueryError, CreateIncidentInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.POST('/incidents', {
+          body: {
+            branchId: input.branchId,
+            category: input.category,
+            severity: input.severity,
+            description: input.description,
+          },
+        }),
+      );
+      const parsed = readIncidentRecord(fetched.data);
+      if (!parsed.ok) throw incidentWriteError(201);
+      return parsed.incident;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quality', 'incidents'] });
+    },
+  });
+}
+
+/**
+ * Moves an incident `PATCH /incidents/{id}` — the linear lifecycle, carrying the
+ * actions taken or the resolution where the move records them. The server offers no
+ * extra rule beyond the transition graph, so the only move offered is the next one,
+ * and one that races a stale tab resolves to a 409 rendered in place.
+ */
+export function useUpdateIncidentStatus(): UseMutationResult<
+  IncidentRow,
+  QueryError,
+  UpdateIncidentInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<IncidentRow, QueryError, UpdateIncidentInput>({
+    mutationFn: async (input) => {
+      const fetched = await unwrap<unknown>(
+        api.PATCH('/incidents/{id}', {
+          params: { path: { id: input.id } },
+          body: {
+            status: input.status,
+            ...(input.actionsTaken !== undefined ? { actionsTaken: input.actionsTaken } : {}),
+            ...(input.resolution !== undefined ? { resolution: input.resolution } : {}),
+          },
+        }),
+      );
+      const parsed = readIncidentRecord(fetched.data);
+      if (!parsed.ok) throw incidentWriteError();
+      return parsed.incident;
+    },
+    onSuccess: (incident) => {
+      queryClient.invalidateQueries({ queryKey: ['quality', 'incidents', 'detail', incident.id] });
+      queryClient.invalidateQueries({ queryKey: ['quality', 'incidents'] });
     },
   });
 }

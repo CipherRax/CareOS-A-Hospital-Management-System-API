@@ -8,6 +8,7 @@ import { DataTable, type DataTableColumn } from '@/components/clinical/data-tabl
 import { EmptyState } from '@/components/clinical/empty-state';
 import { StatusPill, type StatusTone } from '@/components/clinical/status-pill';
 import { RaiseComplaintDialog } from '@/components/staff/complaint-dialog';
+import { ReportIncidentDialog } from '@/components/staff/incident-dialog';
 import { Button } from '@/components/ui/button';
 import { Field, Select } from '@/components/ui/field';
 import {
@@ -359,6 +360,7 @@ export function IncidentsWorklistScreen() {
   const [status, setStatus] = useState<IncidentStatus | ''>('');
   const [severity, setSeverity] = useState<IncidentSeverity | ''>('');
   const [category, setCategory] = useState<IncidentCategory | ''>('');
+  const [reportOpen, setReportOpen] = useState(false);
 
   const incidents = useIncidentsList({
     status: status || undefined,
@@ -409,7 +411,16 @@ export function IncidentsWorklistScreen() {
 
   return (
     <div className="flex flex-col gap-4 px-6 py-6">
-      <WorklistHeader title={t('pageTitle')} intro={t('pageIntro')} />
+      <WorklistHeader
+        title={t('pageTitle')}
+        intro={t('pageIntro')}
+        action={
+          <Button variant="primary" onClick={() => setReportOpen(true)}>
+            <Plus aria-hidden className="size-4" />
+            {t('report')}
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap items-end gap-4">
         <SelectFilter
@@ -451,11 +462,14 @@ export function IncidentsWorklistScreen() {
           columns={columns}
           rows={rows}
           rowKey={(row) => row.id}
-          scrollable
+          rowHref={(row) => `/quality/incidents/${row.id}`}
+          rowLinkLabel={(row) => t('linkLabel', { category: t(`category.${row.category}`) })}
           loading={incidents.isLoading}
           emptyMessage={t('empty')}
         />
       )}
+
+      <ReportIncidentDialog open={reportOpen} onOpenChange={setReportOpen} />
     </div>
   );
 }

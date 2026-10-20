@@ -9,13 +9,16 @@ import {
   extractIncidentPage,
   FEEDBACK_NEXT,
   FEEDBACK_STATUSES,
+  INCIDENT_NEXT,
   INCIDENT_SEVERITIES,
   INCIDENT_STATUSES,
+  QUALITY_BRANCH_ID,
   readComplaint,
   readComplaintRecord,
   readFeedback,
   readFeedbackRecord,
   readIncident,
+  readIncidentRecord,
   type ComplaintRow,
   type FeedbackRow,
   type IncidentRow,
@@ -227,6 +230,36 @@ describe('COMPLAINT_NEXT', () => {
 describe('COMPLAINT_ASSIGNABLE', () => {
   it('is exactly the states a complaint may be (re)assigned while in', () => {
     expect([...COMPLAINT_ASSIGNABLE]).toEqual(['ASSIGNED', 'INVESTIGATING']);
+  });
+});
+
+describe('readIncidentRecord', () => {
+  it('unwraps the { incident } envelope every single read and write answer', () => {
+    expect(readIncidentRecord({ incident })).toEqual({ ok: true, incident });
+  });
+
+  it('fails closed on the bare entity, on drift, and on a non-object body', () => {
+    expect(readIncidentRecord(incident).ok).toBe(false);
+    expect(readIncidentRecord({ incident: { ...incident, status: 'PENDING' } }).ok).toBe(false);
+    expect(readIncidentRecord(null).ok).toBe(false);
+  });
+});
+
+describe('INCIDENT_NEXT', () => {
+  it('is the single forward move the server allows from each state', () => {
+    expect(INCIDENT_NEXT).toEqual({
+      OPEN: 'INVESTIGATING',
+      INVESTIGATING: 'ACTION_PLAN',
+      ACTION_PLAN: 'RESOLVED',
+      RESOLVED: 'CLOSED',
+      CLOSED: null,
+    });
+  });
+});
+
+describe('QUALITY_BRANCH_ID', () => {
+  it('is the single example branch a report is raised against (GAP-018)', () => {
+    expect(QUALITY_BRANCH_ID).toBe('br_example_0001');
   });
 });
 

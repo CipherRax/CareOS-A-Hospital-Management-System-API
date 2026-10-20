@@ -2753,6 +2753,59 @@
       "empty": "No incidents match this filter.",
       "unavailableTitle": "Incidents unavailable",
       "unavailableBody": "The incident list could not be loaded. Try again shortly.",
+      "report": "Report an incident",
+      "linkLabel": "View {category} incident",
+      "create": {
+        "title": "Report an incident",
+        "body": "Record an operational or safety incident. It opens for investigation.",
+        "categoryLabel": "Category",
+        "severityLabel": "Severity",
+        "descriptionLabel": "Description",
+        "cancel": "Cancel",
+        "submit": "Report incident",
+        "submitting": "Reporting…",
+        "errors": {
+          "descriptionRequired": "Enter a description.",
+          "invalid": "The incident was rejected. Check the fields and try again.",
+          "failed": "The incident could not be reported. Try again shortly."
+        }
+      },
+      "workspace": {
+        "back": "Back to incidents",
+        "loading": "Loading incident…",
+        "unavailableTitle": "Incident unavailable",
+        "unavailableBody": "This incident could not be loaded. Try again shortly.",
+        "notFoundTitle": "Incident not found",
+        "notFoundBody": "No incident matches this reference.",
+        "summaryHeading": "Summary",
+        "resolvedAt": "Resolved",
+        "closedAt": "Closed",
+        "notRecorded": "Not recorded",
+        "descriptionLabel": "Description",
+        "actionsHeading": "Actions taken",
+        "noActions": "No actions recorded yet.",
+        "actionHeading": "Action",
+        "actionsLabel": "Actions taken",
+        "actionsHint": "Record what has been done so far. Optional.",
+        "resolutionLabel": "Resolution",
+        "resolutionHint": "Record how the incident was resolved. Optional.",
+        "noMoves": "This incident is closed; no further action is offered.",
+        "submitting": "Saving…",
+        "move": {
+          "INVESTIGATING": "Start investigating",
+          "ACTION_PLAN": "File action plan",
+          "RESOLVED": "Mark resolved",
+          "CLOSED": "Close"
+        },
+        "errors": {
+          "staleTitle": "This incident has moved on",
+          "staleBody": "Someone changed its status since this page loaded. Reload to see the current state.",
+          "invalidTitle": "That move was not accepted",
+          "invalidBody": "The server rejected this change. Check the details and try again.",
+          "failedTitle": "The change could not be saved",
+          "failedBody": "Try again shortly."
+        }
+      },
       "status": {
         "OPEN": "Open",
         "INVESTIGATING": "Investigating",

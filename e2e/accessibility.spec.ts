@@ -57,6 +57,7 @@ const ROUTES = [
   { path: '/quality/complaints', name: 'Complaints' },
   { path: '/quality/complaints/cmp_example_6201', name: 'Billing dispute' },
   { path: '/quality/incidents', name: 'Incidents' },
+  { path: '/quality/incidents/inc_example_6301', name: 'Stock discrepancy' },
   { path: '/wards', name: 'Ward board' },
   { path: '/wards/ward_example_3001', name: 'EXAMPLE Medical Ward' },
   { path: '/admissions', name: 'Admissions' },
@@ -794,6 +795,56 @@ test.describe('complaints workspace', () => {
 
     await expect(
       page.getByRole('link', { name: /View EXAMPLE overbilling on a scan complaint/ }),
+    ).toBeVisible();
+  });
+});
+
+test.describe('incidents workspace', () => {
+  test('opens an incident and walks it from investigation to closure', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/quality/incidents');
+
+    // The worklist filter test reads this record's description and another's; the
+    // walk changes only status, so it stays off what that sibling test asserts.
+    await page.getByRole('link', { name: /View Stock discrepancy incident/ }).click();
+    await expect(page.getByRole('heading', { name: 'Stock discrepancy', exact: true })).toBeVisible();
+
+    const results = await analyse(page);
+    expect(results.violations, describe(results.violations)).toEqual([]);
+
+    await page.getByRole('button', { name: 'Start investigating' }).click();
+    await expect(page.getByRole('button', { name: 'File action plan' })).toBeVisible();
+
+    await page
+      .locator('#incident-actions-taken')
+      .fill('EXAMPLE quarantined the batch and recounted against the ledger.');
+    await page.getByRole('button', { name: 'File action plan' }).click();
+    await expect(page.getByRole('button', { name: 'Mark resolved' })).toBeVisible();
+
+    await page
+      .locator('#incident-resolution')
+      .fill('EXAMPLE ledger corrected after a full recount; no further loss.');
+    await page.getByRole('button', { name: 'Mark resolved' }).click();
+    await expect(page.getByRole('button', { name: 'Close' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect(
+      page.getByText('This incident is closed; no further action is offered.'),
+    ).toBeVisible();
+  });
+
+  test('reports an incident from the worklist', async ({ page }) => {
+    await signInViaUi(page);
+    await page.goto('/quality/incidents');
+
+    await page.getByRole('button', { name: 'Report an incident' }).click();
+    await page
+      .locator('#incident-description')
+      .fill('EXAMPLE repeated generator failures overnight.');
+    await page.getByRole('button', { name: 'Report incident' }).click();
+
+    await expect(
+      page.getByRole('table').getByText('EXAMPLE repeated generator failures overnight.'),
     ).toBeVisible();
   });
 });

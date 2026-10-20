@@ -483,3 +483,63 @@ export async function fetchIncidents(
     signal,
   );
 }
+
+/**
+ * The single example branch, mirroring `INPATIENT_BRANCH_ID` and
+ * `SCHEDULING_BRANCH_ID`. `POST /incidents` requires a `branchId` and there is no
+ * branch picker in the app (GAP-018), so the report is raised against this branch,
+ * exactly as admissions and appointments are.
+ */
+export const QUALITY_BRANCH_ID = 'br_example_0001';
+
+/** The linear incident lifecycle, mirroring `INCIDENT_TRANSITIONS`. */
+export const INCIDENT_NEXT: Record<IncidentStatus, IncidentStatus | null> = {
+  OPEN: 'INVESTIGATING',
+  INVESTIGATING: 'ACTION_PLAN',
+  ACTION_PLAN: 'RESOLVED',
+  RESOLVED: 'CLOSED',
+  CLOSED: null,
+};
+
+/**
+ * Reads the `{ incident }` body every single-record read and write answers. The
+ * export types those as the bare `IncidentResponseDto` while the service wraps it
+ * (GAP-020), so the unwrapped body is validated structurally.
+ */
+export function readIncidentRecord(
+  payload: unknown,
+): { ok: true; incident: IncidentRow } | { ok: false } {
+  if (!isRecord(payload)) return { ok: false };
+  const incident = readIncident(payload.incident);
+  return incident ? { ok: true, incident } : { ok: false };
+}
+
+/** Raw read against `GET /incidents/{id}` (answers `{ incident }`, GAP-020). */
+export async function fetchIncidentRecord(
+  id: string,
+  signal?: AbortSignal,
+): Promise<IncidentRow> {
+  const url = `${publicEnv.apiBasePath}/incidents/${encodeURIComponent(id)}`;
+  return readEnvelope<IncidentRow>(
+    url,
+    (data) => {
+      const parsed = readIncidentRecord(data);
+      return parsed.ok ? { ok: true, value: parsed.incident } : { ok: false };
+    },
+    signal,
+  );
+}
+
+export interface CreateIncidentInput {
+  readonly branchId: string;
+  readonly category: IncidentCategory;
+  readonly severity: IncidentSeverity;
+  readonly description: string;
+}
+
+export interface UpdateIncidentInput {
+  readonly id: string;
+  readonly status: IncidentStatus;
+  readonly actionsTaken?: string;
+  readonly resolution?: string;
+}

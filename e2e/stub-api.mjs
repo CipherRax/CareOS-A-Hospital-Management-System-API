@@ -795,7 +795,11 @@ const FEEDBACK_NEXT = { NEW: 'ACKNOWLEDGED', ACKNOWLEDGED: 'RESOLVED', RESOLVED:
 const COMPLAINT_NEXT = { OPEN: 'ASSIGNED', ASSIGNED: 'INVESTIGATING', INVESTIGATING: 'RESOLVED', RESOLVED: 'CLOSED', CLOSED: null };
 const COMPLAINT_ASSIGNABLE = new Set(['ASSIGNED', 'INVESTIGATING']);
 const COMPLAINT_ORIGINS = new Set(['PATIENT', 'STAFF', 'OTHER']);
+const INCIDENT_NEXT = { OPEN: 'INVESTIGATING', INVESTIGATING: 'ACTION_PLAN', ACTION_PLAN: 'RESOLVED', RESOLVED: 'CLOSED', CLOSED: null };
+const INCIDENT_CATEGORIES = new Set(['OUTAGE', 'EQUIPMENT', 'STOCK_DISCREPANCY', 'DATA_ACCESS', 'FACILITY', 'PATIENT_SAFETY', 'OTHER']);
+const INCIDENT_SEVERITIES = new Set(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 let complaintSeq = 6206;
+let incidentSeq = 6306;
 const LIVE_COMPLAINTS = [
   { id: 'cmp_example_6201', organizationId: QUALITY_ORG, branchId: null, origin: 'PATIENT', patientId: 'pat_example_1001', submittedById: null, category: 'Billing dispute', description: 'EXAMPLE claims a duplicate charge on invoice INV-2026-000004.', status: 'OPEN', assignedToId: null, dueAt: '2026-10-09T00:00:00.000Z', resolution: null, closedById: null, closedAt: null, createdAt: '2026-10-02T10:00:00.000Z', updatedAt: '2026-10-02T10:00:00.000Z' },
   { id: 'cmp_example_6202', organizationId: QUALITY_ORG, branchId: QUALITY_BRANCH_ID, origin: 'STAFF', patientId: null, submittedById: QUALITY_REPORTER, category: 'Handover delay', description: 'EXAMPLE reports handover regularly starting more than 30 minutes late.', status: 'ASSIGNED', assignedToId: QUALITY_HANDLER, dueAt: '2026-10-10T00:00:00.000Z', resolution: null, closedById: null, closedAt: null, createdAt: '2026-10-01T19:45:00.000Z', updatedAt: '2026-10-02T09:05:00.000Z' },
@@ -3315,6 +3319,68 @@ const server = createServer(async (request, response) => {
       (!severity || row.severity === severity) &&
       (!category || row.category === category));
     send(response, 200, listEnvelope(items.map((row) => ({ ...row }))));
+    return;
+  }
+
+  if (url.pathname === '/incidents' && request.method === 'POST') {
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (typeof body.branchId !== 'string' || !body.branchId) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (!INCIDENT_CATEGORIES.has(body.category)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (!INCIDENT_SEVERITIES.has(body.severity)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const description = typeof body.description === 'string' ? body.description.trim() : '';
+    if (!description || description.length > 5000) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const now = new Date().toISOString();
+    const incident = {
+      id: `inc_example_${incidentSeq++}`,
+      organizationId: QUALITY_ORG,
+      branchId: body.branchId,
+      category: body.category,
+      severity: body.severity,
+      description,
+      reportedById: QUALITY_REPORTER,
+      status: 'OPEN',
+      actionsTaken: null,
+      resolution: null,
+      resolvedById: null,
+      resolvedAt: null,
+      closedById: null,
+      closedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    LIVE_INCIDENTS.unshift(incident);
+    send(response, 201, { success: true, data: { incident: { ...incident } } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/incidents\/[^/]+$/) && request.method === 'GET') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const incident = LIVE_INCIDENTS.find((row) => row.id === id);
+    if (!incident) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    send(response, 200, { success: true, data: { incident: { ...incident } } });
+    return;
+  }
+
+  if (url.pathname.match(/^\/incidents\/[^/]+$/) && request.method === 'PATCH') {
+    const id = url.pathname.split('/').slice(-1)[0];
+    const incident = LIVE_INCIDENTS.find((row) => row.id === id);
+    if (!incident) { send(response, 404, { success: false, error: { code: 'RESOURCE_NOT_FOUND' } }); return; }
+    let body;
+    try { body = JSON.parse((await readBody(request)) || '{}'); } catch { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    const next = body.status;
+    if (typeof next !== 'string' || !(next in INCIDENT_NEXT)) { send(response, 400, { success: false, error: { code: 'VALIDATION_ERROR' } }); return; }
+    if (incident.status !== next && INCIDENT_NEXT[incident.status] !== next) {
+      send(response, 409, { success: false, error: { code: 'INVALID_WORKFLOW_TRANSITION' } }); return;
+    }
+    const now = new Date().toISOString();
+    incident.status = next;
+    if (body.actionsTaken !== undefined) incident.actionsTaken = typeof body.actionsTaken === 'string' ? body.actionsTaken : null;
+    if (body.resolution !== undefined) incident.resolution = typeof body.resolution === 'string' ? body.resolution : null;
+    if (next === 'RESOLVED') { incident.resolvedById = QUALITY_HANDLER; incident.resolvedAt = now; }
+    if (next === 'CLOSED') { incident.closedById = QUALITY_HANDLER; incident.closedAt = now; }
+    incident.updatedAt = now;
+    send(response, 200, { success: true, data: { incident: { ...incident } } });
     return;
   }
 

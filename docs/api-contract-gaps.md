@@ -808,12 +808,13 @@ and `src/modules/roles`:
   complaint single read (`GET /complaints/{id}`) and its two writes
   (`POST /complaints`, `PATCH /complaints/{id}`) are now consumed through
   `readComplaintRecord`, which unwraps `{ complaint }`. The incident single read and
-  write are not yet consumed by a screen; when they are, the same family applies —
-  each single read is typed as the bare entity but answers `{ incident }`. The
-  lifecycle guards live in `src/modules/quality/domain/quality-flow.ts`: feedback may
-  not leave `NEW` without a recorded response, a complaint cannot be closed without
-  a resolution and may only be assigned while `ASSIGNED`/`INVESTIGATING`, and a
-  same-status patch is a no-op.
+  its two writes (`GET /incidents/{id}`, `POST /incidents`, `PATCH /incidents/{id}`)
+  are consumed through `readIncidentRecord`, which unwraps `{ incident }` — so all
+  three resources in the family now ride the raw-fetch + structural-validation path.
+  The lifecycle guards live in `src/modules/quality/domain/quality-flow.ts`: feedback
+  may not leave `NEW` without a recorded response, a complaint cannot be closed
+  without a resolution and may only be assigned while `ASSIGNED`/`INVESTIGATING`, and
+  a same-status patch is a no-op.
 - **Not built:** the audit-log viewing screen is **not buildable**: there is no
   audit-list endpoint (writes happen inside the API via
   `src/database/audit.service.ts`).

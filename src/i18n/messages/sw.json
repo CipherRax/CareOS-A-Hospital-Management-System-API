@@ -2768,6 +2768,59 @@
       "empty": "Hakuna matukio yanayolingana na kichujio hiki.",
       "unavailableTitle": "Matukio hayapatikani",
       "unavailableBody": "Orodha ya matukio haikuweza kupakiwa. Jaribu tena baada ya muda mfupi.",
+      "report": "Ripoti tukio",
+      "linkLabel": "Angalia tukio la {category}",
+      "create": {
+        "title": "Ripoti tukio",
+        "body": "Rekodi tukio la uendeshaji au usalama. Hufunguliwa kwa uchunguzi.",
+        "categoryLabel": "Kategoria",
+        "severityLabel": "Ukali",
+        "descriptionLabel": "Maelezo",
+        "cancel": "Ghairi",
+        "submit": "Ripoti tukio",
+        "submitting": "Inaripoti…",
+        "errors": {
+          "descriptionRequired": "Weka maelezo.",
+          "invalid": "Tukio lilikataliwa. Angalia sehemu na ujaribu tena.",
+          "failed": "Tukio halikuweza kuripotiwa. Jaribu tena baada ya muda mfupi."
+        }
+      },
+      "workspace": {
+        "back": "Rudi kwa matukio",
+        "loading": "Inapakua tukio…",
+        "unavailableTitle": "Tukio halipatikani",
+        "unavailableBody": "Tukio hili halikuweza kupakiwa. Jaribu tena baada ya muda mfupi.",
+        "notFoundTitle": "Tukio halipatikani",
+        "notFoundBody": "Hakuna tukio linalolingana na kumbukumbu hii.",
+        "summaryHeading": "Muhtasari",
+        "resolvedAt": "Ilitatuliwa",
+        "closedAt": "Ilifungwa",
+        "notRecorded": "Haijarekodiwa",
+        "descriptionLabel": "Maelezo",
+        "actionsHeading": "Hatua zilizochukuliwa",
+        "noActions": "Hakuna hatua zilizorekodiwa bado.",
+        "actionHeading": "Hatua",
+        "actionsLabel": "Hatua zilizochukuliwa",
+        "actionsHint": "Rekodi hatua zilizochukuliwa hadi sasa. Si lazima.",
+        "resolutionLabel": "Utatuzi",
+        "resolutionHint": "Rekodi jinsi tukio lilitatuliwa. Si lazima.",
+        "noMoves": "Tukio hili limefungwa; hakuna hatua zaidi.",
+        "submitting": "Inahifadhi…",
+        "move": {
+          "INVESTIGATING": "Anza kuchunguza",
+          "ACTION_PLAN": "Wasilisha mpango wa hatua",
+          "RESOLVED": "Weka kama lilitatuliwa",
+          "CLOSED": "Funga"
+        },
+        "errors": {
+          "staleTitle": "Tukio hili limeendelea",
+          "staleBody": "Mtu amebadilisha hali yake tangu ukurasa huu upakiwe. Pakia upya kuona hali ya sasa.",
+          "invalidTitle": "Hatua hiyo haikukubaliwa",
+          "invalidBody": "Seva ilikataa mabadiliko haya. Angalia maelezo na ujaribu tena.",
+          "failedTitle": "Mabadiliko hayakuweza kuhifadhiwa",
+          "failedBody": "Jaribu tena baada ya muda mfupi."
+        }
+      },
       "status": {
         "OPEN": "Wazi",
         "INVESTIGATING": "Inachunguzwa",
