@@ -16,11 +16,11 @@ import {
   useProviderDirectory,
   useTemplates,
   useUpdateTemplate,
+  useBranchOptions,
 } from '@/lib/data/queries';
 import {
   OVERRIDE_TYPES,
   SCHEDULE_DAYS,
-  SCHEDULES_BRANCH_ID,
   byDayAndTime,
   minutesToTime,
   timeToMinutes,
@@ -250,11 +250,15 @@ function TemplateForm({
   onDone: () => void;
 }) {
   const t = useTranslations('schedules.templateForm');
+  const tCommon = useTranslations('common');
   const create = useCreateTemplate();
   const update = useUpdateTemplate();
+  const branches = useBranchOptions();
+  const activeBranches = (branches.data?.data ?? []).filter((b) => b.status === 'ACTIVE');
 
   const [providerId, setProviderId] = useState(editing?.providerId ?? '');
   const [departmentId, setDepartmentId] = useState(editing?.departmentId ?? '');
+  const [branchId, setBranchId] = useState(editing?.branchId ?? '');
   const [dayOfWeek, setDayOfWeek] = useState(String(editing?.dayOfWeek ?? 0));
   const [start, setStart] = useState(
     editing ? minutesToTime(editing.startMinutes) : '08:00',
@@ -275,8 +279,8 @@ function TemplateForm({
     const startMinutes = timeToMinutes(start);
     const endMinutes = timeToMinutes(end);
     const slot = Number(slotDuration);
-    if (!providerId || !departmentId) {
-      setAlert({ title: t('missingTitle'), body: t('missingBody') });
+    if (!providerId || !departmentId || !branchId) {
+      setAlert({ title: tCommon('branchRequired') ?? t('missingTitle'), body: tCommon('chooseBranch') ?? t('missingBody') });
       return;
     }
     if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes || !Number.isFinite(slot) || slot <= 0 || endMinutes - startMinutes < slot) {
@@ -286,7 +290,7 @@ function TemplateForm({
 
     const input = {
       providerId,
-      branchId: SCHEDULES_BRANCH_ID,
+      branchId,
       departmentId,
       dayOfWeek: Number(dayOfWeek),
       startMinutes,
@@ -329,12 +333,36 @@ function TemplateForm({
               aria-describedby={describedBy}
               value={providerId}
               disabled={Boolean(editing)}
-              onChange={(event) => setProviderId(event.target.value)}
+              onChange={(event) => {
+                setProviderId(event.target.value);
+                if (alert) setAlert(null);
+              }}
             >
               <option value="">{t('chooseProvider')}</option>
               {providers.map((provider) => (
                 <option key={provider.id} value={provider.id}>
                   {provider.name}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        <Field id="tpl-branch" label={t('branch') ?? tCommon('branch')}>
+          {({ controlId, describedBy }) => (
+            <Select
+              id={controlId}
+              aria-describedby={describedBy}
+              value={branchId}
+              disabled={Boolean(editing)}
+              onChange={(event) => {
+                setBranchId(event.target.value);
+                if (alert) setAlert(null);
+              }}
+            >
+              <option value="">{t('chooseBranch') ?? tCommon('chooseBranch')}</option>
+              {activeBranches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
                 </option>
               ))}
             </Select>
@@ -471,10 +499,14 @@ function OverrideForm({
   departments: readonly { id: string; name: string; active: boolean }[];
 }) {
   const t = useTranslations('schedules.overrideForm');
+  const tCommon = useTranslations('common');
   const create = useCreateOverride();
+  const branches = useBranchOptions();
+  const activeBranches = (branches.data?.data ?? []).filter((b) => b.status === 'ACTIVE');
 
   const [providerId, setProviderId] = useState('');
   const [departmentId, setDepartmentId] = useState('');
+  const [branchId, setBranchId] = useState('');
   const [date, setDate] = useState('');
   const [type, setType] = useState<OverrideType>('LEAVE');
   const [start, setStart] = useState('09:00');
@@ -488,8 +520,8 @@ function OverrideForm({
   function submit() {
     setAlert(null);
     setReceipt(false);
-    if (!providerId || !date) {
-      setAlert({ title: t('missingTitle'), body: t('missingBody') });
+    if (!providerId || !date || !branchId) {
+      setAlert({ title: tCommon('branchRequired') ?? t('missingTitle'), body: tCommon('chooseBranch') ?? t('missingBody') });
       return;
     }
     let startMinutes: number | undefined;
@@ -507,7 +539,7 @@ function OverrideForm({
     create.mutate(
       {
         providerId,
-        branchId: SCHEDULES_BRANCH_ID,
+        branchId,
         departmentId,
         date,
         type,
@@ -544,12 +576,35 @@ function OverrideForm({
               id={controlId}
               aria-describedby={describedBy}
               value={providerId}
-              onChange={(event) => setProviderId(event.target.value)}
+              onChange={(event) => {
+                setProviderId(event.target.value);
+                if (alert) setAlert(null);
+              }}
             >
               <option value="">{t('chooseProvider')}</option>
               {providers.map((provider) => (
                 <option key={provider.id} value={provider.id}>
                   {provider.name}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        <Field id="ovr-branch" label={t('branch') ?? tCommon('branch')}>
+          {({ controlId, describedBy }) => (
+            <Select
+              id={controlId}
+              aria-describedby={describedBy}
+              value={branchId}
+              onChange={(event) => {
+                setBranchId(event.target.value);
+                if (alert) setAlert(null);
+              }}
+            >
+              <option value="">{t('chooseBranch') ?? tCommon('chooseBranch')}</option>
+              {activeBranches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
                 </option>
               ))}
             </Select>
