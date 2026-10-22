@@ -124,4 +124,42 @@ describe('role-matrix invariants', () => {
     );
     expect(supersets).toEqual([]);
   });
+
+  describe('sync and privacy grants', () => {
+    const permissionsOf = (key: string): string[] =>
+      DEFAULT_ROLE_LIST.find((r) => r.key === key)?.permissions ?? [];
+
+    it('gives OWNER the sync and privacy permissions', () => {
+      const owner = permissionsOf('OWNER');
+      expect(owner).toContain('sync.read');
+      expect(owner).toContain('privacy.read');
+      expect(owner).toContain('privacy.manage');
+      expect(owner).toContain('data_exports.request');
+      expect(owner).toContain('data_exports.read');
+    });
+
+    it('gives HOSPITAL_ADMIN the privacy management permission', () => {
+      expect(permissionsOf('HOSPITAL_ADMIN')).toContain('privacy.manage');
+    });
+
+    it('keeps the auditor read-only over the privacy surface', () => {
+      const auditor = permissionsOf('AUDITOR');
+      expect(auditor).toContain('privacy.read');
+      expect(auditor).toContain('sync.read');
+      expect(auditor).not.toContain('privacy.manage');
+    });
+
+    it('does not let a records officer manage privacy', () => {
+      const officer = permissionsOf('RECORDS_OFFICER');
+      expect(officer).toContain('privacy.read');
+      expect(officer).not.toContain('privacy.manage');
+    });
+
+    it('does not grant the patient role any privacy or sync access', () => {
+      const patient = permissionsOf('PATIENT');
+      expect(patient).not.toContain('sync.read');
+      expect(patient).not.toContain('privacy.read');
+      expect(patient).not.toContain('data_exports.read');
+    });
+  });
 });
