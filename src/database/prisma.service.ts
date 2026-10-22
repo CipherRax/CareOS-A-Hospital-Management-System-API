@@ -140,6 +140,11 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'MpesaRequest',
   'MpesaReconciliationRun',
   'MpesaReconciliationMatch',
+  // Offline sync + privacy (brief §8/§10).
+  'ChangeLog',
+  'RetentionPolicy',
+  'LegalHold',
+  'DataExport',
 ]);
 
 type Op = string;

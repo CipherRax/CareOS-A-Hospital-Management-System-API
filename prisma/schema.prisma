@@ -92,6 +92,10 @@ model Organization {
   medicalHistory       MedicalHistoryEntry[]
   patientAccessLogs    PatientAccessLog[]
   patientTimelines     PatientTimelineEntry[]
+  changeLogs           ChangeLog[]
+  retentionPolicies    RetentionPolicy[]
+  legalHolds           LegalHold[]
+  dataExports          DataExport[]
 
   organizationSettings OrganizationSetting[]
   userPreferences      UserPreference[]
@@ -941,6 +945,7 @@ model Patient {
   medicalHistory       MedicalHistoryEntry[]
   accessLogs           PatientAccessLog[]
   timeline             PatientTimelineEntry[]
+  legalHolds           LegalHold[]
   mergedIntoPatient    Patient?               @relation("PatientMerge", fields: [mergedIntoPatientId], references: [id])
   mergedSourcePatients Patient[]              @relation("PatientMerge")
 
@@ -4895,4 +4900,138 @@ model OnboardingInquiry {
 
   @@index([status, createdAt])
   @@map("onboarding_inquiries")
+}
+
+// ---------------------------------------------------------------------------
+// Offline-first sync (brief §10). A monotonic change log fed from the outbox
+// gives offline-capable clients a cursor to pull only what changed since their
+// last sync, already filtered to what the caller is authorized to see.
+//
+// The cursor is the `ChangeLog.id` — a UUIDv7, so lexicographic order equals
+// insertion order. `sourceEventId` pins each row to its outbox event so a
+// consumer replay upserts instead of duplicating (idempotent projection).
+// Payloads carry IDs and a change kind only — never PHI.
+// ---------------------------------------------------------------------------
+
+enum ChangeOperation {
+  UPSERT
+  DELETE
+}
+
+model ChangeLog {
+  id             String          @id
+  // Monotonic insertion sequence. The sync cursor is this value: a bigint
+  // comparison is collation-proof, whereas comparing UUIDv7 ids as text
+  // depends on the database collation.
+  seq            BigInt          @unique @default(autoincrement())
+  organizationId String
+  // The resource type a client syncs by (e.g. 'patient', 'appointment').
+  resourceType   String
+  resourceId     String
+  operation      ChangeOperation @default(UPSERT)
+  version        Int             @default(1)
+  branchId       String?
+  // The permission a caller must hold to receive this row. Stored so the read
+  // path can filter without a per-resource map drifting from the writers.
+  requiredPermission String
+  actorId        String?
+  // Pins the projection to one outbox event (idempotent replays). Null for
+  // rows written outside an event (none today; reserved for backfills).
+  sourceEventId  String?
+  occurredAt     DateTime        @default(now())
+  createdAt      DateTime        @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, sourceEventId])
+  @@index([organizationId, seq])
+  @@index([organizationId, resourceType, seq])
+  @@map("change_log")
+}
+
+// ---------------------------------------------------------------------------
+// Privacy: retention, legal hold, export, anonymization (brief §8).
+//
+// A RetentionPolicy is org reference data: one row per record category with a
+// retention window and the action to take when it elapses. `LegalHold` flags a
+// patient (and its graph) so no automated deletion/anonymization can run while
+// held. `DataExport` is the permission-controlled, audited, asynchronous
+// export job; the artifact is stored in object storage and downloaded through
+// an authorized API (never a public URL).
+// ---------------------------------------------------------------------------
+
+enum RetentionAction {
+  ARCHIVE
+  ANONYMIZE
+  REVIEW
+}
+
+model RetentionPolicy {
+  id             String          @id
+  organizationId String
+  // Record category (e.g. 'patient', 'encounter', 'audit_log').
+  category       String
+  retentionDays  Int
+  action         RetentionAction @default(REVIEW)
+  enabled        Boolean         @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, category])
+  @@map("retention_policies")
+}
+
+model LegalHold {
+  id             String  @id
+  organizationId String
+  patientId      String
+  reason         String
+  // The user who placed the hold (null only if the account was later removed).
+  placedById     String?
+  placedAt       DateTime @default(now())
+  releasedAt     DateTime?
+  releasedById   String?
+  releaseReason  String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, patientId])
+  @@index([organizationId, releasedAt])
+  @@map("legal_holds")
+}
+
+enum DataExportStatus {
+  PENDING
+  READY
+  FAILED
+  EXPIRED
+}
+
+model DataExport {
+  id             String           @id
+  organizationId String
+  patientId      String?
+  requestedById  String?
+  status         DataExportStatus @default(PENDING)
+  format         String           @default("JSON")
+  // Object-storage key for the artifact (set when READY).
+  storageKey     String?
+  contentType    String?
+  sizeBytes      Int?
+  failureReason  String?
+  expiresAt      DateTime?
+  completedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, patientId, createdAt])
+  @@map("data_exports")
 }

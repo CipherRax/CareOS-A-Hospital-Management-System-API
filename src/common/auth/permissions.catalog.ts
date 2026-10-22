@@ -304,6 +304,21 @@ export const PERMISSION_GROUPS = {
   emergencySettings: {
     manage: 'emergency_settings.manage',
   },
+  // Offline sync + privacy (brief §8/§10). `sync.read` lets an offline client
+  // pull its change feed (rows are still filtered per-resource by permission).
+  // `privacy.manage` covers retention policies, legal holds and data exports;
+  // `data_exports.read` covers reading your own export artifacts.
+  sync: {
+    read: 'sync.read',
+  },
+  privacy: {
+    read: 'privacy.read',
+    manage: 'privacy.manage',
+  },
+  dataExports: {
+    request: 'data_exports.request',
+    read: 'data_exports.read',
+  },
 } as const;
 
 export type Permission = string;

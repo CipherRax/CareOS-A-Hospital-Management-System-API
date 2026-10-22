@@ -188,6 +188,11 @@ const ALL = [
   G.emergencyRequests.read,
   G.emergencyRequests.manage,
   G.emergencySettings.manage,
+  G.sync.read,
+  G.privacy.read,
+  G.privacy.manage,
+  G.dataExports.request,
+  G.dataExports.read,
 ];
 
 /**
@@ -321,6 +326,11 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.emergencyRequests.read,
       G.emergencyRequests.manage,
       G.emergencySettings.manage,
+      G.privacy.read,
+      G.privacy.manage,
+      G.dataExports.request,
+      G.dataExports.read,
+      G.sync.read,
     ],
   },
   DOCTOR: {
@@ -654,6 +664,10 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.reports.read,
       G.inpatient.read,
       G.emergency.read,
+      G.privacy.read,
+      G.dataExports.request,
+      G.dataExports.read,
+      G.sync.read,
     ],
   },
   MANAGER: {
@@ -723,6 +737,11 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.analytics.read,
       G.publicListing.manage,
       G.emergencyRequests.read,
+      G.privacy.read,
+      G.privacy.manage,
+      G.dataExports.request,
+      G.dataExports.read,
+      G.sync.read,
     ],
   },
   AUDITOR: {
@@ -769,6 +788,9 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.assets.read,
       G.maintenance.read,
       G.analytics.read,
+      G.privacy.read,
+      G.dataExports.read,
+      G.sync.read,
     ],
   },
   PATIENT: {

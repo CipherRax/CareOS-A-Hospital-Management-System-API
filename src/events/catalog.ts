@@ -158,6 +158,16 @@ export const EventTypes = {
    * for the final "call now" nudge to the caller and the on-call contacts.
    */
   EmergencyRequestFinalEscalation: 'Emergency.RequestFinalEscalation',
+  /**
+   * Privacy surface (brief §8). Payloads carry IDs only. A legal hold blocks
+   * automated deletion/anonymization of a patient's graph; an export is an
+   * asynchronous, audited job. Emitted so the change log and audit trail can
+   * project them uniformly.
+   */
+  LegalHoldPlaced: 'Privacy.LegalHoldPlaced',
+  LegalHoldReleased: 'Privacy.LegalHoldReleased',
+  DataExportRequested: 'Privacy.DataExportRequested',
+  DataExportCompleted: 'Privacy.DataExportCompleted',
   /** Communication & documents (brief Phase 9). Payloads carry IDs only. */
   NotificationsQueued: 'Communications.NotificationsQueued',
   ConversationCreated: 'Communications.ConversationCreated',
@@ -326,6 +336,10 @@ export const EVENT_VERSION: Record<EventType, number> = {
   [EventTypes.EmergencyRequestDuplicate]: 1,
   [EventTypes.EmergencyRequestArrivalLinked]: 1,
   [EventTypes.EmergencyRequestFinalEscalation]: 1,
+  [EventTypes.LegalHoldPlaced]: 1,
+  [EventTypes.LegalHoldReleased]: 1,
+  [EventTypes.DataExportRequested]: 1,
+  [EventTypes.DataExportCompleted]: 1,
   [EventTypes.NotificationsQueued]: 1,
   [EventTypes.ConversationCreated]: 1,
   [EventTypes.ConversationMessageSent]: 1,
