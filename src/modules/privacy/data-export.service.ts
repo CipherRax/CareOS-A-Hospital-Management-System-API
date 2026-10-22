@@ -55,6 +55,16 @@ export class DataExportService {
     try {
       const payload = await this.collect(organizationId, record.patientId);
       const body = Buffer.from(JSON.stringify(payload, null, 2), 'utf8');
+      // The cap is enforced here, at the write, so the artifact on record can
+      // never exceed what the download path is prepared to serve. Without it an
+      // oversized export would be stored, its recorded size would raise the
+      // read cap past the limit, and the "runaway guard" would stop guarding.
+      if (body.byteLength > MAX_EXPORT_ARTIFACT_BYTES) {
+        throw new AppError({
+          code: ErrorCodes.VALIDATION_ERROR,
+          message: `Export artifact is ${body.byteLength} bytes, over the ${MAX_EXPORT_ARTIFACT_BYTES} byte limit.`,
+        });
+      }
       const key = `exports/${organizationId}/${record.id}.json`;
 
       await this.storage.put(key, body, 'application/json');
@@ -74,14 +84,22 @@ export class DataExportService {
 
       await this.emitCompleted(organizationId, record.id);
     } catch (err) {
-      const message = err instanceof Error ? err.name : 'generation failed';
+      // An AppError carries a message worth keeping (an oversized export, a
+      // storage refusal); anything else is reported by type only, so an
+      // internal failure does not leak its detail into a readable column.
+      const reason =
+        err instanceof AppError
+          ? err.message
+          : err instanceof Error
+            ? err.name
+            : 'generation failed';
       this.logger.warn(
         `data export ${exportId} failed: ${err instanceof Error ? err.message : String(err)}`,
       );
       await db.dataExport
         .update({
           where: { id: record.id },
-          data: { status: 'FAILED', failureReason: `generation failed (${message})` },
+          data: { status: 'FAILED', failureReason: `generation failed (${reason})` },
         })
         .catch((recordErr) => {
           this.logger.error(

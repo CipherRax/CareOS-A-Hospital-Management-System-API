@@ -232,6 +232,13 @@ export class PrivacyController {
       });
     }
 
+    // The recorded size is authoritative for Content-Length, but it is not the
+    // read cap. The cap is a runaway guard sized off what an export can
+    // plausibly weigh, not off the row: an artifact that has grown far past
+    // its recorded size is corrupt or substituted, and the download should
+    // fail rather than quietly ship megabytes nobody asked for. A legitimate
+    // artifact is never truncated, because the writer refuses to store one
+    // over the cap and the cap sits far above any real export.
     const stream = await this.storage.stream(
       target.storageKey,
       Math.max(target.sizeBytes ?? 0, MAX_EXPORT_ARTIFACT_BYTES),
