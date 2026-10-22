@@ -3,6 +3,92 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-058 — The sync cursor is a monotonic sequence, not a UUID compared as text
+
+**Status:** accepted (Phase 13)
+
+**Context:** brief §10 asks for offline-first sync: a client pulls the changes
+made since it was last online. The feed has to be ordered, gap-free, and
+resumable, and the cursor that says "I have seen everything up to here" is
+therefore a load-bearing piece of state — a cursor that sorts differently from
+the way rows are produced silently drops or repeats changes.
+
+**Decision:** the change log carries a monotonic `seq` (a `BIGSERIAL`), and the
+client cursor is that number.
+
+- **Why not the UUIDv7 id.** A UUIDv7 is time-ordered as *bytes*, and a `text`
+  comparison in Postgres is a *collation* comparison. Under a locale whose
+  collation is not byte-ordered, `>` on the id column is not the same
+  relation the id was minted under. Comparing a `bigint` sidesteps the
+  question entirely: the ordering is arithmetic, and it is the same ordering on
+  every database, every locale, and every replica.
+- **The id is still the primary key.** `seq` is a cursor, not an identity:
+  clients and logs refer to a change by its id, and the id is a UUIDv7 for the
+  same reasons every other id in this system is (ADR-003).
+- **The change log is written by an outbox consumer, not by the request
+  handlers.** `ChangeLogProjectionConsumer` projects domain events into rows
+  pinned to their source event by a unique `(organizationId, sourceEventId)`
+  index, so a replayed event upserts the same row instead of duplicating it.
+- **Rows carry ids and metadata only** — never PHI. The client re-reads the
+  record itself; the feed only says *what changed*.
+- **The row stores the permission that unlocks it** (`requiredPermission`),
+  written from the same registry that maps a resource to its permission. The
+  read path filters on the stored value as well as on the resource type, so a
+  mapping that drifts cannot leak a row to a caller who may not read it.
+
+**Consequences:** the cursor is a short decimal string, and a client that
+sends a malformed one is refused (`INVALID_SYNC_CURSOR`) rather than silently
+restarting from the beginning of history. A pull with no changes echoes the
+caller's cursor, so a poll loop cannot accidentally re-deliver the whole log.
+The registry in `modules/sync/domain/sync-resources.ts` is the single source
+for both the writer and the reader, which is what keeps the two from drifting
+apart.
+
+## ADR-057 — A legal hold blocks anonymization loudly, and the sweep never rewrites records it is not sure about
+
+**Status:** accepted (Phase 13)
+
+**Context:** brief §8 asks for retention, legal holds, and data-subject
+erasure. These three pull against each other: retention says *remove this
+eventually*, a legal hold says *keep this, whatever else you would do*, and
+erasure says *remove this now*. An implementation that gets the precedence
+wrong either destroys material that must be preserved, or retains data that
+must go.
+
+**Decision:** the hold wins, and the API says so.
+
+- **A hold blocks with an explicit error, not a silent skip.** `POST
+  /privacy/patients/:id/anonymize` returns `409 LEGAL_HOLD_ACTIVE` when the
+  patient is held. A silently skipped request would look like a completed one
+  to the caller, which is the failure mode that matters: someone believes a
+  subject's data was erased, and it was not.
+- **The sweep skips held patients and counts them.** The retention sweep
+  reports `held` separately from `processed`, so an operator can see that
+  records were withheld rather than missing.
+- **A `REVIEW` policy changes nothing.** Retention decisions that are not
+  mechanical are reported for a human, not guessed at.
+- **Financial and audit records are never rewritten by a sweep.** Invoices and
+  the audit trail are reported only. Audit integrity is a hard requirement, and
+  a bulk rewrite of the audit log would defeat the point of having one.
+- **Anonymization is reduction, not deletion.** The patient's direct
+  identifiers are replaced with a fixed subject key derived from the patient's
+  id, and the record is archived. The record's existence, dates, and clinical
+  structure survive, so a cohort that counted encounters still counts them,
+  while no field identifies the person. The clinical content of a note, result,
+  or report is redacted when the policy names that category.
+- **Holds are recorded, never deleted.** Releasing a hold stamps
+  `releasedAt`/`releasedById`/`releaseReason`, so the hold history survives
+  the hold. A patient may have only one *active* hold; a second attempt is
+  refused (`LEGAL_HOLD_ALREADY_ACTIVE`) rather than stacked, because stacked
+  holds would have to be released one at a time to restore eligibility.
+
+**Consequences:** three new error codes carry the outcomes
+(`LEGAL_HOLD_ACTIVE`, `LEGAL_HOLD_ALREADY_ACTIVE`, `LEGAL_HOLD_NOT_FOUND`),
+and `LEGAL_HOLD_ACTIVE` — which existed in the code table with no writer — now
+has one. The sweep is bounded (500 rows per category per run) and reports what
+it did, so a large backlog is worked through in visible steps rather than in
+one silent pass.
+
 ## ADR-056 — A display that stops checking in alerts once per outage, and re-arms on recovery
 
 **Status:** accepted (Phase 12)

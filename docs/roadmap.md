@@ -5,6 +5,47 @@ and `docs/limitations.md`. Anything marked `[stub]` there is named in code and
 explicitly not implemented yet. Ordered by priority — this is what remains
 after the brief's phases 0–13 shipped.
 
+## Brief §14 Definition-of-Done gaps (audited against the original brief)
+
+These are items the brief names that no phase has delivered yet. They are not
+refinements of shipped features — the endpoints and tables do not exist. Ordered
+by how directly they sit on the definition of done.
+
+- [x] **Offline / sync support (brief §10, Phase 13).** `ChangeLog` table with
+  a monotonic `seq` cursor, a `ChangeLogProjectionConsumer` that projects
+  domain events into rows (idempotent on `organizationId + sourceEventId`), and
+  `GET /api/v1/sync?cursor=&resources=&limit=` filtered by the caller's
+  effective permissions and by resource type. Conflict detection was already
+  present (the `version` column, `VERSION_CONFLICT`). Shipped in this pass —
+  see ADR-058 and PROGRESS "Phase 13 closure — offline sync and privacy".
+- [x] **Privacy: retention policies, legal hold, export, anonymization (brief
+  §8, Phase 13).** `RetentionPolicy` (category × period × action) with CRUD and
+  a sweep, `LegalHold` place/release that blocks anonymization with
+  `LEGAL_HOLD_ACTIVE`, a permission-controlled audited **data export** pipeline
+  (asynchronous, artifact in object storage, downloaded through the API), and
+  an anonymization pipeline that replaces direct identifiers with a stable
+  subject key and redacts clinical content. Shipped in this pass — see ADR-057.
+- [ ] **Admin job / dead-letter inspection (brief §5.9, Phase 13).** Queues,
+  retries and the outbox exist, but there is no admin endpoint listing failed
+  jobs (name, reason, attempts, timestamp, payload reference, no PHI) or a
+  dead-letter requeue/discard surface. DoD line bundles this under "workers +
+  DLQ work."
+- [ ] **Mermaid diagrams + docs (brief §11).** The brief lists ~20 required
+  diagrams (system architecture, patient journey, appointment/queue/clinical/
+  lab/pharmacy/inpatient/bed-transfer workflows, billing, M-PESA, claim, auth,
+  RBAC, multi-tenancy, events, outbox, notification pipeline, emergency flow,
+  public read path). Only three exist (`docs/diagrams/*.mmd`). The `docs/`
+  directory also lacks most of the brief's named documents (architecture,
+  database, authentication, authorization, multi-tenancy, patient-workflow,
+  …): they live in `PROGRESS.md`/`docs/decisions.md` prose, not as standalone
+  docs.
+- [ ] **`careos_public` read-only role integration test (brief §5.1/§6.14).**
+  The role is created by migration; no integration test proves it cannot read
+  tenant tables. Flagged open in `PROGRESS.md` since P2.
+- [ ] **Outbound SMS/push for emergency escalation (brief §6.15).** Escalation
+  events and delayed jobs fire, but nothing sends the on-call SMS/caller
+  auto-reply off-system; recorded in `docs/limitations.md`.
+
 ## Backend patch — in flight (Public directory, emergency requests, session bootstrap, display devices, scheduler, notification delivery, coding-import consumer)
 
 Tracked in `PROGRESS.md` (see "Patch" section) and the ADR set 038–046.

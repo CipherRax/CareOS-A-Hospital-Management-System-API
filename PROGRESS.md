@@ -2102,3 +2102,102 @@ want from that suite.
 Still open, unchanged: `careos_public` has no integration test proving it cannot
 read tenant tables, and outbound SMS/push for emergency escalation does not exist
 (recorded in `docs/limitations.md`).
+
+## Phase 13 closure — offline sync and the privacy surface
+
+The brief's Definition of Done names two things that no phase had delivered
+(brief §10 and §8). Both are now implemented. They are separate features that
+happened to land together, so they are described separately below.
+
+### Offline sync (brief §10)
+
+- **`ChangeLog`** (new table): a tenant-scoped feed of changes, written by a
+  new `ChangeLogProjectionConsumer` that projects domain events into rows. Each
+  row is pinned to its source event by a unique `(organizationId,
+  sourceEventId)` index, so a replayed event upserts the same row rather than
+  duplicating it. Rows carry ids and metadata only — never PHI.
+- **The cursor is a monotonic `seq`, not the id (ADR-058).** A UUIDv7 is
+  time-ordered as bytes, but a Postgres `text` comparison is a *collation*
+  comparison, and the two are not the same relation under every locale. The
+  cursor is a `BIGSERIAL` instead: arithmetic ordering, identical on every
+  database and locale. The id remains the primary key, because a cursor is not
+  an identity.
+- **`GET /api/v1/sync?cursor=&resources=&limit=`** — a keyset scan over the
+  change log. Rows are filtered by the caller's effective permissions (each
+  row stores the permission that unlocks it, written from the same registry that
+  maps a resource to its permission) and by the requested resource types. An
+  unknown resource name is a 400 rather than a silent empty page; a resource
+  the caller may not read is dropped rather than refused, so a client gets the
+  subset it could read live. A malformed cursor is refused
+  (`INVALID_SYNC_CURSOR`) rather than restarting history. A pull with no
+  changes echoes the caller's cursor, so a poll loop cannot accidentally
+  re-deliver the whole log.
+- **Conflict detection already existed** — the `version` column and
+  `VERSION_CONFLICT` on stale writes are what make the feed actionable; the
+  feed itself was the missing half.
+- **New permissions** `sync.read` (AUDITOR, RECORDS_OFFICER, MANAGER,
+  HOSPITAL_ADMIN, OWNER). The patient role gets none.
+
+### Privacy (brief §8)
+
+- **Retention policies** (`RetentionPolicy`): org reference data, one row per
+  record category, holding a retention window and the action to take when it
+  elapses (`ARCHIVE`, `ANONYMIZE`, `REVIEW`). CRUD at
+  `/api/v1/privacy/retention-policies`; the category is the natural key within
+  an org, so a second POST for the same category updates it rather than
+  creating a conflicting second policy.
+- **Legal holds** (`LegalHold`): place at `/privacy/legal-holds`, release at
+  `/privacy/legal-holds/:id/release`. A patient may have only one *active*
+  hold — a second attempt is refused (`LEGAL_HOLD_ALREADY_ACTIVE`) rather than
+  stacked, because stacked holds would have to be released one at a time to
+  restore eligibility. Releases are stamped, not deleted, so the hold history
+  survives the hold.
+- **Data exports** (`DataExport`): `POST /privacy/data-exports` records the
+  request and returns immediately (202); the artifact is built asynchronously by
+  `DataExportConsumer`, stored in object storage under an org-scoped key, and
+  downloadable for 24 hours. The download is **streamed through the API**
+  rather than handed out as a presigned URL: a presigned GET is a bearer
+  capability that outlives the caller's session and bypasses the organization
+  check, which is the wrong trade for a file full of patient data (the same
+  reasoning as ADR-049 for report exports).
+- **Anonymization**: `POST /privacy/patients/:id/anonymize` replaces the
+  patient's direct identifiers with a stable, non-reversible subject key and
+  archives the record. The record's existence, dates, and clinical structure
+  survive, so a cohort that counted encounters still counts them while no field
+  identifies the person.
+- **The retention sweep** (`POST /privacy/retention/run`) applies the enabled
+  policies to records whose window has elapsed, and reports per category what
+  it changed, what it withheld, and what still needs a decision. It is
+  conservative by construction (ADR-057): a patient under an active legal hold
+  is skipped and counted separately, a `REVIEW` policy changes nothing, and
+  financial and audit records are reported only — a bulk rewrite of the audit
+  log would defeat the point of having one.
+- **`LEGAL_HOLD_ACTIVE` now has a writer.** The error code existed in the
+  catalogue with nothing raising it; the anonymization endpoint raises it when
+  a hold covers the patient. The refusal is explicit rather than a silent skip:
+  a silently skipped request would look like a completed one to the caller,
+  which is the failure mode that matters.
+- **New permissions** `privacy.read`/`privacy.manage` and
+  `data_exports.request`/`data_exports.read`. MANAGER and HOSPITAL_ADMIN get
+  the management pair; RECORDS_OFFICER and AUDITOR get read-level access; the
+  patient role gets none.
+
+### Tests and limits
+
+Tests: 955 unit across 92 suites (+39 from this pass). New suites:
+`sync.service.spec.ts` (9), `change-log.consumer.spec.ts` (5),
+`privacy.service.spec.ts` (15), `retention-sweep.spec.ts` (5), plus the
+sync/privacy grant cases in `rbac.spec.ts`.
+
+Unverified this pass, as before: the new migration
+(`20261007090000_patch_sync_privacy`) has not been applied to a real Postgres
+— Docker is unavailable — so the tables, the RLS policies, the `careos_app`
+grants, and the `BIGSERIAL` sequence have not been exercised. The e2e suites
+have not run, and `docs/openapi.json` could not be regenerated because the
+export boots the application against Postgres and Redis.
+
+Open, unchanged: `careos_public` still has no integration test proving it
+cannot read tenant tables, and outbound SMS/push for emergency escalation still
+does not exist (both recorded in `docs/limitations.md`). The admin job / DLQ
+inspection surface (brief §5.9) and the brief's §11 diagram and documentation
+set are still outstanding.

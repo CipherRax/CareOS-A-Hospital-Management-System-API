@@ -257,6 +257,30 @@ working code with a caveat.
 
 ## Known caveats in shipped code
 
+- **The sync feed projects events, not a full replica.** `GET /sync` returns
+  change-log rows produced by the domain events that the outbox delivers, so a
+  change made by a path that emits no event is not in the feed. The registry in
+  `modules/sync/domain/sync-resources.ts` names the events that are covered;
+  a resource type that is not listed cannot be synced yet, and asking for one
+  is a 400 rather than a silent empty page. A client that needs a guaranteed
+  starting point still has to do a full read first, then pull changes from the
+  cursor it received.
+- **The retention sweep is bounded and coarse.** It considers at most 500
+  records per category per run, so a large backlog is worked through over
+  several runs rather than one pass. The reference date is the record's
+  `createdAt`, not the date of the last activity in it, so a long-lived record
+  (a patient still in care) ages from their first contact.
+- **Anonymization does not generalize quasi-identifiers.** The pipeline replaces
+  direct identifiers and redacts the clinical content of a note, result, or
+  report. It does not generalize dates (e.g. shift a birth year into a band),
+  suppress small cells, or salt pseudonyms per release, so a released dataset
+  is *reduced*, not *de-identified* in the statistical sense. Treat an export as
+  personal data, which is how the export endpoints treat it.
+- **The clinical-content redactors are per-category and not exhaustive.**
+  `encounter.note`, `clinical_note.sections`/`title`, `lab_result.value`, and
+  `imaging_report.findings`/`summary`/`impression` are cleared. Free text
+  elsewhere — a `diagnosis` description, a `prescription` note, a `feedback`
+  body — is not part of any policy category, so it is left alone.
 - **Emergency auto-reply and final escalation have no outbound SMS/push.** §6.15
   asks for a neutral SMS to on-call contacts, an auto-reply SMS to the caller,
   and a final nudge to the caller. In-app notifications and the realtime stream
