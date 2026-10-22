@@ -2184,11 +2184,12 @@ happened to land together, so they are described separately below.
 
 ### Tests and limits
 
-Tests: 983 unit across 94 suites. New suites in this pass:
+Tests: 984 unit across 95 suites. New suites in this pass:
 `sync.service.spec.ts` (9), `change-log.consumer.spec.ts` (5),
 `privacy.service.spec.ts` (15), `retention-sweep.spec.ts` (5),
-`data-export.service.spec.ts` (3), `admin-jobs.service.spec.ts` (15), plus the
-sync/privacy/admin-job grant cases in `rbac.spec.ts`.
+`data-export.service.spec.ts` (3), `admin-jobs.service.spec.ts` (15),
+`admin-jobs.module.spec.ts` (1), plus the sync/privacy/admin-job grant cases in
+`rbac.spec.ts`.
 
 Unverified this pass, as before: the new migration
 (`20261007090000_patch_sync_privacy`) has not been applied to a real Postgres
