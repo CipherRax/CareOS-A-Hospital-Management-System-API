@@ -108,6 +108,22 @@ describe('AdminJobsService.list', () => {
     expect(findMany.mock.calls[0]![0].where.status).toBe('DISCARDED');
   });
 
+  it('honours a FAILED filter instead of falling back to the dead list', async () => {
+    const { service, findMany } = makeMocks([]);
+
+    await service.list({ status: 'FAILED' });
+
+    expect(findMany.mock.calls[0]![0].where.status).toBe('FAILED');
+  });
+
+  it('lists dead events when no status is given', async () => {
+    const { service, findMany } = makeMocks([]);
+
+    await service.list({});
+
+    expect(findMany.mock.calls[0]![0].where.status).toBe('DEAD');
+  });
+
   it('skips the outbox half when the source filter is queue', async () => {
     const { service, findMany } = makeMocks([outboxRow()]);
 
@@ -147,6 +163,14 @@ describe('AdminJobsService.list', () => {
     // Only string ids become the reference; the numeric level is not a patient
     // identifier and is not useful on an admin screen.
     expect(job.reference).toEqual({ requestId: 'emr-1' });
+  });
+
+  it('passes the requested limit down to the outbox query', async () => {
+    const { service, findMany } = makeMocks([]);
+
+    await service.list({ limit: 10 });
+
+    expect(findMany.mock.calls[0]![0].take).toBe(10);
   });
 
   it('keeps the listing alive when a queue cannot be reached', async () => {

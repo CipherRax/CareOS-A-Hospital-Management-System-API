@@ -57,29 +57,36 @@ export class AdminJobsService {
   async list(query: ListJobsQueryDto): Promise<ListJobsResponseDto> {
     const organizationId = this.tenantContext.requireOrg();
 
+    const limit = Math.min(query.limit ?? MAX_LISTED, MAX_LISTED);
     const outboxJobs =
-      query.source === 'queue' ? [] : await this.listOutbox(organizationId, query);
-    const queueJobs = query.source === 'outbox' ? [] : await this.listQueues();
+      query.source === 'queue' ? [] : await this.listOutbox(organizationId, query, limit);
+    const queueJobs =
+      query.source === 'outbox' ? [] : await this.listQueues(limit);
 
     return {
-      jobs: [...outboxJobs, ...queueJobs].slice(0, query.limit ?? MAX_LISTED),
+      jobs: [...outboxJobs, ...queueJobs].slice(0, limit),
       counts: { outbox: outboxJobs.length, queue: queueJobs.length },
     };
   }
 
-  /** DEAD (or DISCARDED) outbox rows for this org. */
+  /** Outbox rows for this org in the requested status (dead ones by default). */
   private async listOutbox(
     organizationId: string,
     query: ListJobsQueryDto,
+    limit: number,
   ): Promise<FailedJobResponseDto[]> {
     const db = this.prisma.tenantFor(organizationId);
     const rows = await db.outboxEvent.findMany({
       where: {
         organizationId,
-        status: query.status === 'DISCARDED' ? 'DISCARDED' : 'DEAD',
+        // The filter is honoured exactly. A `FAILED` row is one whose dispatch
+        // was not acknowledged and which is still scheduled to retry; it is
+        // not the same as a dead one, and asking for it should not hand back
+        // the dead list instead.
+        status: query.status ?? 'DEAD',
       },
       orderBy: { deadAt: 'desc' },
-      take: MAX_LISTED,
+      take: limit,
     });
 
     return rows.map((row) => ({
@@ -101,7 +108,7 @@ export class AdminJobsService {
   }
 
   /** Failed BullMQ jobs across the registered queues. */
-  private async listQueues(): Promise<FailedJobResponseDto[]> {
+  private async listQueues(limit: number): Promise<FailedJobResponseDto[]> {
     const jobs: FailedJobResponseDto[] = [];
 
     for (const [queueName, queue] of this.queues) {
@@ -110,7 +117,7 @@ export class AdminJobsService {
         failed = (await queue.getJobs(
           ['failed'],
           0,
-          MAX_LISTED - 1,
+          limit - 1,
           false,
         )) as unknown as FailedQueueJob[];
       } catch (err) {

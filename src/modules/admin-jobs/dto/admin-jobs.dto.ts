@@ -10,6 +10,12 @@ import { z } from 'zod';
 export const ListJobsQuerySchema = z.object({
   /** Restrict to one source: 'outbox' or 'queue'. */
   source: z.enum(['outbox', 'queue']).optional(),
+  /**
+   * The outbox status to list. Defaults to `DEAD` — the events that have
+   * exhausted their retries. `FAILED` is an event whose last dispatch was not
+   * acknowledged and which is still scheduled to retry; `DISCARDED` is one an
+   * administrator has given up on.
+   */
   status: z.enum(['DEAD', 'FAILED', 'DISCARDED']).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
