@@ -21,6 +21,9 @@ import { DocumentsModule } from '../documents/documents.module';
 import { DocumentScanConsumer } from '../documents/document-scan.consumer';
 import { EmergencyIntakeModule } from '../emergency-intake/emergency-intake.module';
 import { EmergencyNotificationConsumer } from '../emergency-intake/emergency-notifications.consumer';
+import { ChangeLogProjectionConsumer } from '../../events/consumers/change-log.consumer';
+import { PrivacyModule } from '../privacy/privacy.module';
+import { DataExportConsumer } from '../privacy/data-export.consumer';
 
 /**
  * Composition root for the transactional outbox.
@@ -43,8 +46,11 @@ import { EmergencyNotificationConsumer } from '../emergency-intake/emergency-not
     CodingModule,
     DocumentsModule,
     EmergencyIntakeModule,
+    PrivacyModule,
   ],
   providers: [
+    ChangeLogProjectionConsumer,
+    DataExportConsumer,
     {
       provide: OUTBOX_CONSUMERS,
       useFactory: (
@@ -58,6 +64,8 @@ import { EmergencyNotificationConsumer } from '../emergency-intake/emergency-not
         documentScan: DocumentScanConsumer,
         reportExport: ReportExportConsumer,
         emergency: EmergencyNotificationConsumer,
+        changeLog: ChangeLogProjectionConsumer,
+        dataExport: DataExportConsumer,
       ): OutboxConsumer[] => [
         timeline,
         pharmacyTasks,
@@ -69,6 +77,8 @@ import { EmergencyNotificationConsumer } from '../emergency-intake/emergency-not
         documentScan,
         reportExport,
         emergency,
+        changeLog,
+        dataExport,
       ],
       inject: [
         TimelineProjectionConsumer,
@@ -81,6 +91,8 @@ import { EmergencyNotificationConsumer } from '../emergency-intake/emergency-not
         DocumentScanConsumer,
         ReportExportConsumer,
         EmergencyNotificationConsumer,
+        ChangeLogProjectionConsumer,
+        DataExportConsumer,
       ],
     },
     ConsumerOutboxDispatcher,

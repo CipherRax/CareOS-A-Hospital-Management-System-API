@@ -66,6 +66,8 @@ import { InsightsModule } from '../modules/insights/insights.module';
 import { DirectoryModule } from '../modules/directory/directory.module';
 import { EmergencyIntakeModule } from '../modules/emergency-intake/emergency-intake.module';
 import { SchedulerModule } from '../modules/scheduler/scheduler.module';
+import { SyncModule } from '../modules/sync/sync.module';
+import { PrivacyModule } from '../modules/privacy/privacy.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -149,6 +151,8 @@ import { newId } from '../common/lib/uuidv7';
     SchedulerModule,
     DirectoryModule,
     EmergencyIntakeModule,
+    SyncModule,
+    PrivacyModule,
   ],
   providers: [
     // Guard order: throttler (outer) -> JWT identity -> session/tenant
