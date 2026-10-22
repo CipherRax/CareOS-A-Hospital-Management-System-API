@@ -2184,10 +2184,11 @@ happened to land together, so they are described separately below.
 
 ### Tests and limits
 
-Tests: 955 unit across 92 suites (+39 from this pass). New suites:
+Tests: 983 unit across 94 suites. New suites in this pass:
 `sync.service.spec.ts` (9), `change-log.consumer.spec.ts` (5),
-`privacy.service.spec.ts` (15), `retention-sweep.spec.ts` (5), plus the
-sync/privacy grant cases in `rbac.spec.ts`.
+`privacy.service.spec.ts` (15), `retention-sweep.spec.ts` (5),
+`data-export.service.spec.ts` (3), `admin-jobs.service.spec.ts` (15), plus the
+sync/privacy/admin-job grant cases in `rbac.spec.ts`.
 
 Unverified this pass, as before: the new migration
 (`20261007090000_patch_sync_privacy`) has not been applied to a real Postgres
@@ -2198,6 +2199,75 @@ export boots the application against Postgres and Redis.
 
 Open, unchanged: `careos_public` still has no integration test proving it
 cannot read tenant tables, and outbound SMS/push for emergency escalation still
-does not exist (both recorded in `docs/limitations.md`). The admin job / DLQ
-inspection surface (brief §5.9) and the brief's §11 diagram and documentation
-set are still outstanding.
+does not exist (both recorded in `docs/limitations.md`).
+
+## Phase 13 closure — admin job and dead-letter inspection
+
+The brief's Definition of Done names a third gap (brief §5.9): an administrator
+has to be able to see failed background work and act on it. It is now
+implemented.
+
+### What it shows
+
+- **`GET /api/v1/admin/jobs`** lists failures from both places they come from:
+  the transactional outbox (events retried to `MAX_OUTBOX_ATTEMPTS` and marked
+  `DEAD`) and BullMQ (jobs that threw), for the queues this deployment owns
+  (`emergency-escalation`, `scheduler`). Each row carries the job name, the
+  reason it failed, the attempt count, when it failed, and a **reference** to
+  what it was working on.
+- **The payload is never returned.** A job's payload is ids-only by
+  construction, but those ids are still patient identifiers. The listing shows
+  the aggregate id and the correlation id, so an operator can correlate the
+  failure with a request without an admin screen accumulating patient data.
+- **A queue that cannot be reached does not take the listing down.** Redis being
+  down is exactly when an administrator most needs the outbox half, so the
+  failure is logged and the other half still answers.
+
+### What it does
+
+- **Requeue** (`POST /admin/jobs/outbox/:id/requeue`) returns the event to
+  `PENDING` with its attempt counter reset, so the ordinary publisher dispatches
+  it again on the next drain. There is no admin-specific dispatch path, so there
+  is no second code path that could disagree with the first. This is safe
+  because every consumer is idempotent on the source event id.
+- **Discard** (`POST /admin/jobs/outbox/:id/discard`) marks the row
+  `DISCARDED` — a new terminal state on the `OutboxStatus` enum, added by
+  migration `20261008120000_admin_job_inspection`. The row is *not* deleted:
+  the fact that an event could not be delivered is part of the record, and a
+  hard delete would hide exactly what the surface exists to reveal.
+- **Queue jobs** can be requeued or discarded too
+  (`POST /admin/jobs/queue/:queue/requeue|discard`, body `{ jobId }`), and both
+  actions are audited.
+
+### Access and limits
+
+- **New permissions** `admin_jobs.read` and `admin_jobs.manage`, kept separate
+  on purpose: an auditor needs to see that something failed without being able
+  to replay it. OWNER, HOSPITAL_ADMIN and MANAGER get both; AUDITOR gets the
+  read half; the patient role gets neither.
+- **The queue list is explicit, not discovered.** BullMQ has no registry of
+  queue names, and a sweep over Redis would list queues this deployment does
+  not own. The names live in one file, `src/jobs/queue-names.ts`, which the
+  owning modules and the admin module both read — so a queue that exists but
+  is not listed cannot happen. Adding a queue to the system means adding it
+  there as well.
+- **Unverified this pass, as before:** the new migration has not been applied to
+  a real Postgres — Docker is unavailable — so the `DISCARDED` enum value has
+  not been exercised against the database. The BullMQ read/requeue/discard
+  paths are unit-tested against a stubbed queue, not against a live Redis.
+
+Open, unchanged: the brief's §11 diagram and documentation set is still
+outstanding (recorded in `docs/roadmap.md`).
+
+### A note on the export artifact cap
+
+While adding the admin surface, the data-export download path was re-checked.
+The read cap there is `Math.max(recordedSize, 50 MiB)`, which looks like a
+missing minimum but is deliberate: the recorded size is authoritative for
+`Content-Length`, the cap is a runaway guard *above* any plausible export, and
+an artifact that has outgrown its recorded size should fail the download
+rather than be silently truncated. What was missing was the other half — the
+writer did not enforce the cap, so an oversized artifact could be stored and
+its recorded size would then raise the read cap past the limit. The writer now
+refuses to store an artifact over 50 MiB and marks the export `FAILED` with the
+reason, which makes the read guard meaningful instead of decorative.

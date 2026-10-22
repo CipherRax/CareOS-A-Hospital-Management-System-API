@@ -3,6 +3,52 @@
 Accepted architecture/engineering decisions, newest first. Each entry records
 context, the decision, and its consequences.
 
+## ADR-059 — A failed background job is inspected, not guessed at, and a discarded one is marked rather than deleted
+
+**Status:** accepted (Phase 13)
+
+**Context:** brief §5.9 asks for a surface where an administrator can see failed
+background work — the job name, why it failed, how many attempts it took, when
+it failed — and can requeue or discard it. The system has two such surfaces:
+the transactional outbox, whose events are retried and then marked `DEAD`, and
+BullMQ, whose jobs throw. Leaving both invisible means a failed event is a
+silently missing state change; letting an administrator delete one means a
+failure can be made to look like it never happened.
+
+**Decision:** one admin surface reads both, and neither is destroyed.
+
+- **The listing shows a reference, not a payload.** A job's payload is ids-only
+  by construction, but those ids are still patient identifiers. The listing
+  returns the name, the reason, the attempt count, the timestamp and the
+  aggregate the job was working on — and not the payload. The admin screen is
+  not the place for patient identifiers to accumulate.
+- **Discarding marks the row `DISCARDED`; it never deletes it.** The fact that
+  an event could not be delivered is part of the record. A hard delete would
+  hide exactly what the surface exists to reveal, so the outbox status enum
+  gains a terminal state that is neither "delivered" nor "still retrying".
+- **Requeueing resets the attempt counter.** The event goes back to `PENDING`
+  with `attemptCount` at zero, so the next drain dispatches it again. This is
+  safe by construction: every consumer is idempotent on the source event id
+  (ADR-058's change-log projection is the pattern).
+- **The queue list is explicit, not discovered.** BullMQ has no registry of
+  queue names, and a sweep over Redis would list queues this deployment does
+  not own. The names live in one file, `jobs/queue-names.ts`, which both the
+  owning modules and the admin module read, so a queue that exists but is not
+  listed cannot happen.
+- **A queue that cannot be reached does not take the listing down.** Redis
+  being down is exactly the moment an administrator most needs the outbox half
+  of the listing, so the failure is logged and the other half still answers.
+- **Read and manage are separate permissions.** An auditor needs to see that
+  something failed without being able to replay it, so `admin_jobs.read` and
+  `admin_jobs.manage` are distinct and only the second one can change a
+  job's fate.
+
+**Consequences:** the outbox status enum has a value that only this surface
+writes, and the migration that adds it is a single `ALTER TYPE`. Requeueing is
+an ordinary write to a `PENDING` row, so the normal publisher picks it up with
+no new machinery — no admin-specific dispatch path, and therefore no second
+code path that could disagree with the first.
+
 ## ADR-058 — The sync cursor is a monotonic sequence, not a UUID compared as text
 
 **Status:** accepted (Phase 13)

@@ -265,6 +265,14 @@ working code with a caveat.
   is a 400 rather than a silent empty page. A client that needs a guaranteed
   starting point still has to do a full read first, then pull changes from the
   cursor it received.
+- **The admin job listing is bounded and read-mostly.** `GET /admin/jobs`
+  returns at most 200 rows per surface and never returns a job payload — only
+  a reference to what the job was working on. It also only sees the queues
+  named in `src/jobs/queue-names.ts`; a queue added to the system without being
+  named there is invisible to the admin surface. Requeueing an outbox event
+  resets its attempt counter, so an event that fails for a deterministic
+  reason (a poison payload) will fail again and return to `DEAD` — the surface
+  can replay a failure, it cannot repair one.
 - **The retention sweep is bounded and coarse.** It considers at most 500
   records per category per run, so a large backlog is worked through over
   several runs rather than one pass. The reference date is the record's

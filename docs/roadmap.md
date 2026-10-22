@@ -25,11 +25,18 @@ by how directly they sit on the definition of done.
   (asynchronous, artifact in object storage, downloaded through the API), and
   an anonymization pipeline that replaces direct identifiers with a stable
   subject key and redacts clinical content. Shipped in this pass — see ADR-057.
-- [ ] **Admin job / dead-letter inspection (brief §5.9, Phase 13).** Queues,
-  retries and the outbox exist, but there is no admin endpoint listing failed
-  jobs (name, reason, attempts, timestamp, payload reference, no PHI) or a
-  dead-letter requeue/discard surface. DoD line bundles this under "workers +
-  DLQ work."
+- [x] **Admin job / dead-letter inspection (brief §5.9, Phase 13).** `GET
+  /api/v1/admin/jobs` lists failed work from both surfaces — the outbox's
+  `DEAD` events and the failed BullMQ jobs of the platform's own queues — with
+  the job name, the reason, the attempt count, the timestamp and a *reference*
+  to what the job was working on, never the payload (the ids in a payload are
+  still patient identifiers). `POST /admin/jobs/outbox/:id/requeue|discard` and
+  `POST /admin/jobs/queue/:queue/requeue|discard` act on a failure: requeueing
+  resets the attempt counter so the normal publisher dispatches the event
+  again, and discarding marks the row `DISCARDED` rather than deleting it, so
+  the fact that an event could not be delivered stays on the record. Read and
+  manage are separate permissions (`admin_jobs.read`, `admin_jobs.manage`).
+  Shipped in this pass — see ADR-059.
 - [ ] **Mermaid diagrams + docs (brief §11).** The brief lists ~20 required
   diagrams (system architecture, patient journey, appointment/queue/clinical/
   lab/pharmacy/inpatient/bed-transfer workflows, billing, M-PESA, claim, auth,
