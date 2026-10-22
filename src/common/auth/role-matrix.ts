@@ -193,6 +193,8 @@ const ALL = [
   G.privacy.manage,
   G.dataExports.request,
   G.dataExports.read,
+  G.adminJobs.read,
+  G.adminJobs.manage,
 ];
 
 /**
@@ -331,6 +333,8 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.dataExports.request,
       G.dataExports.read,
       G.sync.read,
+      G.adminJobs.read,
+      G.adminJobs.manage,
     ],
   },
   DOCTOR: {
@@ -742,6 +746,8 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.dataExports.request,
       G.dataExports.read,
       G.sync.read,
+      G.adminJobs.read,
+      G.adminJobs.manage,
     ],
   },
   AUDITOR: {
@@ -791,6 +797,7 @@ export const DEFAULT_ROLE_MATRIX: Record<RoleKey, RoleDefinition> = {
       G.privacy.read,
       G.dataExports.read,
       G.sync.read,
+      G.adminJobs.read,
     ],
   },
   PATIENT: {

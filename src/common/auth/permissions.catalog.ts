@@ -319,6 +319,14 @@ export const PERMISSION_GROUPS = {
     request: 'data_exports.request',
     read: 'data_exports.read',
   },
+  // Admin inspection of failed background work (brief §5.9). `read` lists
+  // dead outbox events and failed queue jobs; `manage` requeues or discards
+  // them. Split because an auditor needs to see that something failed without
+  // being able to replay it.
+  adminJobs: {
+    read: 'admin_jobs.read',
+    manage: 'admin_jobs.manage',
+  },
 } as const;
 
 export type Permission = string;

@@ -27,6 +27,9 @@ enum OutboxStatus {
   PUBLISHED
   FAILED
   DEAD
+  // An administrator gave up on a dead event. Kept (rather than deleted) so
+  // the fact that an event could not be delivered stays on the record.
+  DISCARDED
 }
 
 enum IdempotencyStatus {

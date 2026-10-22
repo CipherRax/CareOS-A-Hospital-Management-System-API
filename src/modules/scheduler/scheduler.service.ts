@@ -8,7 +8,9 @@ import { ReportsService } from '../insights/reports.service';
 import { DisplayService, type DisplayStaleSweepResult } from '../display/display.service';
 
 /** Queue carrying every time-based duty (ADR-044). */
-export const SCHEDULER_QUEUE = 'scheduler';
+import { SCHEDULER_QUEUE } from '../../jobs/queue-names';
+
+export { SCHEDULER_QUEUE };
 export const OUTBOX_DRAIN_JOB = 'outbox-drain';
 export const MAINTENANCE_REMINDER_JOB = 'maintenance-reminders';
 export const IDEMPOTENCY_SWEEP_JOB = 'idempotency-sweep';

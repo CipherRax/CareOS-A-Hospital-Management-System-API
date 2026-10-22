@@ -162,4 +162,35 @@ describe('role-matrix invariants', () => {
       expect(patient).not.toContain('data_exports.read');
     });
   });
+
+  describe('admin job inspection grants', () => {
+    const permissionsOf = (key: string): string[] =>
+      DEFAULT_ROLE_LIST.find((r) => r.key === key)?.permissions ?? [];
+
+    it('gives OWNER both the read and the manage permission', () => {
+      const owner = permissionsOf('OWNER');
+      expect(owner).toContain('admin_jobs.read');
+      expect(owner).toContain('admin_jobs.manage');
+    });
+
+    it('gives HOSPITAL_ADMIN the manage permission', () => {
+      expect(permissionsOf('HOSPITAL_ADMIN')).toContain('admin_jobs.manage');
+    });
+
+    it('gives MANAGER the manage permission', () => {
+      expect(permissionsOf('MANAGER')).toContain('admin_jobs.manage');
+    });
+
+    it('keeps the auditor read-only over failed jobs', () => {
+      const auditor = permissionsOf('AUDITOR');
+      expect(auditor).toContain('admin_jobs.read');
+      expect(auditor).not.toContain('admin_jobs.manage');
+    });
+
+    it('does not grant the patient role any admin job access', () => {
+      const patient = permissionsOf('PATIENT');
+      expect(patient).not.toContain('admin_jobs.read');
+      expect(patient).not.toContain('admin_jobs.manage');
+    });
+  });
 });

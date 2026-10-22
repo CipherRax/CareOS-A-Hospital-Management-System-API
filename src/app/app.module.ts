@@ -68,6 +68,7 @@ import { EmergencyIntakeModule } from '../modules/emergency-intake/emergency-int
 import { SchedulerModule } from '../modules/scheduler/scheduler.module';
 import { SyncModule } from '../modules/sync/sync.module';
 import { PrivacyModule } from '../modules/privacy/privacy.module';
+import { AdminJobsModule } from '../modules/admin-jobs/admin-jobs.module';
 import { newId } from '../common/lib/uuidv7';
 
 @Global()
@@ -153,6 +154,7 @@ import { newId } from '../common/lib/uuidv7';
     EmergencyIntakeModule,
     SyncModule,
     PrivacyModule,
+    AdminJobsModule,
   ],
   providers: [
     // Guard order: throttler (outer) -> JWT identity -> session/tenant

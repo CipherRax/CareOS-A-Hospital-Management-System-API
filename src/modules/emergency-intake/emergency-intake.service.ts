@@ -58,7 +58,9 @@ import {
   UpdateCallerEmergencyRequestDto,
 } from './dto/emergency-intake.dto';
 
-export const ESCALATION_QUEUE = 'emergency-escalation';
+import { ESCALATION_QUEUE } from '../../jobs/queue-names';
+
+export { ESCALATION_QUEUE };
 export const ESCALATION_JOB = 'escalate';
 export const MAINTENANCE_JOB = 'maintenance';
 export const REQUESTS_TOPIC = 'emergency-requests';
