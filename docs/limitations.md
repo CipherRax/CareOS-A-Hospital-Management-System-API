@@ -273,6 +273,11 @@ working code with a caveat.
   resets its attempt counter, so an event that fails for a deterministic
   reason (a poison payload) will fail again and return to `DEAD` — the surface
   can replay a failure, it cannot repair one.
+- **The `reason` on an admin job row is the producer's exception text.** The
+  processors in this system throw messages about ids and states, never field
+  values, and the admin surface depends on that convention — it does not redact
+  the text. A processor that embedded patient data in an exception message
+  would surface it to `admin_jobs.read` holders.
 - **The retention sweep is bounded and coarse.** It considers at most 500
   records per category per run, so a large backlog is worked through over
   several runs rather than one pass. The reference date is the record's

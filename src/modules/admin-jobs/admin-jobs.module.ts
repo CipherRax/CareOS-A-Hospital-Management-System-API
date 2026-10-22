@@ -31,8 +31,8 @@ import { ADMIN_QUEUE_NAMES, type AdminQueueName } from './domain/admin-queues';
         scheduler: Queue,
       ): ReadonlyMap<AdminQueueName, Queue> =>
         new Map([
-          [ESCALATION_QUEUE as AdminQueueName, escalation],
-          [SCHEDULER_QUEUE as AdminQueueName, scheduler],
+          [ESCALATION_QUEUE, escalation],
+          [SCHEDULER_QUEUE, scheduler],
         ]),
       inject: [getQueueToken(ESCALATION_QUEUE), getQueueToken(SCHEDULER_QUEUE)],
     },

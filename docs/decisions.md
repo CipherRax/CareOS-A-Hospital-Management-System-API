@@ -30,6 +30,12 @@ failure can be made to look like it never happened.
   with `attemptCount` at zero, so the next drain dispatches it again. This is
   safe by construction: every consumer is idempotent on the source event id
   (ADR-058's change-log projection is the pattern).
+- **A job's `reason` is the producer's own failure text.** The processors here
+  throw catalog-style messages about ids and states ("Request not found"), never
+  field values, and this surface relies on that convention: a processor that put
+  a patient's name into an exception message would put it on this screen. There
+  is nowhere to redact it without deleting the one field an operator needs, so
+  the convention is the control.
 - **The queue list is explicit, not discovered.** BullMQ has no registry of
   queue names, and a sweep over Redis would list queues this deployment does
   not own. The names live in one file, `jobs/queue-names.ts`, which both the
