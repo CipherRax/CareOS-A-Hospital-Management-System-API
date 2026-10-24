@@ -1,0 +1,24 @@
+sequenceDiagram
+    autonumber
+    participant Clin as Clinician
+    participant Enc as EncountersService
+    participant Notes as ClinicalNotesService
+    participant Dx as DiagnosesService
+    participant DB as Postgres
+    participant Audit as AuditService
+
+    Clin->>Enc: Start encounter (patientId, visitId, providerId)
+    Enc->>DB: Create Encounter (status IN_PROGRESS)
+    Enc->>Audit: audit encounter.started
+    Enc-->>Clin: Encounter open
+    Clin->>Notes: Create/update ClinicalNote
+    Notes->>DB: Create ClinicalNote + ClinicalNoteVersion
+    Notes->>Audit: audit clinical_note.created/updated
+    Clin->>Dx: Add diagnosis (code from CodingSystem/CodeConcept)
+    Dx->>DB: Create Diagnosis linked to encounter/patient
+    Dx->>Audit: audit diagnosis.added
+    Clin->>Enc: Complete/disposition encounter
+    Enc->>DB: Update Encounter status
+    Enc->>Audit: audit encounter.completed
+    Note over Notes: Notes versioned; audit logs append-only
+    Note over Enc: Patient access logged via PatientAccessLog as appropriate

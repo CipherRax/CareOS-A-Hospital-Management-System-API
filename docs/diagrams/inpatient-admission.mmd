@@ -1,0 +1,24 @@
+sequenceDiagram
+    autonumber
+    participant Clin as Clinician
+    participant IP as InpatientService
+    participant Num as InpatientNumbering
+    participant Ward as Ward/Bed Mgmt
+    participant DB as Postgres
+    participant Audit as AuditService
+
+    Clin->>IP: Request admission (patientId, diagnosis, ward/bed preference)
+    IP->>Num: Allocate admission number
+    Num-->>IP: ADM-YYYY-NNNNNN
+    IP->>DB: Create Admission (status PENDING/ADMITTED)
+    IP->>Audit: audit admission.created
+    Ward->>IP: Assign bed
+    IP->>DB: Create BedAssignment, update Bed status to OCCUPIED
+    IP->>DB: Update Admission status to ADMITTED
+    IP->>Audit: audit admission.admitted
+    Note over IP: Transfers create new BedAssignment; discharge updates bed status
+    Ward->>IP: Discharge patient
+    IP->>DB: Update BedAssignment end, update Bed status to AVAILABLE
+    IP->>DB: Update Admission status to DISCHARGED
+    IP->>Audit: audit admission.discharged
+    Note over IP: Admission numbers via counters

@@ -1,0 +1,30 @@
+sequenceDiagram
+    autonumber
+    participant Client
+    participant JwtAuthGuard
+    participant TenantGuard
+    participant PermissionsGuard
+    participant Handler
+    participant Prisma as Prisma (tenant extension)
+
+    Client->>JwtAuthGuard: Bearer access token
+    JwtAuthGuard->>JwtAuthGuard: Verify JWT (iss/aud/secret)
+    alt Public route
+        JwtAuthGuard-->>Handler: Skip auth
+    else Protected
+        JwtAuthGuard->>TenantGuard: Continue (identity in CLS)
+        TenantGuard->>Prisma: Load Session + User + Roles (unscoped lookup)
+        TenantGuard->>TenantGuard: Check session org match, status, revocation, expiry
+        TenantGuard->>TenantGuard: Re-resolve permissions from roles
+        TenantGuard->>TenantGuard: Set TenantScope (org/user/session/roles/perms/branchIds/patientId)
+        TenantGuard->>PermissionsGuard: Continue
+        PermissionsGuard->>PermissionsGuard: Check @ApiEndpoint.permissions vs effective permissions
+        alt Forbidden
+            PermissionsGuard-->>Client: 403 FORBIDDEN
+        else Allowed
+            PermissionsGuard->>Handler: Call handler
+            Handler->>Prisma: Query via tenantFor(org) / tenant client
+            Prisma->>Prisma: Inject orgId filters for TENANT_MODELS
+            Prisma-->>Handler: Org-scoped results
+        end
+    end

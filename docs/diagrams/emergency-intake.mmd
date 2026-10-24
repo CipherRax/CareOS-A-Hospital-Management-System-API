@@ -1,0 +1,23 @@
+sequenceDiagram
+    autonumber
+    participant Caller as Caller/Patient
+    participant EI as EmergencyIntakeService
+    participant ER as EmergencyService
+    participant Triage as Triage
+    participant DB as Postgres
+    participant Audit as AuditService
+    participant Outbox as Outbox
+
+    Caller->>EI: Submit emergency request/intake
+    EI->>DB: Create EmergencyRequest (+ EmergencyRequestEvent append-only)
+    EI->>Outbox: Enqueue events (IDs only)
+    EI->>Audit: audit emergency_request.created
+    Triage->>ER: Assess and create EmergencyVisit
+    ER->>DB: Create EmergencyVisit + TriageAssessment
+    ER->>DB: Assign priority/disposition
+    ER->>Audit: audit emergency_visit.triaged
+    ER->>ER: Allocate resources if needed
+    ER->>DB: Create EmergencyResourceAssignment
+    ER->>Audit: audit emergency_resource.assigned
+    Note over EI,ER: EmergencyRequestEvent is append-only (trigger)
+    Note over Outbox: Drain publishes to consumers

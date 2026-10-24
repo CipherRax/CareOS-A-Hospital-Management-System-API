@@ -1,0 +1,27 @@
+sequenceDiagram
+    autonumber
+    participant User as User
+    participant Ctrl as BreakGlassController
+    participant Guard as PermissionsGuard
+    participant Svc as BreakGlassService
+    participant DB as Postgres
+    participant Audit as AuditService
+    participant Outbox as Outbox
+
+    User->>Ctrl: POST /break-glass {permission, resourceType, resourceId, reason, expiresInMinutes}
+    Ctrl->>Guard: Check break_glass.request
+    Guard-->>Ctrl: Allowed
+    Ctrl->>Svc: request(input)
+    Svc->>Svc: Validate permission in catalog
+    Svc->>Svc: Check user does not already hold permission (hard rule)
+    Svc->>Svc: Enforce expiresInMinutes <= 60
+    Svc->>DB: Create BreakGlassGrant (status PENDING)
+    Svc->>Audit: audit break_glass.requested
+    Svc->>Outbox: Emit BreakGlassGrantRequested
+    Svc-->>Ctrl: Grant recorded
+    Ctrl-->>User: Request recorded
+    Note over Svc: No code path activates PENDING grants in this phase
+    Note over DB: Activation would require manual DB write (audited separately)
+    User->>Ctrl: GET /break-glass/mine
+    User->>Ctrl: GET /break-glass (requires break_glass.manage)
+    User->>Ctrl: POST /break-glass/:id/expire (requires break_glass.manage)

@@ -1,0 +1,18 @@
+sequenceDiagram
+    autonumber
+    participant F as Front Desk
+    participant PS as PatientsService
+    participant DB as Postgres (tenant)
+    participant Num as Counter/Numbering
+    participant Audit as AuditService
+
+    F->>PS: Create patient (demographics, contacts)
+    PS->>Num: nextPatientSequence(tx, orgId)
+    Num-->>PS: seq
+    PS->>PS: formatPatientNumber(seq) -> PAT-YYYY-NNNNNN
+    PS->>DB: Create Patient with patientNumber, orgId
+    PS->>DB: Create related records as needed (guardians/consents)
+    PS->>Audit: audit patient.created
+    PS-->>F: Patient created
+    Note over PS: Org-scoped by tenant extension; branch context applied if needed
+    Note over Num: INSERT ... ON CONFLICT DO UPDATE on counters

@@ -1,0 +1,20 @@
+sequenceDiagram
+    autonumber
+    participant P as Patient/Front Desk
+    participant Sch as SchedulingService
+    participant Q as QueueService
+    participant DB as Postgres
+    participant Audit as AuditService
+
+    P->>Sch: Book appointment (patientId, providerId, branchId, slot)
+    Sch->>DB: Check schedule/availability
+    Sch->>DB: Create Appointment (status SCHEDULED)
+    Sch->>Audit: audit appointment.booked
+    Sch-->>P: Appointment booked
+    Note over P: On arrival
+    P->>Q: Check-in / create Visit + QueueEntry
+    Q->>DB: Create Visit (status IN_PROGRESS/OPEN as configured)
+    Q->>DB: Create QueueEntry (status WAITING) scoped to branch/department
+    Q->>Audit: audit visit.checkin / queue.joined
+    Q-->>P: Checked in, queue position
+    Note over Q: Queue displayed on branch-scoped DisplayDevice

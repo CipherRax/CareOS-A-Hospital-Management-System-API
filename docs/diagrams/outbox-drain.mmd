@@ -1,0 +1,26 @@
+sequenceDiagram
+    autonumber
+    participant S as Scheduler (BullMQ repeatable)
+    participant P as OutboxDrainProcessor
+    participant DB as Postgres
+    participant Q as Queues/Handlers
+    participant C as ProcessedEvent
+
+    S->>P: outbox-drain tick (every OUTBOX_DRAIN_INTERVAL_MS, default 5000)
+    P->>DB: Claim batch (status PENDING, nextAttemptAt <= now) FOR UPDATE SKIP LOCKED LIMIT 100
+    loop For each claimed event
+        P->>P: Build dispatch outside transaction
+        P->>Q: Publish/dispatch by event type
+        alt Success
+            P->>DB: Mark event PUBLISHED (publishedAt)
+        else Failure
+            P->>DB: Increment attemptCount, set lastError, compute nextAttemptAt (backoff)
+            alt attempts >= max
+                P->>DB: Mark FAILED/DEAD per policy
+            end
+        end
+    end
+    Q->>C: Consumer inserts into ProcessedEvent (orgId, consumer, eventId)
+    Note over C: Unique (organizationId, consumer, eventId) prevents double processing
+    Note over P: Payloads contain IDs only, never PHI
+    Note over P: Both API and worker run same AppModule; SCHEDULER_ENABLED gates scheduling

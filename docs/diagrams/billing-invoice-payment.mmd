@@ -1,0 +1,28 @@
+sequenceDiagram
+    autonumber
+    participant Clin as Clinician/Admin
+    participant Bill as BillingService
+    participant Num as BillingNumbering
+    participant Pay as Payments
+    participant DB as Postgres
+    participant Audit as AuditService
+
+    Clin->>Bill: Generate billable items from encounter/orders
+    Bill->>DB: Collect BillableItem charges
+    Bill->>Num: Allocate invoice number (INV-YYYY-NNNNNN)
+    Bill->>DB: Create Invoice + InvoiceItems
+    Bill->>Audit: audit invoice.created
+    Bill-->>Clin: Invoice issued
+    participant Patient as Patient/Insurer
+    Patient->>Pay: Make payment
+    Pay->>Num: Allocate receipt number (RCT-YYYY-NNNNNN)
+    Pay->>DB: Create Payment linked to Invoice
+    Pay->>DB: Update Invoice status (PARTIALLY_PAID/PAID)
+    Pay->>Audit: audit payment.received
+    opt Insurance
+        Bill->>Bill: Create InsuranceClaim (CLM-YYYY-NNNNNN)
+        Bill->>DB: Create InsuranceClaim linked to Invoice
+        Bill->>Audit: audit insurance_claim.created
+    end
+    Note over Pay: Payments update balances; finance journal entries follow business rules
+    Note over DB: finance_transactions_balance_guard enforces balanced journals

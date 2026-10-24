@@ -1,0 +1,27 @@
+sequenceDiagram
+    autonumber
+    participant P as Patient (portal)
+    participant Auth as AuthService
+    participant TG as TenantGuard
+    participant PS as PatientScope
+    participant Portal as PortalService
+    participant DB as Postgres
+    participant Audit as AuditService
+
+    P->>Auth: POST /auth/login {orgId, email, password} with PATIENT role
+    Auth->>DB: Load User + Patient link (Patient.userId)
+    Auth->>PS: resolvePatientScope(link, roles)
+    alt link exists AND role is PATIENT
+        PS-->>Auth: patientId set
+    else
+        PS-->>Auth: null (no escalation)
+    end
+    Auth-->>P: Tokens if valid
+    P->>TG: Request to portal endpoint
+    TG->>TG: Set TenantScope.patientId from session/user link
+    TG-->>Portal: Authorized
+    Portal->>DB: Query with patientId filter (assertPatientOwnership)
+    Portal->>Audit: audit patient_portal.access (as appropriate)
+    Portal-->>P: Patient-scoped data only
+    Note over PS: Both halves required; unique Patient.userId prevents cross-chart link
+    Note over TG: Patient scope read from DB, not from client input

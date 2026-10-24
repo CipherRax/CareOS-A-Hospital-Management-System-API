@@ -1,0 +1,23 @@
+sequenceDiagram
+    autonumber
+    participant Clin as Prescriber
+    participant Rx as PharmacyService
+    participant Inv as InventoryService
+    participant DB as Postgres
+    participant Audit as AuditService
+
+    Clin->>Rx: Create Prescription (patientId, encounterId, items)
+    Rx->>DB: Create Prescription + PrescriptionItems
+    Rx->>Audit: audit prescription.created
+    Rx-->>Clin: Prescription issued
+    participant Pharm as Pharmacist
+    Pharm->>Inv: Check stock (batches)
+    Inv->>DB: Find StockBatch by medication/branch (FEFO order)
+    Inv->>Inv: allocateFefo(requested)
+    Pharm->>Rx: Dispense
+    Rx->>Inv: Deduct stock via InventoryLedgerEntry
+    Inv->>DB: Create InventoryLedgerEntry (append-only)
+    Rx->>DB: Update Prescription status (DISPENSED/PARTIALLY_DISPENSED)
+    Rx->>Audit: audit prescription.dispensed
+    Note over Inv: FEFO allocation in service; ledger append-only (trigger)
+    Note over Inv: Movements recorded immutably

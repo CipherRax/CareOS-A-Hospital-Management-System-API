@@ -1,0 +1,22 @@
+sequenceDiagram
+    autonumber
+    participant Op as Operation (service)
+    participant Outbox as OutboxService/Tx
+    participant DB as Postgres
+    participant Drain as OutboxDrainProcessor
+    participant CL as ChangeLog
+    participant Sync as SyncController
+
+    Op->>DB: Mutate business data (in transaction)
+    Op->>Outbox: Write OutboxEvent (type, aggregate, payload IDs only)
+    DB-->>Op: Committed
+    Drain->>DB: Claim PENDING outbox events
+    Drain->>Drain: Dispatch by type
+    Drain->>CL: Write ChangeLog entries (resourceType, resourceId, op, version, requiredPermission, outboxEventId, seq)
+    Drain->>DB: Mark OutboxEvent PUBLISHED
+    Sync->>CL: Query ChangeLog by seq cursor since last sync
+    Sync->>Sync: Filter by caller permissions
+    Sync-->>Client: Change feed entries
+    Note over CL: seq is monotonic bigint cursor (collation-proof)
+    Note over CL: requiredPermission stored for read-path filtering
+    Note over Outbox: Payload contains IDs only

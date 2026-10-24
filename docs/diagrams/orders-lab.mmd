@@ -1,0 +1,25 @@
+sequenceDiagram
+    autonumber
+    participant Clin as Clinician
+    participant Lab as LaboratoryService
+    participant Num as LabNumbering
+    participant Inv as Inventory/Phlebotomy
+    participant DB as Postgres
+    participant Audit as AuditService
+
+    Clin->>Lab: Create LabOrder (patientId, encounterId, items)
+    Lab->>Num: nextLabSequence for order
+    Num-->>Lab: seq -> LAB-ORD-YYYY-NNNNNN
+    Lab->>DB: Create LabOrder + LabOrderItems
+    Lab->>Audit: audit lab_order.created
+    Lab-->>Clin: Order created
+    Inv->>Lab: Collect sample
+    Lab->>Num: nextLabSequence for sample
+    Num-->>Lab: seq -> LAB-SMP-YYYY-NNNNNN
+    Lab->>DB: Create LabSample linked to order
+    Lab->>Audit: audit lab_sample.collected
+    Inv->>Lab: Enter results
+    Lab->>DB: Create LabResult(s) for sample/items
+    Lab->>DB: Update LabOrder/LabSample status
+    Lab->>Audit: audit lab_result.entered
+    Note over Lab: Org/branch scoped; results visible per permissions

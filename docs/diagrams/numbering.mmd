@@ -1,0 +1,15 @@
+flowchart TD
+    A[Need business number e.g. PAT/INV/LAB-ORD/ADM] --> B[Call nextXxxSequence(db, orgId)]
+    B --> C[INSERT INTO counters (id, orgId, key, value, updatedAt) VALUES (...,1,NOW())]
+    C --> D{ON CONFLICT (orgId,key)?}
+    D -- No --> E[RETURNING value = 1]
+    D -- Yes --> F[DO UPDATE SET value = counters.value+1 RETURNING value]
+    E --> G[formatXxxNumber(seq, year=UTC now)]
+    F --> G
+    G --> H[Return formatted string e.g. PAT-2026-000001]
+    Note1[Serialized by unique index; runs in tx with RLS scope]
+    Note2[Seq never resets; year from UTC]
+    Note3[No DB serials; UUIDv7 PKs never exposed]
+    C --> Note1
+    G --> Note2
+    A --> Note3

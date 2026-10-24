@@ -1,0 +1,41 @@
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant AC as AuthController
+    participant AS as AuthService
+    participant BF as BruteForceService
+    participant DB as Postgres (tenantFor org)
+    participant R as Redis
+    participant SS as SessionsService
+
+    C->>AC: POST /auth/login {orgId, email, password}
+    AC->>AS: login(input, meta)
+    AS->>BF: accountKey/org+email
+    AS->>DB: find user by email (roles, mfaCredential)
+    alt User not found
+        AS->>AS: burnPasswordTiming()
+        AS->>BF: recordFailure(accountKey)
+        AS-->>C: 401 invalid credentials
+    else Locked/Suspended/Invited
+        AS-->>C: 423 ACCOUNT_LOCKED or ACCOUNT_SUSPENDED (401 if invited)
+    else Wrong password
+        AS->>BF: recordFailure
+        AS->>DB: audit auth.login_failed
+        BF->>R: INCR counters
+        opt >= 5 attempts
+            AS->>DB: lockedUntil = now + 15min; audit auth.account_locked
+        end
+        AS-->>C: 401 invalid credentials
+    else Correct password
+        BF->>R: reset counters
+        AS->>DB: lastLoginAt, clear lock; audit auth.login
+        alt MFA enabled
+            AS->>AS: issueMfaChallenge (jti, Redis NX EX 300s)
+            AS-->>C: 200 {mfaRequired:true, challengeToken, challengeExpiresIn:300}
+        else
+            AS->>SS: issueSession(user, org, meta)
+            SS->>DB: create Session + RefreshToken (hash only)
+            SS-->>AS: {accessToken, refreshToken, expiresIn:900}
+            AS-->>C: 200 token pair
+        end
+    end

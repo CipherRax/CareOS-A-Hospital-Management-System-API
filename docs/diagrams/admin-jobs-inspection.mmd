@@ -1,0 +1,32 @@
+sequenceDiagram
+    autonumber
+    participant Admin as Admin
+    participant Ctrl as AdminJobsController
+    participant Guard as PermissionsGuard
+    participant Svc as AdminJobsService
+    participant DB as Postgres
+    participant Q as BullMQ Queues
+    participant Audit as AuditService
+
+    Admin->>Ctrl: GET /admin/jobs?status=&queue=
+    Ctrl->>Guard: Check admin_jobs.read
+    Guard-->>Ctrl: Allowed
+    Ctrl->>Svc: listJobs()
+    Svc->>Q: Inspect queues by name from queue-names.ts
+    Svc->>DB: Read OutboxEvent/related state
+    Svc-->>Ctrl: Job references (ids/metadata, no large payload dumps)
+    Ctrl-->>Admin: List
+    Note over Svc: Unreachable queue must not fail listing
+    Admin->>Ctrl: POST /admin/jobs/:id/discard
+    Ctrl->>Guard: Check admin_jobs.manage
+    Ctrl->>Svc: discard(id)
+    Svc->>DB: Update OutboxEvent status = DISCARDED
+    Svc->>Audit: audit admin.job.discarded
+    Admin->>Ctrl: POST /admin/jobs/:id/requeue
+    Ctrl->>Guard: Check admin_jobs.manage
+    Ctrl->>Svc: requeue(id)
+    Svc->>DB: Reset attemptCount=0, status->PENDING, clear error/deadAt
+    Svc->>Q: Re-enqueue
+    Svc->>Audit: audit admin.job.requeued
+    Note over DB: DISCARDED kept (not deleted) for audit/history
+    Note over Svc: Read vs manage permissions are separate

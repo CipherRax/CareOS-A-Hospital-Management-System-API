@@ -1,0 +1,11 @@
+flowchart TD
+    A[Postgres connection] --> B{Schema owner?}
+    B -- Yes (careos owner in docker-compose) --> C[RLS bypassed - FORCE not used]
+    B -- No (restricted role) --> D[RLS policies applied]
+    C --> E[App enforces via Prisma tenant extension + TenantGuard]
+    D --> E
+    E --> F[All TENANT_MODELS filtered by organizationId]
+    G[Migrations enable RLS + create org-isolation policies] --> A
+    style C fill:#fdd,stroke:#900
+    style D fill:#dfd,stroke:#090
+    style E fill:#ffd,stroke:#990

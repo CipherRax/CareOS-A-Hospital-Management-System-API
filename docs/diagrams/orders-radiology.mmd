@@ -1,0 +1,21 @@
+sequenceDiagram
+    autonumber
+    participant Clin as Clinician
+    participant Rad as RadiologyService
+    participant Num as RadiologyNumbering
+    participant Tech as Radiographer
+    participant DB as Postgres
+    participant Audit as AuditService
+
+    Clin->>Rad: Create RadiologyOrder (patientId, modality, clinicalIndication)
+    Rad->>Num: Allocate order/accession numbers
+    Rad->>DB: Create RadiologyOrder
+    Rad->>Audit: audit radiology_order.created
+    Tech->>Rad: Schedule/perform study
+    Rad->>DB: Create RadiologyStudy linked to order
+    Rad->>Audit: audit radiology_study.created
+    Tech->>Rad: Report study
+    Rad->>DB: Create RadiologyReport
+    Rad->>DB: Update order/study status
+    Rad->>Audit: audit radiology_report.created
+    Note over Rad: Imaging workflow with orders -> studies -> reports
