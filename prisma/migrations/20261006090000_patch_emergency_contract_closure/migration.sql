@@ -284,7 +284,7 @@ UPDATE "emergency_requests"
 SET "dispositionAt" = COALESCE("closedAt", "cancelledAt", "updatedAt")
 WHERE "dispositionAt" IS NULL
   AND "retainedAt" IS NULL
-  AND "status" IN ('CLOSED', 'CANCELLED', 'UNREACHABLE', 'REDIRECTED', 'NOT_ACTIONABLE', 'DUPLICATE');
+  AND "status"::text IN ('CLOSED', 'CANCELLED', 'UNREACHABLE', 'REDIRECTED', 'NOT_ACTIONABLE', 'DUPLICATE');
 
 CREATE INDEX IF NOT EXISTS "emergency_requests_disposition_retention_idx"
   ON "emergency_requests"("dispositionAt")
